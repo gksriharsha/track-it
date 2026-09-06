@@ -106,11 +106,11 @@ flag substitutes for them. Two further things are true today:
   the `cfg` gate and moving `objc2-vision` out of the macOS-only dependency table, but it is real
   work that has not been done.
 
-Nothing on the iOS path has been run yet, on CI or locally. The development machine has Apple's
-Command Line Tools but not Xcode, so it has no iPhoneOS SDK and `cargo build --target
-aarch64-apple-ios` cannot even get through `objc2-exception-helper`'s build script there. A
-GitHub `macos-latest` runner does ship the SDK, so CI is the first place this will be exercised.
-Building iOS locally means installing full Xcode first.
+The `aarch64-apple-ios` build is green on CI, so the Rust side genuinely compiles for a device.
+It cannot be reproduced on the development machine, which has Apple's Command Line Tools but not
+Xcode and therefore no iPhoneOS SDK — `cargo build --target aarch64-apple-ios` there does not get
+past `objc2-exception-helper`'s build script. Building iOS locally means installing full Xcode
+first; until then CI is the only place it is exercised.
 
 Because of that, the `release` job treats `android` and `macos` as hard requirements and iOS as
 non-blocking: a failing `ios` job still fails the run and still shows on the commit, but it does
