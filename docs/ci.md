@@ -14,6 +14,44 @@ Tag: `v<version>-build.<run number>`, with `<version>` read from `src-tauri/taur
 The run number keeps merges distinct without anyone bumping a file by hand, so `0.1.0` can stay
 where it is until there is a reason to change it.
 
+## `main` is protected
+
+Direct pushes to `main` are rejected by a repository ruleset. Every change arrives through a pull
+request, and the merge is what triggers a release.
+
+| Rule | Effect |
+|---|---|
+| `pull_request` | No direct pushes. Zero approvals required, so a solo author can self-merge. |
+| `required_status_checks` | `Tests`, `Android APK` and `macOS app` must pass, and the branch must be up to date with `main`. |
+| `non_fast_forward` | No force-pushes. |
+| `deletion` | `main` cannot be deleted. |
+
+Zero required approvals is deliberate rather than lax: GitHub will not let anyone approve their
+own pull request, so on a single-author repository requiring one would make every pull request
+permanently unmergeable. The gate here is the pipeline, not a second pair of eyes.
+
+`iOS app` is deliberately **not** a required check, matching the way the `release` job treats it —
+see the iOS section below for why.
+
+Requiring the branch to be up to date means a merge invalidates every other open pull request and
+forces it to rebase and re-run. That is the intended trade: nothing reaches `main` having only
+been tested against an older tree. It costs a full pipeline run per merge when several branches
+are open at once.
+
+```bash
+git checkout -b some-change
+```
+
+```bash
+git push -u origin some-change && gh pr create --fill
+```
+
+The pipeline takes several minutes, so let the merge wait on it rather than watching:
+
+```bash
+gh pr merge --auto --squash --delete-branch
+```
+
 ## Job graph
 
 ```
