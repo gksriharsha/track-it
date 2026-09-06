@@ -1,0 +1,195 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num { font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .tnum { font-variant-numeric: tabular-nums; }
+    kbd { font: inherit; font-size: 11px; padding: 2px 5px; border-radius: 4px; background: #f4f2ee; color: #57524a; border: 1px solid #e8e4dd; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; background: #fbfaf8; color: #1c1a17; font-size: 14px; line-height: 1.5; position: relative; overflow: hidden;">
+
+  <!-- The workspace behind, dimmed. Context stays visible so the palette
+       reads as a layer over your day, not a separate place. -->
+  <div style="position: absolute; inset: 0; display: grid; grid-template-columns: 216px minmax(0, 1fr); filter: saturate(0.7);">
+    <div style="background: #ffffff; border-right: 1px solid #e8e4dd; padding: 18px 12px;">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px 18px; font-weight: 650; font-size: 15px; letter-spacing: -0.02em;">
+        <span style="width: 9px; height: 9px; border-radius: 3px; background: #4a7c59; display: block;"></span>
+        TrackIt
+      </div>
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="5">
+        <div style="display: grid; grid-template-columns: 1fr auto; align-items: center; min-height: 34px; padding: 0 10px; border-radius: 8px; background: {{n.bg}}; color: {{n.fg}}; font-weight: {{n.weight}};">
+          <span>{{n.label}}</span><kbd>{{n.key}}</kbd>
+        </div>
+      </sc-for>
+    </div>
+    <div style="padding: 20px 24px;">
+      <h1 style="margin: 0; font-size: 20px;">Thursday, 4 September</h1>
+      <div class="tnum" style="color: #57524a; margin-top: 4px;">1,598 kcal · 6 items</div>
+      <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 1px;">
+        <sc-for list="{{ghost}}" as="g" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 1fr 78px 78px; gap: 14px; min-height: 40px; align-items: center; border-bottom: 1px solid #e8e4dd; color: #8a8378;">
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{g.name}}</span>
+            <span class="tnum" style="text-align: right;">{{g.grams}}</span>
+            <span class="tnum" style="text-align: right;">{{g.kcal}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: rgba(28, 26, 23, 0.34);"></div>
+
+  <!-- ⌘K — the desktop fast path. Mobile's equivalent is a tile you tap;
+       here you type the whole entry, including the amount, and never reach
+       for the mouse. -->
+  <div style="position: absolute; left: 50%; top: 96px; transform: translateX(-50%); width: 660px; background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.06), 0 32px 64px -16px rgba(28,26,23,0.34); overflow: hidden;">
+
+    <div style="display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid #e8e4dd;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8a8378" stroke-width="1.8" style="flex: none;">
+        <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.5-4.5"></path>
+      </svg>
+      <span style="flex: 1; font-size: 17px;">{{typed}}<span style="color: #4a7c59;">|</span></span>
+      <kbd>esc</kbd>
+    </div>
+
+    <!-- What it understood, shown before you commit. A parser that guesses
+         silently is worse than no parser. -->
+    <sc-if value="{{parsed}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; align-items: center; gap: 16px; padding: 14px 20px; background: #edf3ee;">
+        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #3c6449; font-weight: 600;">Understood</span>
+        <span style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+            <span style="padding: 3px 10px; border-radius: 999px; background: #ffffff; font-size: 12px;">
+              <span style="color: #8a8378;">{{c.k}} </span><span style="font-weight: 600;">{{c.v}}</span>
+            </span>
+          </sc-for>
+        </span>
+        <kbd style="margin-left: auto;">↵ log it</kbd>
+      </div>
+    </sc-if>
+
+    <div style="max-height: 420px; overflow-y: auto; padding: 8px;">
+      <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #8a8378; font-weight: 600; padding: 8px 12px 6px;">{{sectionLabel}}</div>
+      <sc-for list="{{results}}" as="r" hint-placeholder-count="6">
+        <button onClick="{{r.pick}}" style="display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; width: 100%; min-height: 44px; padding: 0 12px; border: none; border-radius: 8px; background: {{r.bg}}; color: inherit; font: inherit; text-align: left;">
+          <span style="min-width: 0;">
+            <span style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{r.name}}</span>
+            <span style="display: block; color: {{r.subColor}}; font-size: 11px;">{{r.sub}}</span>
+          </span>
+          <span class="tnum" style="color: #57524a; font-size: 13px;">{{r.amount}}</span>
+          <kbd style="visibility: {{r.kbdVis}};">↵</kbd>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 16px; padding: 11px 20px; border-top: 1px solid #e8e4dd; color: #8a8378; font-size: 12px;">
+      <span><kbd>↑</kbd><kbd style="margin-left: 3px;">↓</kbd> move</span>
+      <span><kbd>↵</kbd> log</span>
+      <span><kbd>⇥</kbd> change amount</span>
+      <span style="margin-left: auto;">Type a weight to override the usual portion</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 1440, "height": 900},
+  "query": {"editor": "enum", "default": "150g urad dal", "options": ["150g urad dal", "rajma", "empty"], "section": "Demo"}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 0 };
+  }
+
+  renderVals() {
+    const ink2 = '#57524a', ink3 = '#8a8378', over = '#b4553a';
+    const q = this.props.query ?? '150g urad dal';
+
+    // Illustrative values, not measured data.
+    const SETS = {
+      '150g urad dal': {
+        typed: '150g urad dal',
+        parsed: true,
+        chips: [{ k: 'amount', v: '150 g' }, { k: 'food', v: 'Urad dal' }, { k: 'meal', v: 'lunch' }],
+        sectionLabel: 'Best match',
+        results: [
+          ['Mungo beans (urad dal), cooked', 'USDA files urad dal under its botanical name', '150 g', 1],
+          ['Mungo beans (urad dal), raw', 'SR Legacy · 174259', '150 g', 0],
+          ['Urad dal — your recipe', '4 servings · 158 g each', '158 g', 0],
+        ],
+      },
+      rajma: {
+        typed: 'rajma',
+        parsed: false,
+        chips: [],
+        sectionLabel: 'Foods and recipes',
+        results: [
+          ['Rajma chawal', 'your recipe · 1 serving 303 g', '303 g', 1],
+          ['Beans, kidney (rajma), cooked', 'SR Legacy · 173740', '215 g', 0],
+          ['Beans, kidney (rajma), raw', 'SR Legacy · 175193', '100 g', 0],
+        ],
+      },
+      empty: {
+        typed: '',
+        parsed: false,
+        chips: [],
+        sectionLabel: 'Recent',
+        results: [
+          ['Dahi', 'yesterday · 1 katori 150 g', '150 g', 1],
+          ['Roti', 'yesterday · 3 pieces 135 g', '135 g', 0],
+          ['Rajma chawal', '2 days ago · 1 serving', '303 g', 0],
+          ['Palak paneer', '3 days ago · 1 katori', '180 g', 0],
+        ],
+      },
+    };
+    const set = SETS[q] || SETS['150g urad dal'];
+
+    return {
+      typed: set.typed,
+      parsed: set.parsed,
+      chips: set.chips,
+      sectionLabel: set.sectionLabel,
+      results: set.results.map(([name, sub, amount, first], i) => {
+        const on = i === this.state.sel;
+        return {
+          name, sub, amount,
+          pick: () => this.setState({ sel: i }),
+          bg: on ? '#f4f2ee' : 'transparent',
+          subColor: sub.indexOf('botanical') >= 0 ? '#3c6449' : ink3,
+          kbdVis: on ? 'visible' : 'hidden',
+        };
+      }),
+
+      nav: [['today','Today','1'],['week','Week','2'],['trends','Trends','3'],['recipes','Recipes','4'],['foods','Foods','5']]
+        .map(([id, label, key]) => {
+          const on = id === 'today';
+          return { label, key, bg: on ? '#1c1a17' : 'transparent', fg: on ? '#fbfaf8' : ink2, weight: on ? '600' : '500' };
+        }),
+
+      ghost: [
+        { name: 'Yogurt, plain, whole milk (dahi)', grams: '150 g', kcal: '92' },
+        { name: 'Mungo beans (urad dal), cooked', grams: '158 g', kcal: '168' },
+        { name: 'Rajma chawal', grams: '303 g', kcal: '498' },
+        { name: 'Palak paneer', grams: '180 g', kcal: '286' },
+        { name: 'Roti', grams: '135 g', kcal: '312' },
+        { name: 'Okra (bhindi), raw', grams: '140 g', kcal: '46' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

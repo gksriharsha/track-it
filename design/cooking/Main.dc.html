@@ -1,0 +1,360 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    /* The app's one distinctive typographic choice: metrics are set in a serif. */
+    .num {
+      font-family: Newsreader, Georgia, "Times New Roman", serif;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+    }
+    .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #8a8378; font-weight: 600; }
+    .dial { touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+    .dial:active { cursor: grabbing; }
+    .ing { -webkit-tap-highlight-color: transparent; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; display: flex; flex-direction: column; overflow: hidden;">
+
+  <!-- Header. Cook mode is a FOCUSED task, so the app's five-tab nav is gone:
+       the only ways out are finishing or backing out. -->
+  <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: #fbfaf8; border-bottom: 1px solid #e8e4dd; flex: none;">
+    <button aria-label="Back to the recipe" style="flex: none; width: 44px; height: 44px; margin-left: -12px; border: none; background: transparent; border-radius: 8px; display: grid; place-items: center; cursor: pointer;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="1.8" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+    </button>
+    <div style="min-width: 0; flex: 1;">
+      <div style="font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Rajma masala</div>
+      <div style="color: #8a8378; font-size: 12px;">Cooking · adjust as you go</div>
+    </div>
+    <div style="flex: none; padding: 5px 10px; border-radius: 999px; background: #edf3ee; color: #3c6449; font-size: 11px; font-weight: 600; letter-spacing: 0.03em;">COOKING</div>
+  </div>
+
+  <!-- The ingredient stack. ONE wheel serves the whole list — a wheel per row
+       would be unusable on a phone, and only one ingredient is ever in your
+       hand at a time. Tap binds the wheel. -->
+  <div style="flex: none; padding: 12px 16px 0;">
+    <div style="display: flex; align-items: baseline; gap: 8px;">
+      <span class="k">Ingredients</span>
+      <span style="margin-left: auto; color: #8a8378; font-size: 12px;">{{changedNote}}</span>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 8px;">
+    <sc-for list="{{items}}" as="it" hint-placeholder-count="6">
+      <button class="ing" onClick="{{it.pick}}" style="{{it.rowStyle}}">
+        <span style="flex: 1; min-width: 0; text-align: left;">
+          <span style="display: block; font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{it.name}}</span>
+          <span style="display: block; color: #8a8378; font-size: 11.5px; margin-top: 1px;">recipe says {{it.calledTxt}} g</span>
+        </span>
+        <span style="flex: none; width: 88px; text-align: right; white-space: nowrap;">
+          <span class="num" style="display: block; font-size: 17px; font-weight: 500;">{{it.actualTxt}}<span style="font-size: 12px; color: #8a8378; font-family: ui-sans-serif, system-ui, sans-serif; letter-spacing: 0;"> g</span></span>
+          <span style="display: block; font-size: 11.5px; margin-top: 1px; color: {{it.deltaInk}};">{{it.deltaTxt}}</span>
+        </span>
+      </button>
+    </sc-for>
+  </div>
+
+  <!-- THE WHEEL. A jog dial, not an absolute gauge: see the note artboard for
+       why. Flanked by ± so a single detent never needs a gesture. -->
+  <div style="flex: none; background: #ffffff; border-top: 1px solid #e8e4dd; padding: 14px 16px 0;">
+    <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;">
+      <span style="font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">{{picked.name}}</span>
+      <span style="margin-left: auto; flex: none; color: #8a8378; font-size: 11px;">{{picked.stepTxt}} per notch</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <button onClick="{{nudgeDown}}" aria-label="{{picked.lessLabel}}" title="{{picked.lessLabel}}" style="flex: none; width: 46px; height: 46px; border-radius: 999px; border: 1px solid #e8e4dd; background: #ffffff; display: grid; place-items: center;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="2"><path d="M5 12h14" stroke-linecap="round"></path></svg>
+      </button>
+
+      <div class="dial" ref="{{dialRef}}" onPointerDown="{{onDown}}" onPointerMove="{{onMove}}" onPointerUp="{{onUp}}" onPointerCancel="{{onUp}}"
+           onKeyDown="{{onKey}}" tabIndex="0" role="slider" aria-label="{{picked.name}} in grams"
+           aria-valuenow="{{picked.actual}}" aria-valuemin="0" aria-valuetext="{{picked.valueText}}"
+           style="position: relative; flex: 1; aspect-ratio: 1 / 1; max-width: 208px; margin: 0 auto; display: grid; place-items: center;">
+        <svg viewBox="0 0 200 200" style="position: absolute; inset: 0; width: 100%; height: 100%;">
+          <path d="{{trackD}}" fill="none" stroke="#f0ede7" stroke-width="8" stroke-linecap="round"></path>
+          <path d="{{arcD}}" fill="none" stroke="#4a7c59" stroke-width="8" stroke-linecap="butt"></path>
+          <!-- The notches are cut THROUGH the track rather than floating outside
+               it: the track is the scale, so the arc always reads as filled to a
+               notch instead of stopping at an arbitrary angle. -->
+          <sc-for list="{{ticks}}" as="t" hint-placeholder-count="10">
+            <line x1="{{t.x1}}" y1="{{t.y1}}" x2="{{t.x2}}" y2="{{t.y2}}" stroke="#ffffff" stroke-width="1.6"></line>
+          </sc-for>
+          <!-- The one mark the eye must find: what the recipe actually says. -->
+          <line x1="{{zero.x1}}" y1="{{zero.y1}}" x2="{{zero.x2}}" y2="{{zero.y2}}" stroke="#1c1a17" stroke-width="3" stroke-linecap="round"></line>
+          <!-- The handle rides the arc's end, so the grab point is unambiguous. -->
+          <circle cx="{{handle.x}}" cy="{{handle.y}}" r="{{handle.r}}" fill="#ffffff" stroke="#4a7c59" stroke-width="3"></circle>
+        </svg>
+
+        <div style="position: relative; text-align: center; pointer-events: none;">
+          <div class="num" style="font-size: 42px; line-height: 1; font-weight: 500;">{{picked.actualTxt}}</div>
+          <div style="color: #8a8378; font-size: 11.5px; margin-top: 1px;">grams</div>
+          <div style="margin-top: 6px; display: inline-block; padding: 4px 10px; border-radius: 999px; background: {{picked.chipBg}}; color: {{picked.chipInk}}; font-size: 12px; font-weight: 600;">{{picked.deltaTxt}}</div>
+        </div>
+      </div>
+
+      <button onClick="{{nudgeUp}}" aria-label="{{picked.moreLabel}}" title="{{picked.moreLabel}}" style="flex: none; width: 46px; height: 46px; border-radius: 999px; border: 1px solid #e8e4dd; background: #ffffff; display: grid; place-items: center;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"></path></svg>
+      </button>
+    </div>
+
+    <div style="display: flex; gap: 8px; margin: 12px 0 0;">
+      <button onClick="{{reset}}" style="flex: 1; min-height: 44px; border-radius: 12px; border: 1px solid #e8e4dd; background: transparent; color: #57524a; font-size: 13.5px; font-weight: 500;">As written</button>
+      <button onClick="{{next}}" style="flex: 1; min-height: 44px; border-radius: 12px; border: 1px solid #e8e4dd; background: transparent; color: #57524a; font-size: 13.5px; font-weight: 500;">Next ingredient</button>
+    </div>
+  </div>
+
+  <!-- Bottom bar. The pot total is the one number that makes the whole screen
+       feel like it is tracking reality. -->
+  <div style="flex: none; background: #ffffff; border-top: 1px solid #e8e4dd; padding: 12px 16px 22px; display: flex; align-items: center; gap: 14px;">
+    <div style="min-width: 0;">
+      <div class="k" style="font-size: 10px;">In the pot</div>
+      <div class="num" style="font-size: 20px; font-weight: 500;">{{potTxt}}<span style="font-size: 12px; color: #8a8378; font-family: ui-sans-serif, system-ui, sans-serif; letter-spacing: 0;"> g raw</span></div>
+    </div>
+    <button style="margin-left: auto; flex: none; min-height: 48px; padding: 0 22px; border-radius: 12px; border: none; background: #4a7c59; color: #ffffff; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+      Done cooking
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    // A real rajma recipe, deliberately spanning 250 g of beans down to 1 g of
+    // hing — that two-hundred-fold range is the whole reason the dial is
+    // relative rather than absolute.
+    this.recipe = [
+      { id: 'rajma',  name: 'Rajma (kidney beans), dry', called: 250 },
+      { id: 'onion',  name: 'Onion, red',                called: 180 },
+      { id: 'tomato', name: 'Tomato',                    called: 220 },
+      { id: 'ghee',   name: 'Ghee',                      called: 30  },
+      { id: 'ginger', name: 'Ginger, fresh',             called: 15  },
+      { id: 'hing',   name: 'Asafoetida (hing)',         called: 1   },
+    ];
+    var actual = {};
+    for (var i = 0; i < this.recipe.length; i++) {
+      actual[this.recipe[i].id] = this.recipe[i].called;
+    }
+    // Seeded drift, so the screen shows the thing it exists for rather than a
+    // pristine recipe nobody ever cooks.
+    actual.onion = 205;
+    actual.ghee = 38;
+    actual.tomato = 195;
+
+    this.state = { picked: 'onion', actual: actual };
+
+    this.lastA = null;
+    this.acc = 0;
+    this.dial = null;
+
+    this.onDown = this.onDown.bind(this);
+    this.onMove = this.onMove.bind(this);
+    this.onUp = this.onUp.bind(this);
+    this.onKey = this.onKey.bind(this);
+    this.dialRef = this.dialRef.bind(this);
+  }
+
+  dialRef(el) { this.dial = el; }
+
+  /**
+   * One notch is about 2% of what the recipe calls for, snapped to a weight a
+   * kitchen scale can actually show. That makes the dial feel IDENTICAL on
+   * 250 g of beans (5 g notches) and on 1 g of hing (0.5 g notches) — an
+   * absolute 0–500 g scale would be unusable for one of them.
+   */
+  step(called) {
+    var nice = [0.5, 1, 2, 5, 10, 25, 50];
+    var want = called * 0.02;
+    for (var i = 0; i < nice.length; i++) if (want <= nice[i]) return nice[i];
+    return 50;
+  }
+
+  bump(n) {
+    var it = this.current();
+    var st = this.step(it.called);
+    var next = Math.max(0, Math.round((this.state.actual[it.id] + n * st) * 10) / 10);
+    var actual = Object.assign({}, this.state.actual);
+    actual[it.id] = next;
+    this.setState({ actual: actual });
+  }
+
+  current() {
+    for (var i = 0; i < this.recipe.length; i++) {
+      if (this.recipe[i].id === this.state.picked) return this.recipe[i];
+    }
+    return this.recipe[0];
+  }
+
+  angleAt(e) {
+    if (!this.dial) return 0;
+    var r = this.dial.getBoundingClientRect();
+    return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI;
+  }
+
+  onDown(e) {
+    // Pointer capture rather than window listeners: the gesture keeps working
+    // when a thumb slides off the dial mid-turn, which on a phone it always does.
+    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
+    this.lastA = this.angleAt(e);
+    this.acc = 0;
+  }
+
+  onMove(e) {
+    if (this.lastA === null) return;
+    var a = this.angleAt(e);
+    var d = a - this.lastA;
+    if (d > 180) d -= 360; else if (d < -180) d += 360; // crossing 12 o'clock
+    this.lastA = a;
+    this.acc += d;
+    var DEG = 15; // 24 notches per turn
+    var n = Math.trunc(this.acc / DEG);
+    if (n !== 0) { this.acc -= n * DEG; this.bump(n); }
+  }
+
+  onUp() { this.lastA = null; this.acc = 0; }
+
+  onKey(e) {
+    var mul = e.shiftKey ? 5 : 1;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); this.bump(mul); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); this.bump(-mul); }
+    else if (e.key === 'Home' || e.key === '0') {
+      e.preventDefault();
+      var it = this.current();
+      var actual = Object.assign({}, this.state.actual);
+      actual[it.id] = it.called;
+      this.setState({ actual: actual });
+    }
+  }
+
+  fmt(n) {
+    return (Math.abs(n - Math.round(n)) < 0.05) ? String(Math.round(n)) : n.toFixed(1);
+  }
+
+  polar(r, deg) {
+    var a = (deg - 90) * Math.PI / 180;
+    return { x: +(100 + r * Math.cos(a)).toFixed(2), y: +(100 + r * Math.sin(a)).toFixed(2) };
+  }
+
+  renderVals() {
+    var self = this;
+    var SPAN = 170; // degrees of sweep available either side of the recipe mark
+
+    // The ring's span is DERIVED from the notch, not fixed at ±50%. A notch is
+    // 2% of the line but never finer than 0.5 g, which on 1 g of hing is 50% —
+    // against a fixed ±50% ring a single notch pegged the gauge and the dial
+    // had no resolution. Ten notches to fill each side keeps the feel constant
+    // whether the line is 250 g or 1 g.
+    var cur0 = this.current();
+    var notchPct = this.step(cur0.called) / cur0.called * 100;
+    var RANGE = Math.max(50, notchPct * 10);
+
+    var changed = 0;
+    var pot = 0;
+    var items = this.recipe.map(function (r) {
+      var a = self.state.actual[r.id];
+      var d = a - r.called;
+      pot += a;
+      if (d !== 0) changed++;
+      var on = r.id === self.state.picked;
+      return {
+        id: r.id,
+        name: r.name,
+        calledTxt: self.fmt(r.called),
+        actual: a,
+        valueText: self.fmt(a) + ' grams, ' + (d === 0 ? 'as written' : (d > 0 ? 'up ' : 'down ') + self.fmt(Math.abs(d)) + ' grams'),
+        lessLabel: 'Less ' + r.name + ' — ' + self.fmt(self.step(r.called)) + ' g',
+        moreLabel: 'More ' + r.name + ' — ' + self.fmt(self.step(r.called)) + ' g',
+        actualTxt: self.fmt(a),
+        // Deviation is NOT an error, so it is never red. The app reserves
+        // #b4553a for a limit actually exceeded; four red rows teach you to
+        // ignore red.
+        deltaTxt: d === 0 ? 'as written' : (d > 0 ? '+' : '−') + self.fmt(Math.abs(d)) + ' g',
+        deltaInk: d === 0 ? '#8a8378' : '#57524a',
+        stepTxt: self.fmt(self.step(r.called)) + ' g',
+        chipBg: d === 0 ? '#f4f2ee' : '#edf3ee',
+        chipInk: d === 0 ? '#8a8378' : '#3c6449',
+        rowStyle: 'width: 100%; min-height: 52px; display: flex; align-items: center; gap: 12px; '
+          + 'padding: 7px 10px; margin-bottom: 4px; border: none; border-radius: 8px; text-align: left; cursor: pointer; '
+          + 'background: ' + (on ? '#ffffff' : 'transparent') + '; '
+          // The bound ingredient is marked the way the app marks today's date:
+          // an inset accent ring, not an inverted fill.
+          + 'box-shadow: ' + (on ? 'inset 0 0 0 1.5px #4a7c59' : 'none') + ';',
+        pick: function () { self.setState({ picked: r.id }); },
+      };
+    });
+
+    var picked = items.filter(function (i) { return i.id === self.state.picked; })[0];
+    var cur = cur0;
+    var pct = (this.state.actual[cur.id] - cur.called) / cur.called * 100;
+    var arcDeg = Math.max(-SPAN, Math.min(SPAN, pct / RANGE * SPAN));
+
+    var ticks = [];
+    for (var k = -5; k <= 5; k++) {
+      if (k === 0) continue; // zero gets its own, heavier mark outside the ring
+      var deg = k / 5 * SPAN;
+      var ta = this.polar(79.5, deg), tb = this.polar(68.5, deg);
+      ticks.push({ x1: ta.x, y1: ta.y, x2: tb.x, y2: tb.y });
+    }
+    var z0 = this.polar(90, 0), z1 = this.polar(81, 0);
+
+    var t0 = this.polar(74, -SPAN), t1 = this.polar(74, SPAN);
+    var a0 = this.polar(74, 0), a1 = this.polar(74, arcDeg);
+    var h = this.polar(74, arcDeg);
+
+    return {
+      items: items,
+      picked: picked,
+      ticks: ticks,
+      zero: { x1: z0.x, y1: z0.y, x2: z1.x, y2: z1.y },
+      potTxt: this.fmt(pot),
+      changedNote: changed === 0
+        ? 'none changed yet'
+        : changed + (changed === 1 ? ' line changed' : ' lines changed'),
+      trackD: 'M ' + t0.x + ' ' + t0.y + ' A 74 74 0 1 1 ' + t1.x + ' ' + t1.y,
+      arcD: arcDeg >= 0
+        ? 'M ' + a0.x + ' ' + a0.y + ' A 74 74 0 0 1 ' + a1.x + ' ' + a1.y
+        : 'M ' + a1.x + ' ' + a1.y + ' A 74 74 0 0 1 ' + a0.x + ' ' + a0.y,
+      handle: { x: h.x, y: h.y, r: 6.5 },
+      dialRef: this.dialRef,
+      onDown: this.onDown,
+      onMove: this.onMove,
+      onUp: this.onUp,
+      onKey: this.onKey,
+      nudgeUp: function () { self.bump(1); },
+      nudgeDown: function () { self.bump(-1); },
+      reset: function () {
+        var actual = Object.assign({}, self.state.actual);
+        actual[cur.id] = cur.called;
+        self.setState({ actual: actual });
+      },
+      next: function () {
+        var i = self.recipe.map(function (r) { return r.id; }).indexOf(self.state.picked);
+        self.setState({ picked: self.recipe[(i + 1) % self.recipe.length].id });
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

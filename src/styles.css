@@ -1,0 +1,1919 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap');
+
+/* ─────────────────────────────────────────────────────────────
+   Tokens. Nothing below this block hard-codes a colour, radius
+   or spacing value.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  /* Warm neutral ground. Saturation stays under 0.02 so the one
+     accent and the one alarm colour are the only things that pop. */
+  --bg: #fbfaf8;
+  --surface: #ffffff;
+  --sunken: #f4f2ee;
+  --line: #e8e4dd;
+  --ink: #1c1a17;
+  --ink-2: #57524a;
+  --ink-3: #8a8378;
+
+  /* Two functional colours, and only two.
+     accent = on track / primary action.   over = a limit exceeded.
+     Under-target is deliberately NEUTRAL: at 3pm it is information,
+     not an error, and four red rows teach you to ignore red. */
+  --accent: #4a7c59;
+  --accent-ink: #3c6449;
+  --accent-wash: #edf3ee;
+  --over: #b4553a;
+  --over-wash: #f8ede9;
+
+  --focus: #4a7c59;
+
+  /* 4px base scale */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+
+  /* One elevation treatment: a tight ambient shadow plus a soft
+     directional one. Cards use this OR a border, never both. */
+  --lift: 0 1px 2px rgba(28, 26, 23, 0.05), 0 6px 20px -8px rgba(28, 26, 23, 0.10);
+  --lift-hi: 0 1px 2px rgba(28, 26, 23, 0.06), 0 12px 32px -10px rgba(28, 26, 23, 0.16);
+
+  --measure: 62ch;
+  --shell: 940px;
+
+  /* The height the sticky topbar occupies, border included. Anything else that
+     sticks has to start below it — the topbar is opaque and sits on z-index 20,
+     so a lower sticky element scrolls underneath it and loses its first rows.
+     `.topbar__inner` is held to this figure so the two cannot drift apart. */
+  --topbar-h: 64px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15140f;
+    --surface: #1e1c18;
+    --sunken: #262420;
+    --line: #322f29;
+    --ink: #f2efe9;
+    --ink-2: #b5aea2;
+    --ink-3: #7e7669;
+    /* Desaturated for dark: the same hues at full chroma glare. */
+    --accent: #85b393;
+    --accent-ink: #9cc5a8;
+    --accent-wash: #222e26;
+    --over: #d98a6f;
+    --over-wash: #302019;
+    --focus: #85b393;
+    --lift: none;
+    --lift-hi: none;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; padding: 0; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
+
+/* One distinctive choice: numerals are set in a serif. Metrics are what
+   you scan, and the serif gives them presence the UI type doesn't have. */
+.num {
+  font-family: Newsreader, Georgia, "Times New Roman", serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.tnum { font-variant-numeric: tabular-nums; }
+
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-sm); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Shell + navigation
+   ───────────────────────────────────────────────────────────── */
+.app { min-height: 100%; display: flex; flex-direction: column; }
+
+/* No backdrop-filter here. It creates a containing block for position:fixed
+   descendants, which pinned the mobile bottom nav to the bottom of THIS
+   element instead of the viewport. The blur was decoration; the bug was not. */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.topbar__inner {
+  max-width: var(--shell); margin: 0 auto;
+  padding: var(--s3) var(--s5);
+  /* Minus the 1px border below, so the bar occupies exactly --topbar-h and the
+     sticky elements that offset themselves by it clear it. */
+  min-height: calc(var(--topbar-h) - 1px);
+  display: flex; align-items: center; gap: var(--s5);
+}
+.brand { display: flex; align-items: center; gap: var(--s2); }
+.logo { color: var(--accent); }
+/* The wordmark reuses Newsreader — the app's one distinctive typographic
+   choice — rather than introducing a second sans. */
+.brand__word {
+  font-family: Newsreader, Georgia, "Times New Roman", serif;
+  font-size: 19px; font-weight: 500; letter-spacing: -0.025em;
+}
+
+.nav { display: flex; align-items: center; gap: var(--s1); margin-left: auto; }
+.nav__link {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s3); border-radius: var(--r-pill);
+  color: var(--ink-2); font-size: 14px; font-weight: 500;
+  transition: color 140ms ease-out;
+}
+/* Guarded, because a tap on Android leaves :hover stuck on the element until
+   something else is tapped — so an unguarded hover wash reads as a second
+   selected item sitting next to the real one. The device reports
+   `hover: none` honestly; it is the sticky :hover that lies. */
+@media (hover: hover) {
+  .nav__link:hover { color: var(--ink); }
+}
+.nav__icon { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-pill); transition: background-color 140ms ease-out; }
+/* Tone, not inversion: the selected destination gets a wash behind its icon
+   and the accent on its label, the same restraint the sidebar already spends
+   on its own selected link — a solid ink pill is the heaviest thing a warm,
+   near-white screen can show, and a bottom bar is not where that belongs. */
+.nav__link[aria-current="page"] { color: var(--accent-ink); font-weight: 600; }
+.nav__link[aria-current="page"] .nav__icon { background: var(--accent-wash); }
+
+.main { flex: 1; width: 100%; max-width: var(--shell); margin: 0 auto; padding: var(--s6) var(--s5) var(--s8); }
+.screen { display: flex; flex-direction: column; gap: var(--s6); }
+/* Only `.daybar` uses this now — Today's mobile date stepper, which is a
+   ‹ date › control rather than a title block. Every other screen's header is
+   `.head`; see ScreenHead.tsx. */
+.screen__head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+.screen__head h1 { font-size: 22px; }
+.daybar { align-items: center; gap: var(--s1); }
+.daybar h1 { min-width: 132px; text-align: center; }
+.screen__sub { color: var(--ink-3); font-size: 14px; }
+
+/* Hidden by default; the media query right below turns it on. Declared here,
+   BEFORE that query rather than after: an unconditional rule of equal
+   specificity always beats an earlier conditional one in the cascade, so this
+   rule has to come first or it would always win and the button would never
+   show — which is exactly the bug this comment exists to stop someone
+   reintroducing. */
+.fab { display: none; }
+
+/* ─────────────────────────────────────────────────────────────
+   The menu button and the drawer — mobile only
+   ───────────────────────────────────────────────────────────── */
+
+/* Hidden on desktop, where the sidebar is this drawer, permanently open. */
+.menubtn { display: none; }
+
+/* Both stay in the DOM so the panel can transition. Above the bottom bar
+   (z 30) and the floating button (z 31): the scrim dims the whole screen,
+   including the two controls it is covering. */
+.scrim {
+  position: fixed; inset: 0; z-index: 40;
+  background: var(--ink);
+  opacity: 0; pointer-events: none;
+  transition: opacity 200ms ease-out;
+}
+.scrim--on { opacity: 0.32; pointer-events: auto; }
+
+.drawer {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 41;
+  /* 300px of a 390pt phone leaves a live sliver of the page behind it, which
+     is what says the drawer is OVER this screen rather than being a screen of
+     its own. Capped against the viewport for a 320px device. */
+  width: min(300px, 86vw);
+  display: flex; flex-direction: column;
+  background: var(--surface); border-right: 1px solid var(--line);
+  box-shadow: 4px 0 24px -6px rgba(28, 26, 23, 0.18);
+  padding-top: env(safe-area-inset-top, 0px);
+  transform: translateX(-101%);
+  /* Material's emphasized-decelerate curve; the scrim above is slightly
+     faster, so the page is already dimming as the panel lands. */
+  transition: transform 240ms cubic-bezier(0.05, 0.7, 0.1, 1);
+  visibility: hidden;
+}
+.drawer--on { transform: translateX(0); visibility: visible; }
+.drawer__brand {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s5) var(--s5) 0; flex: none;
+}
+.drawer__word {
+  font-size: 12.5px; letter-spacing: 0.04em;
+  color: var(--ink-2); font-weight: 600; text-transform: uppercase;
+}
+.drawer__nav {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: var(--s4) var(--s3) calc(var(--s5) + env(safe-area-inset-bottom, 0px));
+}
+.drawer__group + .drawer__group { margin-top: var(--s3); }
+.drawer__heading {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ink-3); font-weight: 600;
+  padding: var(--s3) var(--s4) var(--s1);
+}
+/* 48px rather than the 40 a desktop list would take: this is the only way to
+   reach eleven places on a phone, so the thumb room is worth the height. */
+.drawer__link {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; height: 48px; padding: 0 var(--s4);
+  border-radius: var(--r-pill); text-align: left;
+  color: var(--ink); font-size: 14.5px; font-weight: 500;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+@media (hover: hover) {
+  .drawer__link:hover { background: var(--sunken); }
+}
+.drawer__icon { display: inline-flex; align-items: center; justify-content: center; flex: none; color: var(--ink-2); }
+/* Tone, not inversion — the rule the bottom bar already follows, widened from
+   a 44×26 chip to a whole row. */
+.drawer__link[aria-current="page"] { background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; }
+.drawer__link[aria-current="page"] .drawer__icon { color: var(--accent-ink); }
+
+/* Mobile: navigation moves to the bottom, where a thumb is. */
+@media (max-width: 720px) {
+  .topbar__inner { padding: var(--s3) var(--s4); }
+  .menubtn {
+    display: grid; place-items: center;
+    width: 44px; height: 44px; margin-left: calc(var(--s3) * -1);
+    border-radius: var(--r-pill); color: var(--ink-2);
+  }
+  @media (hover: hover) {
+    .menubtn:hover { background: var(--sunken); color: var(--ink); }
+  }
+  /* No bottom bar on a phone. The drawer is the whole of the navigation, which
+     is what the menu button is for, and the bottom edge goes back to the day's
+     own content. */
+  .nav { display: none; }
+  .main { padding: var(--s5) var(--s4) calc(88px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Mobile only: the desktop sidebar's "Add food" button is this button's
+     twin. Add food is an action rather than a destination, so it stays on the
+     screen in the corner a thumb rests in, and never goes in the drawer. */
+  .fab {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; right: var(--s5);
+    /* Drops to the ordinary inset now there is no bar above which to float. */
+    bottom: calc(var(--s5) + env(safe-area-inset-bottom, 0px));
+    z-index: 31;
+    width: 56px; height: 56px; border-radius: var(--r-pill);
+    background: var(--accent); color: #fff;
+    box-shadow: 0 4px 14px -2px rgba(74, 124, 89, 0.45), var(--lift);
+    transition: background-color 140ms ease-out;
+  }
+  .fab:hover { background: var(--accent-ink); }
+}
+
+
+
+/* ─────────────────────────────────────────────────────────────
+   Date strip
+   ───────────────────────────────────────────────────────────── */
+.datenav { display: flex; align-items: center; gap: var(--s1); }
+.datenav__label { min-width: 116px; text-align: center; font-weight: 550; font-size: 14px; }
+.iconbtn {
+  width: 34px; height: 34px; border-radius: var(--r-sm);
+  color: var(--ink-2); display: grid; place-items: center;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+.iconbtn:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.iconbtn:disabled { opacity: 0.3; cursor: default; }
+
+/* ─────────────────────────────────────────────────────────────
+   Hero. Floats on the page: no card, no border. It is the anchor.
+   ───────────────────────────────────────────────────────────── */
+.hero__value { display: flex; align-items: baseline; gap: var(--s2); }
+.hero__num { font-size: clamp(52px, 9vw, 76px); line-height: 0.92; font-weight: 500; }
+.hero__unit { color: var(--ink-3); font-size: 16px; }
+.hero__sub { color: var(--ink-2); font-size: 14px; margin-top: var(--s2); }
+.hero__rail { height: 3px; background: var(--sunken); border-radius: var(--r-pill); margin-top: var(--s4); overflow: hidden; }
+.hero__fill { height: 100%; background: var(--accent); border-radius: var(--r-pill); transition: width 260ms ease-out; }
+
+.macros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s5); margin-top: var(--s5); }
+.macro__v { font-size: 19px; font-weight: 600; }
+.macro__k { color: var(--ink-3); font-size: 13px; margin-top: 1px; }
+
+/* ─────────────────────────────────────────────────────────────
+   Cards. Shadow OR border, never both.
+   ───────────────────────────────────────────────────────────── */
+.card { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--lift); padding: var(--s4) var(--s5); }
+@media (prefers-color-scheme: dark) { .card { border: 1px solid var(--line); } }
+.card__head { display: flex; align-items: baseline; gap: var(--s3); margin-bottom: var(--s2); }
+.card__head h2 { font-size: 15px; }
+.card__note { color: var(--ink-3); font-size: 12px; margin-left: auto; }
+.card__foot { color: var(--ink-3); font-size: 12px; margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line); }
+
+.rows { display: flex; flex-direction: column; }
+.row {
+  display: grid; align-items: center; gap: var(--s3);
+  padding: var(--s2); margin: 0 calc(var(--s2) * -1);
+  border-radius: var(--r-sm); min-height: 44px;
+  width: calc(100% + var(--s4)); text-align: left;
+  transition: background-color 140ms ease-out;
+}
+button.row:hover { background: var(--sunken); }
+.row + .row { border-top: 1px solid var(--line); border-radius: 0; }
+.row__main { min-width: 0; }
+.row__title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row__sub { display: block; color: var(--ink-3); font-size: 12px; margin-top: 1px; }
+.row__chev { color: var(--ink-3); font-size: 15px; line-height: 1; }
+
+/* ─────────────────────────────────────────────────────────────
+   Nutrient rows: three visually distinct states.
+     "142 mg"    measured
+     "≥ 4.2 mg"  partially measured — no track drawn
+     "—"         no data — no track drawn
+   The track's PRESENCE keys off coverage, never off whether the
+   number happens to be non-null. An empty track asserts "0% of
+   target", which is the exact lie this app exists to prevent.
+   ───────────────────────────────────────────────────────────── */
+.nrow { grid-template-columns: minmax(0, 1.4fr) minmax(56px, 1fr) auto; }
+.track { height: 5px; background: var(--sunken); border-radius: var(--r-pill); overflow: hidden; }
+.track__fill { height: 100%; border-radius: var(--r-pill); background: var(--accent); transition: width 260ms ease-out; }
+.track__fill--over { background: var(--over); }
+.track--none { visibility: hidden; }
+.nval { display: flex; align-items: baseline; gap: var(--s2); justify-content: flex-end; white-space: nowrap; }
+.nval__amt { font-weight: 550; }
+.nval__pct { color: var(--ink-3); font-size: 13px; min-width: 38px; text-align: right; }
+.is-over .nval__amt, .is-over .nval__pct { color: var(--over); }
+.is-unknown .row__title, .is-unknown .nval__amt { color: var(--ink-3); }
+.is-partial .nval__amt { color: var(--ink-2); }
+
+.group + .group { margin-top: var(--s4); }
+.group__name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 600; margin-bottom: var(--s1); }
+
+.tier { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--line); }
+.tier h3 { font-size: 14px; }
+.tier p { margin: var(--s1) 0 var(--s3); color: var(--ink-3); font-size: 13px; max-width: var(--measure); }
+
+/* ─────────────────────────────────────────────────────────────
+   Controls
+   ───────────────────────────────────────────────────────────── */
+.field {
+  width: 100%; padding: var(--s3) var(--s4);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--surface); color: var(--ink);
+  transition: border-color 140ms ease-out;
+}
+.field:hover { border-color: var(--ink-3); }
+.field::placeholder { color: var(--ink-3); }
+
+.search-hero { max-width: 620px; margin: 0 auto; width: 100%; }
+.search-hero .field { font-size: 17px; padding: var(--s4) var(--s5); border-radius: var(--r-lg); box-shadow: var(--lift); border-color: transparent; }
+.search-hero .field:focus { box-shadow: var(--lift-hi); }
+
+.btn { padding: var(--s3) var(--s5); border-radius: var(--r-md); background: var(--accent); color: #fff; font-weight: 600; transition: background-color 140ms ease-out; }
+.btn:hover { background: var(--accent-ink); }
+.btn--quiet { background: transparent; color: var(--ink-2); border: 1px solid var(--line); }
+.btn--quiet:hover { background: var(--sunken); color: var(--ink); }
+.btn--danger { background: transparent; color: var(--over); }
+.btn--danger:hover { background: var(--over-wash); }
+
+.chip {
+  padding: var(--s2) var(--s3); border-radius: var(--r-pill);
+  border: 1px solid var(--line); color: var(--ink-2);
+  font-size: 13px; min-height: 36px;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
+}
+.chip:hover { border-color: var(--ink-3); color: var(--ink); }
+.chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+/* Not a link. Every one of these is a <button> — the app has no anchors at
+   all — and the underline was borrowing the web's hyperlink vocabulary for
+   what are in-app actions: "change", "cancel", "See all 47 nutrients". It read
+   as something that would navigate away, and at 13px it was a 20px target.
+   Weight and colour carry the affordance now, with a wash under the pointer. */
+.link {
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  transition: color 140ms ease-out, background-color 140ms ease-out;
+}
+.link:hover { color: var(--accent); background: var(--accent-wash); }
+/* A control standing alone as a card's or a photo slot's secondary action is
+   given a real 44px target, and the wash needs room to sit in. It must centre
+   rather than baseline-align, or it would drag the heading beside it down the
+   row. Controls set inside a sentence keep their text-sized box. */
+@media (max-width: 720px) {
+  .card__head .link,
+  .pslot__head .link {
+    display: inline-flex; align-items: center; align-self: center;
+    min-height: 44px; padding: 0 var(--s2);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   States
+   ───────────────────────────────────────────────────────────── */
+.empty { text-align: center; padding: var(--s7) var(--s5); color: var(--ink-3); max-width: var(--measure); margin: 0 auto; }
+.empty h3 { color: var(--ink); font-size: 16px; margin-bottom: var(--s2); }
+.empty p { margin: 0 0 var(--s4); font-size: 14px; }
+
+.alert { padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--over-wash); color: var(--over); font-size: 13px; }
+
+/* Skeletons match the shape of what they replace. */
+.skel { background: var(--sunken); border-radius: var(--r-sm); animation: pulse 1.4s ease-in-out infinite; }
+.skel--row { height: 20px; margin: var(--s3) 0; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* ─────────────────────────────────────────────────────────────
+   Foods screen
+   ───────────────────────────────────────────────────────────── */
+.hits { list-style: none; margin: var(--s4) 0 0; padding: 0; }
+.hit { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: var(--s3); align-items: baseline; }
+.hit__note { display: block; color: var(--accent-ink); font-size: 12px; margin-top: 2px; white-space: normal; }
+.hit__src { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+
+.picked__title { font-size: 19px; font-weight: 600; }
+.commit { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s4); }
+.grams { width: 96px; text-align: right; }
+
+/* ─────────────────────────────────────────────────────────────
+   Recipes
+   ───────────────────────────────────────────────────────────── */
+.rgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--s4); }
+.rcard { text-align: left; display: block; width: 100%; transition: box-shadow 160ms ease-out, transform 160ms ease-out; }
+.rcard:hover { box-shadow: var(--lift-hi); transform: translateY(-1px); }
+.rcard__name { font-size: 17px; font-weight: 600; }
+.rcard__meta { color: var(--ink-3); font-size: 13px; margin-top: var(--s1); }
+.rcard__ing { color: var(--ink-2); font-size: 13px; margin-top: var(--s3); }
+
+.ing-row {
+  /* Every column is fixed except the name. Each row is its own grid, so an
+     `auto` track would size to that row's own content and the header would
+     stop lining up with the fields under it. */
+  display: grid; grid-template-columns: 1fr 96px 96px 76px 40px;
+  gap: var(--s3); align-items: center;
+  padding: var(--s2) 0; border-bottom: 1px solid var(--line);
+}
+/* The line's share of the batch, which is what the recipe is really made of.
+   Quiet by design: it sits beside the name as context, not as a second title. */
+.ing-share { color: var(--ink-3); font-weight: 400; }
+/* Smaller than a normal chip — it is a per-row flag in a dense table, not one
+   of a row of choices. */
+.ing-opt {
+  font-size: 11px; padding: 4px var(--s2); letter-spacing: 0.04em;
+}
+.ing-head {
+  color: var(--ink-3); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.07em; font-weight: 600; border-bottom: none;
+}
+.ing-w { display: flex; flex-direction: column; gap: 2px; }
+.ing-w .field { width: 100%; text-align: right; padding: var(--s2) var(--s3); }
+/* The column header carries the label on wide screens, so the per-field
+   caption would be duplication. */
+.ing-w__k { display: none; }
+
+@media (max-width: 720px) {
+  /* Two lines rather than a hidden column: name across the top, both weights
+     beneath. Nothing that changes the yield is out of reach. */
+  /* Three lines rather than a hidden column: name across the top, both weights
+     beneath, and the optional flag with the remove button. Nothing that
+     changes the batch — or says what may be skipped — is out of reach. */
+  .ing-row { grid-template-columns: 1fr 1fr 76px 40px; row-gap: var(--s2); }
+  .ing-name { grid-column: 1 / -1; }
+  .ing-head--wide { display: none; }
+  .ing-w__k {
+    display: block; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--ink-3); font-weight: 600;
+  }
+  .ing-x { align-self: end; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Calendar
+   ───────────────────────────────────────────────────────────── */
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--s1); margin-top: var(--s3); }
+.cal__wd {
+  text-align: center; font-size: 11px; font-weight: 600;
+  color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em;
+  padding-bottom: var(--s2);
+}
+.cal__day {
+  position: relative; min-height: 60px; border-radius: var(--r-sm);
+  padding: var(--s2) var(--s1) var(--s3);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  color: var(--ink-3); overflow: hidden;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+.cal__day:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.cal__day:disabled { opacity: 0.28; cursor: default; }
+.cal__day.has-data { color: var(--ink); }
+/* The current day is the one anchored element in the grid. */
+.cal__day.is-today { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.cal__n { font-size: 13px; font-weight: 550; }
+.cal__k { font-size: 11px; color: var(--ink-3); }
+/* Intensity encodes energy. A day with nothing logged has NO bar at all —
+   a zero-height bar would read as "logged, ate nothing". */
+.cal__bar {
+  position: absolute; left: var(--s2); right: var(--s2); bottom: 6px;
+  height: 3px; border-radius: var(--r-pill); background: var(--accent);
+}
+
+.daterange { display: flex; gap: var(--s4); flex-wrap: wrap; margin-bottom: var(--s4); }
+.daterange label { display: flex; flex-direction: column; gap: var(--s1); }
+.daterange .field { width: auto; }
+
+.rangenote { color: var(--ink-3); font-size: 13px; margin: 0; max-width: var(--measure); }
+.rangenote strong { color: var(--ink-2); }
+
+@media (max-width: 720px) {
+  .cal__day { min-height: 52px; }
+  .cal__k { display: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Log entry + its ingredient breakdown
+   ───────────────────────────────────────────────────────────── */
+.entryrow { grid-template-columns: 1fr auto auto; }
+.entryrow__main { text-align: left; min-width: 0; display: block; width: 100%; }
+.entryrow__main:disabled { cursor: default; }
+.row__chev { transition: transform 160ms ease-out; }
+.row__chev.is-open { transform: rotate(90deg); }
+
+.breakdown {
+  background: var(--sunken);
+  border-radius: var(--r-sm);
+  padding: var(--s3) var(--s4);
+  margin: var(--s1) 0 var(--s3);
+}
+.breakdown__head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--ink-3); font-weight: 600; margin-bottom: var(--s2);
+}
+.breakdown__head span { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.breakdown__row {
+  display: flex; justify-content: space-between; gap: var(--s4);
+  padding: var(--s1) 0; font-size: 13px; color: var(--ink-2);
+}
+/* The weight must never wrap between number and unit ("25" / "g"). */
+.breakdown__row > :last-child { white-space: nowrap; flex: none; }
+.breakdown__row .no-data { color: var(--over); }
+.breakdown__flag { font-size: 11px; }
+.breakdown__note { margin: var(--s2) 0 0; font-size: 12px; color: var(--ink-3); max-width: var(--measure); }
+
+/* ─────────────────────────────────────────────────────────────
+   Recipe builder yield row
+   ───────────────────────────────────────────────────────────── */
+.yieldrow {
+  display: grid; grid-template-columns: 120px 1fr 1fr;
+  gap: var(--s5); align-items: end; margin-top: var(--s4);
+}
+.yieldrow__input { display: flex; flex-direction: column; gap: var(--s1); }
+.yieldrow__input .field { width: 100%; text-align: right; }
+.yieldrow__stat { display: flex; flex-direction: column; gap: var(--s1); }
+/* Derived, not editable — so it reads as a figure rather than a field. */
+.yieldrow__v { font-size: 22px; font-weight: 600; line-height: 1.2; }
+.yieldrow__u { font-size: 14px; font-weight: 400; color: var(--ink-3); }
+@media (max-width: 720px) {
+  .yieldrow { grid-template-columns: 100px 1fr 1fr; gap: var(--s4); }
+  .yieldrow__v { font-size: 19px; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Weight field: net grams, or a scale reading minus its vessels.
+   The calc row is laid out as the arithmetic it is — reading,
+   minus vessels, equals food — and the net is a FIGURE, never a
+   field. A second editable number there is exactly the thing
+   that can disagree with the first.
+   ───────────────────────────────────────────────────────────── */
+.wf {
+  display: flex; flex-direction: column; gap: var(--s3);
+  margin-top: var(--s4); min-width: 0;
+}
+.wf__direct { margin-top: 0; }
+.wf__unit { color: var(--ink-3); }
+.wf__none { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); }
+
+.wf__calc {
+  display: grid;
+  grid-template-columns: 132px auto minmax(72px, 1fr) auto minmax(72px, 1fr);
+  gap: var(--s4); align-items: end;
+}
+.wf__cell { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
+.wf__gross { width: 100%; text-align: right; }
+.wf__op { color: var(--ink-3); font-size: 17px; padding-bottom: var(--s2); }
+.wf__fig { font-size: 22px; font-weight: 500; line-height: 1.2; color: var(--ink-2); }
+.wf__net { font-size: 30px; font-weight: 500; line-height: 1.1; }
+/* No reading yet, or none left after the tare: quiet, not alarming. */
+.wf__net.is-blank { color: var(--ink-3); }
+.wf__u { font-size: 14px; font-weight: 400; color: var(--ink-3); }
+.wf__snag { margin: 0; font-size: 13px; color: var(--ink-2); max-width: var(--measure); }
+
+.wf__vhead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.wf__vessels { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--s2); }
+.wf__note { margin: 0; font-size: 12px; color: var(--ink-3); max-width: var(--measure); }
+
+/* One tickable vessel. Checkboxes rather than a single-choice control: a katori
+   on a thali means both come off, and picking one of the two is wrong by the other. */
+.vsel {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center; gap: var(--s3);
+  padding: var(--s2) var(--s3); min-height: 44px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out;
+}
+.vsel:hover { border-color: var(--ink-3); }
+.vsel:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.vsel.is-on { border-color: var(--accent); background: var(--accent-wash); }
+.vsel__box { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+/* The row already rings on :focus-within, and the global :focus-visible would ring
+   the checkbox inside it too — two rings for one focused control. */
+.vsel__box:focus-visible { outline: none; }
+.vsel__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vsel__g { color: var(--ink-2); font-size: 14px; white-space: nowrap; }
+
+@media (max-width: 720px) {
+  .wf__modes .chip { flex: 1; min-height: 44px; }
+  /* The reading takes a line of its own; the two derived figures sit beneath it
+     with the equals sign between them, so the arithmetic still reads across. */
+  .wf__calc { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: var(--s3); }
+  .wf__calc > .wf__cell:first-child { grid-column: 1 / -1; }
+  .wf__op { display: none; }
+  .wf__op--eq { display: block; }
+  .wf__net { font-size: 26px; }
+  .wf__vessels { grid-template-columns: minmax(0, 1fr); }
+  /* Mid-log, this is the only way to the library, and as bare `.link` text it is a
+     20px target sitting directly above the first vessel checkbox — a thumb that
+     misses low ticks a vessel into the tare. Centred rather than baseline-aligned
+     because giving the button a height would otherwise drop the row's baseline. */
+  .wf__vhead { align-items: center; }
+  .wf__vhead .link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--s2); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Vessel library
+   ───────────────────────────────────────────────────────────── */
+.vform { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; gap: var(--s3); align-items: end; }
+.vform__cell { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
+.vform__cell--g .field { text-align: right; }
+.vform__go { min-height: 44px; white-space: nowrap; }
+
+.vrow { grid-template-columns: minmax(0, 1fr) auto auto; }
+.vrow__g { font-size: 19px; font-weight: 500; white-space: nowrap; }
+.vrow__u { font-size: 13px; color: var(--ink-3); }
+.vrow__acts { display: flex; gap: var(--s2); }
+.vrow__btn { padding: var(--s2) var(--s3); font-size: 13px; min-height: 44px; }
+
+@media (max-width: 720px) {
+  .vform { grid-template-columns: minmax(0, 1fr) 104px; }
+  .vform__go { grid-column: 1 / -1; }
+  /* Name and weight on the first line, the two actions on the second: both stay
+     full-size targets instead of shrinking to fit beside the name. */
+  .vrow { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--s2); }
+  .vrow__acts { grid-column: 1 / -1; justify-content: flex-end; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Photo of the pack.
+
+   A slot is empty far more often than it is full, so the empty
+   state is the designed one: a dashed well that reads as a place
+   for something rather than as a control that failed. The stored
+   shot is a button, because the reason it is kept is to be read
+   while transcribing, not to prove a photo was taken.
+   ───────────────────────────────────────────────────────────── */
+.pslot { position: relative; display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.pslot__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+/* .group__name carries a bottom margin for stacked labels; here the flex gap
+   already spaces the slot, and the extra would misalign the Remove link. */
+.pslot__head .group__name { margin-bottom: 0; }
+
+.pslot__drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--s1); min-height: 132px; padding: var(--s4);
+  border: 1px dashed var(--line); border-radius: var(--r-md);
+  background: var(--sunken); color: var(--ink-2); text-align: center;
+  transition: border-color 140ms ease-out, color 140ms ease-out;
+}
+.pslot__drop:hover:not(:disabled) { border-color: var(--accent); color: var(--ink); }
+.pslot__drop:disabled { cursor: default; }
+.pslot__take { font-weight: 600; }
+.pslot__hint { color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+
+.pslot__shot {
+  display: block; width: 100%; line-height: 0;
+  border-radius: var(--r-md); overflow: hidden; background: var(--sunken);
+  transition: box-shadow 160ms ease-out;
+}
+.pslot__shot:hover { box-shadow: var(--lift); }
+/* Contained, never cropped: a panel cropped to a tidy rectangle loses the rows
+   at its edges, which are the ones being transcribed. */
+.pslot__shot img { display: block; width: 100%; max-height: 300px; object-fit: contain; }
+
+.pslot__acts { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.pslot__btn { padding: var(--s2) var(--s4); min-height: 44px; }
+.pslot__err { margin: 0; }
+/* Off-screen rather than display:none — the click still has to reach it. */
+.pslot__file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+/* Full-size read. The ground is --bg rather than a scrim: this is a document to
+   read, and it should follow the theme instead of glaring in the dark one. */
+.pview {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pview__bar {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line);
+}
+.pview__name { font-weight: 600; margin-right: auto; }
+.pview__btn { padding: var(--s2) var(--s4); min-height: 44px; white-space: nowrap; }
+.pview__body {
+  flex: 1; overflow: auto; display: grid; place-items: center;
+  padding: var(--s3) var(--s3) calc(var(--s3) + env(safe-area-inset-bottom, 0px));
+}
+.pview__body img { max-width: 100%; }
+/* Actual size: the pane pans instead of shrinking the print. */
+.pview__body.is-zoom { place-items: start; }
+.pview__body.is-zoom img { max-width: none; }
+
+/* Two fields, or two photo slots, that belong to one another — brand and barcode,
+   grams and the pack's own wording, the panel and the ingredient list. They fold to
+   one column on their own well before the phone breakpoint, so neither ends up a
+   64px-wide box beside a long name. */
+.idrow {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--s4); align-items: start;
+}
+
+@media (max-width: 720px) {
+  .pslot__shot img { max-height: 200px; }
+  .pslot__btn, .pview__btn { flex: 1; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Transcribing the panel.
+
+   One line per figure a US panel prints. A blank line is the
+   ordinary case — most packs print fifteen numbers and this app
+   tracks forty-seven — so blank recedes rather than flags, and
+   every line states in words what it will be saved as. The line
+   that matters most is a typed 0: the note under it is the whole
+   difference between a bound and a claim of absence.
+   ───────────────────────────────────────────────────────────── */
+.lform { display: flex; flex-direction: column; gap: var(--s2); }
+.lform__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.lform__head .group__name { margin-bottom: 0; }
+.lform__count { color: var(--ink-2); font-size: 14px; font-weight: 500; }
+.lform__basis { margin: 0; color: var(--ink-3); font-size: 13px; max-width: var(--measure); }
+.lform__basis strong { color: var(--ink-2); font-weight: 550; }
+.lform__snag { margin: var(--s3) 0 0; font-size: 13px; color: var(--ink-2); max-width: var(--measure); }
+
+.lrows { margin-top: var(--s3); }
+.lrow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 108px auto;
+  gap: var(--s2) var(--s3); align-items: center;
+  padding: var(--s2) 0; border-bottom: 1px solid var(--line);
+}
+.lrow__name { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.lrow__unit { color: var(--ink-3); font-size: 12px; }
+.lrow__amt { width: 100%; text-align: right; padding: var(--s2) var(--s3); }
+.lrow__lt { white-space: nowrap; }
+.lrow__says { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+/* A line that cannot be read is a note, not an alarm: --over belongs to a nutrient
+   limit actually exceeded, and spending it on a typo would spend it everywhere. */
+.lrow__says.is-snag { color: var(--ink-2); }
+.lrow.is-blank .lrow__name { color: var(--ink-2); }
+
+@media (max-width: 720px) {
+  /* Name across the top, the figure and its "less than" toggle beneath: both stay
+     full-size targets rather than shrinking to sit beside the longest name. */
+  .lrow { grid-template-columns: minmax(0, 1fr) auto; }
+  .lrow__name { grid-column: 1 / -1; }
+  .lrow__lt { min-height: 44px; }
+  .lrow__amt { padding: var(--s3); min-height: 44px; }
+}
+
+/* ── origin and cuisine ─────────────────────────────────────── */
+
+/* One hue per origin, chosen so the calendar strip reads as a gradient from
+   "you cooked it" to "someone else did" rather than as four unrelated colours.
+   Home takes the accent because it is the thing the user is most likely to be
+   trying to do more of. */
+:root {
+  --o-home: var(--accent);
+  --o-ordered: #c9803f;
+  --o-out: #a8563c;
+  --o-packaged: #8a8378;
+  /* Deliberately the same faint grey as an unmeasured nutrient: "not recorded"
+     is the same kind of fact in both places, and should look like it. */
+  --o-untagged: #d6d1c8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --o-ordered: #d9954f;
+    --o-out: #c26a4a;
+    --o-packaged: #7d766c;
+    --o-untagged: #3a3630;
+  }
+}
+
+.tags { margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line); }
+.tags__type { width: 160px; padding: var(--s2) var(--s3); font-size: 13px; }
+.tags__note { color: var(--ink-3); font-size: 12px; margin: var(--s3) 0 0; max-width: var(--measure); }
+
+.chip--ghost { border-style: dashed; color: var(--ink-3); }
+.chip--sm { padding: 4px var(--s3); font-size: 12px; }
+
+/* The day's mix, under the energy bar. Segments are proportional to how many
+   dishes carried each origin; a day with nothing logged draws none of this. */
+.cal__mix { display: flex; gap: 1px; height: 3px; margin-top: 2px; width: 100%; }
+.cal__seg { border-radius: var(--r-pill); min-width: 2px; }
+.cal__seg.is-home { background: var(--o-home); }
+.cal__seg.is-ordered_in { background: var(--o-ordered); }
+.cal__seg.is-eaten_out { background: var(--o-out); }
+.cal__seg.is-packaged { background: var(--o-packaged); }
+.cal__seg.is-untagged { background: var(--o-untagged); }
+
+/* A day holding only a supplement. Not an energy bar: there is no food energy
+   to draw, and a minimum-opacity bar would read as "you barely ate". */
+.cal__pill {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); opacity: 0.55; margin-top: 3px;
+}
+
+.callegend {
+  display: flex; flex-wrap: wrap; gap: var(--s3);
+  margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--line);
+  color: var(--ink-3); font-size: 11px;
+}
+.callegend__item { display: inline-flex; align-items: center; gap: 5px; }
+.callegend__sw { width: 10px; height: 3px; border-radius: var(--r-pill); }
+.callegend__sw.is-home { background: var(--o-home); }
+.callegend__sw.is-ordered_in { background: var(--o-ordered); }
+.callegend__sw.is-eaten_out { background: var(--o-out); }
+.callegend__sw.is-packaged { background: var(--o-packaged); }
+.callegend__sw.is-untagged { background: var(--o-untagged); }
+.callegend__sw.is-supplement {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: 0.55;
+}
+
+/* An untagged row is legible but visibly not a claim, so it cannot be misread
+   as a cuisine the user actually named. */
+.track__fill--muted { background: var(--o-untagged); }
+.is-untagged .row__title { color: var(--ink-3); }
+
+/* ── supplements ────────────────────────────────────────────── */
+
+.formgrid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s3);
+}
+.formgrid label { display: flex; flex-direction: column; gap: var(--s1); }
+
+.checkline {
+  display: flex; gap: var(--s3); align-items: flex-start;
+  margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line);
+  font-size: 14px; cursor: pointer;
+}
+.checkline input { margin-top: 3px; flex: none; }
+.checkline__sub {
+  display: block; color: var(--ink-3); font-size: 12px; margin-top: var(--s1);
+  max-width: var(--measure);
+}
+
+.supline { padding: var(--s3) 0; }
+.supline + .supline { border-top: 1px solid var(--line); }
+.supline__top { display: flex; align-items: center; gap: var(--s2); }
+.supline__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.supline__amt { width: 88px; text-align: right; padding: var(--s2) var(--s3); }
+.supline__unit { width: 78px; padding: var(--s2); }
+.supline__forms { margin-top: var(--s2); }
+.supline__ok { color: var(--ink-3); font-size: 12px; margin: var(--s2) 0 0; }
+/* A refusal is information, not an error the user caused — it is the app saying
+   what it cannot know from what the pack printed. Coloured accordingly. */
+.supline__refused {
+  color: var(--ink-2); font-size: 12px; margin: var(--s2) 0 0;
+  padding: var(--s2) var(--s3); background: var(--sunken); border-radius: var(--r-sm);
+  max-width: var(--measure);
+}
+
+.dose { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+.dose__n { width: 96px; text-align: right; }
+.dose__unit { font-size: 15px; }
+.dose__note { color: var(--ink-3); font-size: 12px; }
+
+/* The supplement share of a nutrient, on the full panel. */
+.nrow__sup { color: var(--ink-3); font-size: 11px; display: block; }
+
+@media (max-width: 720px) {
+  .supline__top { flex-wrap: wrap; }
+  .supline__name { flex-basis: 100%; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Live camera, and the indicator that is the point of it.
+
+   The ground is --bg rather than a scrim, following the photo
+   viewer: this is a sheet the app opened, not a lightbox over
+   the page. The video is CONTAINED, never cropped — the gauge
+   measures the whole sensor frame, so the whole sensor frame
+   has to be what the user is framing to. A cover fit would have
+   them lining the panel up against a box that is not what gets
+   read.
+
+   Colour carries one distinction only: readable or not. --over
+   appears nowhere here. A frame too far away is not an error,
+   and a camera the OS declined is not one either — spending the
+   limit colour on either would spend it everywhere.
+   ───────────────────────────────────────────────────────────── */
+.cam {
+  /* The state dot's diameter, named because the count line below indents by it
+     to sit under the sentence rather than under the dot. */
+  --dot: 9px;
+
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.cam__top {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line);
+}
+.cam__title { font-weight: 600; margin-right: auto; }
+.cam__x { padding: var(--s2) var(--s4); min-height: 44px; white-space: nowrap; }
+
+.cam__stage { position: relative; flex: 1; min-height: 0; background: var(--sunken); }
+.cam__view { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+
+/* The framing box sits on --accent at both weights rather than on an ink token:
+   it is drawn over arbitrary camera content, and --ink-3 is a dark grey in the
+   dark theme, which would vanish against exactly the frames that need help. */
+.cam__guide { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.cam__box {
+  height: 78%; aspect-ratio: 3 / 4; max-width: 84%;
+  border: 2px solid var(--accent); border-radius: var(--r-md);
+  opacity: 0.4; transition: opacity 160ms ease-out;
+}
+.cam__box.is-ready { opacity: 1; }
+
+/* Opening, declined, or captured. Not `.alert`: none of these is a limit
+   exceeded, and two of the three are the OS's answer rather than a mistake. */
+.cam__snag, .cam__wait {
+  position: absolute; inset: 0; margin: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--s2); padding: var(--s5);
+  text-align: center; color: var(--ink-2); background: var(--sunken);
+}
+.cam__snagh { font-size: 16px; color: var(--ink); }
+.cam__snagp { margin: 0; font-size: 14px; max-width: var(--measure); }
+
+.cam__bar {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s4) calc(var(--s3) + env(safe-area-inset-bottom, 0px));
+  background: var(--surface); border-top: 1px solid var(--line);
+}
+.cam__read { flex: 1; min-width: 0; }
+.cam__state { display: flex; align-items: center; gap: var(--s2); margin: 0; font-weight: 550; }
+.cam__count { margin: var(--s1) 0 0; padding-left: calc(var(--dot) + var(--s2)); color: var(--ink-3); font-size: 13px; }
+
+.cam__dot {
+  width: var(--dot); height: var(--dot); flex: none;
+  border-radius: 50%; background: var(--ink-3);
+  transition: background-color 160ms ease-out;
+}
+/* Reads as alive rather than as a static tick — the frame it describes is one
+   hand-movement old. The global prefers-reduced-motion rule stops the pulse. */
+.cam__dot.is-ready { background: var(--accent); animation: campulse 1.6s ease-in-out infinite; }
+@keyframes campulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Always clickable: the gauge is an opinion about the frame and the user is
+   allowed to overrule it. While the frame is not readable it drops to the quiet
+   treatment, so the button says which way the app would go without blocking the
+   other. */
+.cam__shot { flex: none; min-height: 44px; white-space: nowrap; }
+.cam__shot.is-dim {
+  background: transparent; color: var(--ink-2); border: 1px solid var(--line);
+}
+.cam__shot.is-dim:hover { background: var(--sunken); color: var(--ink); }
+
+@media (max-width: 720px) {
+  /* The wording takes the first line and the shutter the second, full width and
+     low, where a thumb holding the phone at a pack already is. */
+  .cam__read { flex-basis: 100%; }
+  .cam__shot { width: 100%; }
+  .cam__box { height: 70%; max-width: 88%; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Desktop shell — sidebar navigation, a bounded date-stepper, and
+   a two-column Today, replacing the flat top bar above the point
+   where the app stops being a phone screen with more room.
+
+   Nothing below runs under 721px, and nothing above touches an
+   EXISTING rule at that width: every selector here is new, or is
+   an override that only takes effect inside these two media
+   queries. The phone's top bar, bottom nav and Today's own date
+   row are untouched — same markup, same CSS, same behaviour.
+   ───────────────────────────────────────────────────────────── */
+.shell { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.sidebar, .toolbar { display: none; }
+
+@media (min-width: 721px) {
+  :root {
+    /* One new tone, spent only on the sidebar: a shade past --sunken, in
+       the same warm-neutral family, so it reads as structure around the
+       canvas rather than more canvas — a mail app's source list next to
+       its reading pane, not a second hue. */
+    --chrome: #eeeae1;
+    --chrome-line: #e3ddd0;
+    /* The old 940px cap left roughly a third of a 1440px window bare on
+       either side; the sidebar earns some of that back for every screen. */
+    --shell: 1120px;
+    /* The bar this sidebar replaces occupies nothing here, so anything that
+       measured its own offset from --topbar-h — the custom-food editor's
+       sticky photo panel — starts at the real top instead of leaving a gap
+       where a bar no longer renders. */
+    --topbar-h: 0px;
+  }
+
+  .app { flex-direction: row; }
+  .topbar, .daybar { display: none; }
+
+  .sidebar {
+    display: flex; flex-direction: column;
+    width: 256px; flex: none;
+    position: sticky; top: 0; align-self: flex-start; height: 100vh;
+    background: var(--chrome); border-right: 1px solid var(--chrome-line);
+    padding: 20px 16px;
+  }
+  .sidebar__brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; }
+  .sidebar__word {
+    font-family: Newsreader, Georgia, "Times New Roman", serif;
+    font-size: 20px; font-weight: 500; letter-spacing: -0.025em;
+  }
+
+  /* Add food is an ACTION, not a place — the app's own primary-button
+     treatment, and a fixed spot above the destinations, instead of a pill
+     that matched four unrelated tabs. */
+  .sidebar__cta {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; margin: 0 4px 18px; padding: 0 var(--s4);
+    border-radius: var(--r-md); background: var(--accent); color: #fff;
+    font-size: 14.5px; font-weight: 600; box-shadow: var(--lift);
+    transition: background-color 140ms ease-out;
+  }
+  .sidebar__cta:hover { background: var(--accent-ink); }
+  .sidebar__cta[aria-current="page"] { background: var(--accent-ink); box-shadow: none; }
+
+  .sidebar__nav { display: flex; flex-direction: column; gap: 2px; }
+  .sidebar__link {
+    position: relative; display: flex; align-items: center; gap: 12px;
+    min-height: 40px; padding: 0 12px; border-radius: var(--r-md);
+    font-size: 14px; font-weight: 500; color: var(--ink-2);
+    transition: background-color 140ms ease-out, color 140ms ease-out;
+  }
+  .sidebar__link:hover { background: var(--sunken); color: var(--ink); }
+  /* Tone, not inversion: the selected place gets a wash and a leading rule,
+     the same restraint this file already spends on "over the limit" rather
+     than a solid ink pill. */
+  .sidebar__link[aria-current="page"] { background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; }
+  .sidebar__rail {
+    position: absolute; left: -16px; top: 6px; bottom: 6px; width: 3px;
+    border-radius: 999px; background: transparent;
+  }
+  .sidebar__link[aria-current="page"] .sidebar__rail { background: var(--accent); }
+  .sidebar__icon { flex: none; display: block; }
+  .sidebar__note { margin-top: auto; padding: 12px 12px 4px; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+
+  /* The date-stepper's new home: out of the corner this app's real Back
+     buttons occupy, and bounded in one control so its shape says "adjust a
+     value" rather than "return". */
+  .toolbar {
+    display: flex; align-items: center; gap: 12px;
+    height: 72px; flex: none; padding: 0 var(--s6);
+    border-bottom: 1px solid var(--line); background: var(--surface);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .stepper {
+    display: flex; align-items: stretch; height: 40px;
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    background: var(--surface); overflow: hidden;
+  }
+  .stepper__seg { width: 34px; display: grid; place-items: center; color: var(--ink-2); transition: background-color 120ms ease-out; }
+  .stepper__seg:hover:not(:disabled) { background: var(--sunken); }
+  .stepper__seg:disabled { opacity: 0.35; }
+  .stepper__mid {
+    display: flex; align-items: center; gap: 8px; padding: 0 var(--s4);
+    min-width: 168px; justify-content: center;
+    border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  }
+  .stepper__label { font-size: 15px; font-weight: 500; white-space: nowrap; }
+  .toolbar__today { height: 40px; padding: 0 var(--s4); }
+  .toolbar__today:disabled { opacity: 0.4; }
+  .toolbar__count { margin-left: auto; color: var(--ink-3); font-size: 13px; }
+
+  .main { padding-left: var(--s6); padding-right: var(--s6); }
+}
+
+@media (min-width: 1080px) {
+  /* Today only: the freed width is worth two columns. Which section goes
+     where is stated by CLASS rather than by position — `nth-of-type` meant
+     inserting a section anywhere in Today.tsx silently reshuffled the whole
+     layout, and the placement rules were duplicated the first time this
+     grid was revised. See `.day-hero`, `.day-watch`, `.day-ate`.
+
+     Below this width the sidebar shell still applies but these sections
+     stack exactly as they do on a phone: there is no room here for two
+     300px+ columns, and a squeezed grid is worse than a stack. */
+  .screen--today {
+    display: grid;
+    gap: var(--s6);
+    align-items: start;
+  }
+  .screen--today > [aria-busy="true"],
+  .screen--today > .empty { grid-column: 1 / -1; }
+}
+
+/* --chrome/--chrome-line had no dark-mode value, so the sidebar stayed the
+   light-mode cream in dark mode while its text correctly followed --ink's
+   dark (light-coloured) value — light text on a light background. This is
+   the fix, not a rewrite: the sidebar's own dark tone, following the same
+   "one step past --sunken, toward --line" relationship the light values
+   use, just walked in dark mode's direction (surfaces there get lighter as
+   they elevate, not darker). Scoped to width AND dark-scheme together so it
+   changes nothing for a light-mode desktop or for mobile in either scheme. */
+@media (min-width: 721px) and (prefers-color-scheme: dark) {
+  :root {
+    --chrome: #2b2822;
+    --chrome-line: var(--line);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Import a spreadsheet.
+
+   A picked file becomes the same kind of custom-food-plus-log-entry
+   pair this app already knows how to show back, so nothing here is
+   a new record type — it is a report on what was READ, built so a
+   wrong header match or a day/month swap is visible before the
+   import button is ever pressed, not after hundreds of rows land.
+   ───────────────────────────────────────────────────────────── */
+.imp-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--s1); width: 100%; min-height: 116px; padding: var(--s4) var(--s5);
+  border: 1px dashed var(--line); border-radius: var(--r-md);
+  background: var(--sunken); color: var(--ink-2); text-align: center;
+  transition: border-color 140ms ease-out, color 140ms ease-out;
+}
+.imp-drop:hover:not(:disabled) { border-color: var(--accent); color: var(--ink); }
+.imp-drop:disabled { cursor: default; }
+.imp-drop__take { font-weight: 600; }
+.imp-drop__hint { color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+/* Off-screen rather than display:none — the drop button's click still has to
+   reach it, matching the pattern PhotoSlot's own hidden file input uses. */
+.imp-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.imp-assume { color: var(--ink-3); font-size: 13px; max-width: var(--measure); margin: var(--s3) 0 0; }
+.imp-note { color: var(--ink-2); font-size: 13px; max-width: var(--measure); margin: var(--s3) 0 0; }
+
+/* Three counts, read at a glance: what imports, and the two reasons a row
+   would not. Equal visual weight on purpose — a skip is not a failure. */
+.imp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: var(--s4); }
+.imp-stat__v { font-size: 28px; font-weight: 600; line-height: 1.2; }
+.imp-stat__k { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
+
+.imp-chips { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s2); }
+.imp-chip {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  font-size: 12px; font-weight: 550; border: 1px solid transparent; max-width: 100%;
+}
+.imp-chip--ok { background: var(--accent-wash); color: var(--accent-ink); }
+/* Same muted grey as an unmeasured nutrient and an untagged dish elsewhere in
+   this file — "not recognised" is the same kind of fact in all three places. */
+.imp-chip--miss { background: var(--sunken); color: var(--ink-2); border-color: var(--line); }
+.imp-chip__note { font-weight: 400; color: var(--ink-3); white-space: normal; }
+
+.imp-table-wrap { overflow-x: auto; margin-top: var(--s3); }
+.imp-table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+.imp-table th {
+  text-align: left; color: var(--ink-3); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; font-weight: 600; padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.imp-table td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); }
+.imp-table th.num, .imp-table td.num { text-align: right; }
+
+.imp-fails { margin-top: var(--s2); }
+.imp-fail {
+  display: flex; gap: var(--s3); padding: var(--s2) 0;
+  border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-2);
+}
+.imp-fail__row { flex: none; width: 68px; color: var(--ink-3); }
+
+@media (max-width: 720px) {
+  .imp-table { font-size: 12px; }
+  .imp-fail { flex-direction: column; gap: 2px; }
+  .imp-fail__row { width: auto; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   What the camera read, on the supplement editor.
+
+   One treatment for all of it — a panel figure, a serving, an
+   ingredient line, a barcode — because they are all the same
+   kind of thing: something the app is PROPOSING, sitting beside
+   a form that is exactly as usable as it was before the photo
+   was taken. Dashed and sunken says proposed; the surrounding
+   card says entered. --over appears nowhere here. A scan that
+   read nothing is not a limit exceeded and not a mistake the
+   user made, and spending the alarm colour on it would spend it
+   everywhere.
+   ───────────────────────────────────────────────────────────── */
+.scanbox {
+  margin-top: var(--s4);
+  padding: var(--s3) var(--s4);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.scanbox__head { display: flex; align-items: center; gap: var(--s3); }
+/* .group__name carries a bottom margin for stacked labels; here the block's own
+   padding already spaces it, and the extra would drop the button beside it. */
+.scanbox__head .group__name { margin-bottom: 0; }
+.scanbox__all { margin-left: auto; padding: var(--s2) var(--s3); font-size: 13px; min-height: 44px; }
+
+/* A sentence and its way out, on one line until there is no room for one. */
+.scanbox__row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.scanbox__say { flex: 1 1 200px; min-width: 0; }
+.scanbox__btns { display: flex; gap: var(--s2); flex: none; }
+.scanbox__foot { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+
+.scanbox__list { list-style: none; margin: var(--s2) 0 0; padding: 0; }
+/* The list as printed, wrapped lines and the CONTAINS statement kept apart.
+   pre-wrap because that separation is the whole point of the second line. */
+.scanbox__text {
+  margin: var(--s2) 0 0; color: var(--ink); line-height: 1.5;
+  white-space: pre-wrap; max-width: var(--measure);
+}
+.scanbox__note { margin: var(--s3) 0 0; color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+
+/* One reading: the nutrient, the figure in the panel's own words, and what
+   taking it would do. The figure sits on the same line as the name so the pair
+   can be checked against the photo in one glance. */
+.scanrow { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding: var(--s2) 0; }
+.scanrow + .scanrow { border-top: 1px solid var(--line); }
+.scanrow__main { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scanrow__top { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.scanrow__name { color: var(--ink); font-weight: 550; }
+.scanrow__read { color: var(--ink); }
+.scanrow__aside { color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+
+/* Barcode: a field with the shortcut beside it, on its own line under the six
+   boxes above. The field keeps the width — typing the digits printed under the
+   bars is the path that always works, and the camera only saves keystrokes. */
+.sup-barcode { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--s1); }
+.sup-barcode__row { display: flex; align-items: center; gap: var(--s2); }
+.sup-barcode__row .field { flex: 1; min-width: 0; }
+.sup-barcode__btn { flex: none; min-height: 44px; padding: var(--s2) var(--s4); }
+
+@media (max-width: 720px) {
+  /* The wording takes the line and the buttons take the next, full-size rather
+     than shrinking to sit beside a sentence. */
+  .scanbox__btns { width: 100%; justify-content: flex-end; }
+  .scanbox__btns .btn { flex: 1; }
+  .scanbox__all { margin-left: 0; }
+  .scanbox__head { flex-wrap: wrap; }
+}
+
+/* ── profile, targets and goals ─────────────────────────────────────── */
+
+/* A small state badge: on when something is personalised, quiet when the app
+   is falling back to a generic figure. Deliberately not alarm-coloured —
+   falling back to a Daily Value is a limitation to state, not an error. */
+.pill {
+  font-size: 11px; padding: 3px var(--s3); border-radius: var(--r-pill);
+  background: var(--sunken); color: var(--ink-3); white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.pill.is-on { background: var(--accent-wash); color: var(--accent-ink); }
+@media (prefers-color-scheme: dark) {
+  .pill.is-on { background: rgba(74, 124, 89, 0.22); }
+}
+
+/* Which reference system a percentage is against, under the nutrient's name.
+   Only rendered where it is not the app-wide default. */
+.nrow__basis { display: block; color: var(--ink-3); font-size: 11px; margin-top: 1px; }
+
+/* The energy hero's provenance — "estimated" or "your target". */
+.hero__basis { color: var(--ink-3); }
+
+/* A macronutrient's acceptable range, under its amount. Muted, because the
+   range is context for the figure above rather than a second figure. */
+.macro__range { color: var(--ink-3); font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+/* Outside the range is worth noticing but is not an error: the AMDRs are broad
+   and a day outside one is a fact, not a failure. Weight, not alarm colour. */
+.macro__range.is-outside { color: var(--ink-2); font-weight: 600; }
+
+/* Sits apart from the four destinations: reached occasionally rather than
+   somewhere the day is spent. */
+.sidebar__link--quiet { margin-top: auto; color: var(--ink-3); }
+.sidebar__link--quiet:hover { color: var(--ink); }
+
+.activityrow { grid-template-columns: 1fr auto; text-align: left; width: 100%; }
+.activityrow[aria-pressed="true"] { background: var(--accent-wash); border-radius: var(--r-md); }
+@media (prefers-color-scheme: dark) {
+  .activityrow[aria-pressed="true"] { background: rgba(74, 124, 89, 0.18); }
+}
+.activityrow__mark { color: var(--accent-ink); font-weight: 700; width: 16px; text-align: center; }
+
+.goalrow { grid-template-columns: 1fr auto; text-align: left; width: 100%; }
+.goalrow__limit {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-3); margin-left: var(--s2);
+}
+
+
+
+/* ── correcting a recorded entry ───────────────────────────────────────── */
+/* Lives inside .breakdown, so it inherits that block's type and spacing and
+   only needs to lay its own controls out. */
+.correct { display: flex; flex-direction: column; gap: var(--s4); }
+.correct__block { display: flex; flex-direction: column; gap: var(--s2); }
+.correct__label { font-weight: 600; color: var(--ink-2); }
+.correct__row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+/* Wide enough to read a figure in, but free to shrink on a narrow phone rather
+   than pushing the button it sits beside off the row. */
+.correct__row .field { flex: 1 1 7rem; min-width: 0; min-height: 44px; }
+.correct__row .btn { min-height: 44px; flex: none; }
+.correct__unit { color: var(--ink-3); flex: none; }
+.correct__error { color: var(--over); }
+
+/* ─────────────────────────────────────────────────────────────
+   The cook sheet — adjusting a recipe at the stove
+   ───────────────────────────────────────────────────────────── */
+
+/* A drift bar centred on zero, not a 0–max gauge. See IngredientDial for why
+   the step is relative to the line rather than absolute. */
+.dial { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.dial__step {
+  flex: none; width: 28px; height: 28px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+  font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
+}
+.dial__step:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.dial__step:disabled { opacity: 0.35; cursor: default; }
+.dial__track {
+  position: relative; flex: 1 1 auto; min-width: 72px; height: 28px;
+  cursor: ew-resize; touch-action: none;
+}
+.dial__track::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 2px;
+  background: var(--line); border-radius: 1px;
+}
+.dial__track:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.dial__track--off { opacity: 0.4; cursor: default; }
+/* What the recipe says. Heavier than the rail so the eye finds it first. */
+.dial__centre {
+  position: absolute; left: 50%; top: 7px; width: 2px; height: 14px;
+  margin-left: -1px; background: var(--ink-3); border-radius: 1px;
+}
+/* Deliberately NOT the warning colour. Drift is information; --over is kept
+   for a limit actually exceeded. */
+.dial__fill {
+  position: absolute; top: 13px; height: 2px; background: var(--accent); border-radius: 1px;
+}
+.dial__knob {
+  position: absolute; top: 8px; width: 12px; height: 12px; margin-left: -6px;
+  border-radius: 50%; background: var(--accent); border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.dial__reset {
+  flex: none; min-width: 104px; text-align: right; border: none; background: none;
+  color: var(--ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums;
+  cursor: pointer; padding: 0;
+}
+.dial__reset:disabled { cursor: default; }
+.dial__reset:hover:not(:disabled) { color: var(--ink); text-decoration: underline; }
+
+/* One ingredient at the stove: name and amount on top, dial beneath. */
+.cook-row { padding: var(--s3) 0; border-bottom: 1px solid var(--line); }
+.cook-row--off .cook-row__head { opacity: 0.45; }
+.cook-row__head {
+  display: grid; grid-template-columns: 1fr 84px auto auto;
+  gap: var(--s2); align-items: center;
+}
+.cook-row__amt { text-align: right; padding: var(--s2); }
+.cook-row__planned { color: var(--ink-3); font-size: 11.5px; }
+.cook-row__sub { color: var(--ink-3); font-size: 11.5px; margin-top: 2px; }
+.cook-row__dial { margin-top: var(--s2); }
+@media (max-width: 720px) {
+  .cook-row__head { grid-template-columns: 1fr 76px auto; }
+  .cook-row__acts { grid-column: 1 / -1; display: flex; gap: var(--s2); }
+}
+
+
+/* ═════════════════════════════════════════════════════════════
+   THE DESKTOP LAYER
+
+   Everything below answers one question the phone layout never
+   had to: what changes when the screen is large and the input
+   device is a CURSOR rather than a thumb.
+
+   Those are two separate facts and they are gated separately.
+   Width alone decides layout — how many columns, how wide the
+   canvas. Width AND `pointer: fine` together decide density,
+   because 44px is a thumb's minimum and a mouse can hit 28px
+   exactly. An Android tablet is wide and coarse; it gets the
+   columns and keeps every touch target it had.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* The scrim under a palette or a sheet. Its own token because it is not a
+     surface — it is the absence of one, and it has to darken a cream page and
+     a near-black one by different amounts to read the same. */
+  --scrim: rgba(28, 26, 23, 0.30);
+  /* A key cap. Quieter than --ink-3 text on --sunken would be on its own,
+     because a shortcut hint is a footnote to the thing it labels. */
+  --kbd-bg: rgba(28, 26, 23, 0.06);
+  /* A radius below --r-sm, for the two things smaller than a control: a key
+     cap and a micro-chip. 8px on a 17px-wide box reads as a pill. */
+  --r-xs: 6px;
+  /* What macOS reserves for its own traffic lights under
+     `titleBarStyle: Overlay`. A platform constant, not a spacing choice —
+     the lights are ~12px tall centred near y=20 — so it is named rather
+     than rounded onto the 4px scale, where it does not belong. */
+  --macos-titlebar: 38px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --scrim: rgba(0, 0, 0, 0.55);
+    --kbd-bg: rgba(255, 255, 255, 0.09);
+  }
+}
+
+/* ── a key cap ───────────────────────────────────────────────
+   Background and radius, no border: three decorative treatments
+   on a 16px element is over-decoration, and the shape alone
+   already says "key". */
+.kbd {
+  display: inline-block; min-width: 17px; padding: 2px 5px;
+  border-radius: var(--r-xs); background: var(--kbd-bg); color: var(--ink-3);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px; line-height: 1.35; text-align: center;
+  letter-spacing: 0; font-weight: 500;
+}
+.kbd + .kbd { margin-left: 3px; }
+
+/* ═════════════════════════════════════════════════════════════
+   ⌘K — the command palette
+   ═════════════════════════════════════════════════════════════ */
+
+/* Backdrop blur belongs on a full overlay and nowhere else in this file:
+   the page behind stays legible as context, which is what makes the palette
+   read as a layer over the day rather than as a new screen. */
+.pal {
+  position: fixed; inset: 0; z-index: 80;
+  display: flex; justify-content: center; align-items: flex-start;
+  padding: 12vh var(--s5) var(--s5);
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  animation: palIn 140ms ease-out;
+}
+@keyframes palIn { from { opacity: 0; } to { opacity: 1; } }
+
+.pal__box {
+  width: 100%; max-width: 580px; max-height: 62vh;
+  display: flex; flex-direction: column;
+  background: var(--surface); border-radius: var(--r-lg);
+  box-shadow: var(--lift-hi), 0 32px 64px -24px rgba(28, 26, 23, 0.35);
+  overflow: hidden;
+  animation: palRise 160ms ease-out;
+}
+@media (prefers-color-scheme: dark) { .pal__box { border: 1px solid var(--line); } }
+@keyframes palRise {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.pal__field {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line);
+  flex: none;
+}
+/* Not `.field`: this is the box's own top edge, so a second border and a
+   second radius inside it would be a control drawn inside a control. */
+.pal__input {
+  flex: 1; min-width: 0; border: none; background: none; outline: none;
+  font-size: 16px; color: var(--ink);
+}
+.pal__input::placeholder { color: var(--ink-3); }
+
+.pal__list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s2); }
+
+.pal__group {
+  padding: var(--s3) var(--s3) var(--s1);
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--ink-3); font-weight: 600;
+}
+
+/* Inner radius is the box's minus the list's padding — an element nested in a
+   16px container at 8px inset reads as contained at 8px and sloppy at 16px. */
+.pal__row {
+  display: flex; align-items: baseline; gap: var(--s3);
+  padding: var(--s2) var(--s3); border-radius: var(--r-sm);
+  cursor: pointer; min-height: 32px;
+}
+/* Selection by INVERSION. The strongest indicator available, and the reason
+   the palette needs no accent colour at all: one inverted row is the anchor,
+   and Enter runs the anchor. A wash would have to compete with the accent the
+   rest of the app already spends on "on track". */
+.pal__row[data-active="true"] { background: var(--ink); }
+.pal__row[data-active="true"] .pal__label { color: var(--bg); }
+.pal__row[data-active="true"] .pal__hint { color: var(--bg); opacity: 0.62; }
+
+.pal__label {
+  flex: 1; min-width: 0; font-size: 14px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pal__hint {
+  flex: none; max-width: 46%; color: var(--ink-3); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.pal__none {
+  margin: 0; padding: var(--s5) var(--s3); color: var(--ink-3);
+  font-size: 14px; max-width: var(--measure);
+}
+
+.pal__foot {
+  display: flex; align-items: center; gap: var(--s4); flex: none;
+  padding: var(--s2) var(--s5); border-top: 1px solid var(--line);
+  background: var(--sunken); color: var(--ink-3); font-size: 11.5px;
+}
+.pal__footnote { margin-left: auto; }
+
+/* ═════════════════════════════════════════════════════════════
+   Layout that uses the window
+   ═════════════════════════════════════════════════════════════ */
+
+@media (min-width: 721px) {
+  :root {
+    /* The old 1120px left a fifth of a 1440px window bare. This is still a
+       cap rather than a fill: prose stays held to --measure, so the extra
+       width goes to the things that can use it — a day's list of dishes, a
+       column of search results — and not to 140-character sentences. */
+    --shell: 1180px;
+    /* The date-stepper bar's height, named because the sticky rail beside it
+       has to start below it. A lower sticky element would scroll underneath
+       an opaque bar and lose its first rows — the same trap --topbar-h
+       exists to document on the phone. */
+    --toolbar-h: 72px;
+  }
+}
+
+@media (min-width: 1400px) {
+  :root { --shell: 1320px; }
+}
+
+/* ── Today, on a desktop ─────────────────────────────────────
+   The 1080px rule above this put the hero beside the triage card
+   and left the day's own list full-width beneath both — which
+   gave the LONGEST content the widest column only by accident,
+   and gave a 40-row list the same 44px rows it has on a phone.
+
+   This makes the split deliberate: the day reads down the wide
+   column, hero then dishes, and the triage card becomes a rail
+   that stays put while that column scrolls. A findings list you
+   have to scroll back up to re-read is a findings list you stop
+   consulting.
+   ───────────────────────────────────────────────────────────── */
+@media (min-width: 1080px) {
+  .screen--today { grid-template-columns: minmax(0, 1fr) minmax(316px, 0.44fr); }
+
+  /* The day reads DOWN the wide column: what you ate, then the dishes. */
+  .day-hero { grid-column: 1; grid-row: 1; }
+  .day-ate  { grid-column: 1; grid-row: 2; }
+
+  /* The triage rail. Spans both rows so it can stay put for the whole
+     scroll — a findings list you have to scroll back up to re-read is a
+     findings list you stop consulting. */
+  .day-watch {
+    grid-column: 2; grid-row: 1 / span 2;
+    position: sticky; top: calc(var(--toolbar-h) + var(--s5));
+    align-self: start;
+  }
+
+  /* In a 330px rail the track compresses to about 60px, which is too short
+     to read as a proportion and is redundant beside the percentage printed
+     immediately to its right. It carries no coverage information here
+     either: every row in this card is a `measured` reading by definition —
+     `worthALook()` filters on exactly that — so the hidden-track state
+     that distinguishes "unmeasured" from "none" can never occur in it.
+     Two columns instead, and the limit note stops wrapping into a row
+     twice the height of its neighbours. */
+  .day-watch .nrow { grid-template-columns: minmax(0, 1fr) auto; }
+  .day-watch .track { display: none; }
+}
+
+/* ── the master/detail workbench (Add food) ──────────────────
+   On a phone, picking a food REPLACES the results: one thing at
+   a time, which is right for a screen that holds one thing.
+
+   On a desktop that same swap throws away the list you were
+   comparing against every time you click a row — and a mispick
+   costs a trip back. Both panes stay, the results keep their
+   scroll position, and the weight field sticks beside them, so
+   picking is a glance rather than a navigation.
+   ───────────────────────────────────────────────────────────── */
+.workbench { display: flex; flex-direction: column; gap: var(--s5); min-width: 0; }
+/* Phone behaviour, unchanged: the list steps aside for the picked food. */
+.workbench[data-picked="true"] > .workbench__list { display: none; }
+.workbench__detail { min-width: 0; }
+
+@media (min-width: 1080px) {
+  .workbench {
+    display: grid; align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(392px, 0.52fr);
+    gap: var(--s6);
+  }
+  /* Both panes, always — this is the whole change. */
+  .workbench[data-picked="true"] > .workbench__list { display: block; }
+  .workbench__list { min-width: 0; }
+  .workbench__detail {
+    position: sticky; top: var(--s5);
+    /* Its own scroll, so a long nutrient panel cannot push the commit button
+       below the fold while the results list beside it is still short. */
+    max-height: calc(100vh - var(--s7)); overflow-y: auto;
+    /* The scrollbar must not sit on top of the card's shadow. */
+    padding-right: var(--s1); margin-right: calc(var(--s1) * -1);
+  }
+  /* The search field is this pane's own header, not a centred hero: it stops
+     being the one focal point on screen the moment results sit beside a
+     detail panel, and a 620px island in a 1180px column reads as a phone
+     screenshot pasted onto a desktop. */
+  .workbench__list .search-hero { max-width: none; margin: 0; }
+}
+
+/* Nothing picked yet. A quiet statement of what the pane is for, rather than
+   a blank half-window that reads as a rendering fault. */
+.rest {
+  display: none; padding: var(--s7) var(--s5); text-align: center;
+  color: var(--ink-3); border: 1px dashed var(--line);
+  border-radius: var(--r-lg); background: var(--sunken);
+}
+.rest h3 { color: var(--ink-2); font-size: 14px; font-weight: 600; margin-bottom: var(--s2); }
+.rest p { margin: 0; font-size: 13px; max-width: 34ch; margin-inline: auto; }
+@media (min-width: 1080px) { .rest { display: block; } }
+
+/* ═════════════════════════════════════════════════════════════
+   Density for a cursor.
+
+   `pointer: fine` is the whole gate. Every value here is a
+   target shrinking from a thumb's 44px to a mouse's 28–32px,
+   which is the difference between six rows on screen and twelve.
+   Nothing here changes a colour, a weight or a layout — this is
+   one axis only.
+   ═════════════════════════════════════════════════════════════ */
+
+@media (min-width: 721px) and (pointer: fine) {
+  /* Rows and lists */
+  .row { min-height: 32px; }
+  .nrow, .entryrow { padding-block: var(--s1); }
+  .iconbtn { width: 28px; height: 28px; }
+  .supline { padding: var(--s2) 0; }
+
+  /* Controls */
+  .chip { min-height: 28px; padding: var(--s1) var(--s3); }
+  .chip--sm { padding: var(--s1) var(--s2); }
+  .btn { padding: var(--s2) var(--s4); }
+  .field { padding: var(--s2) var(--s3); }
+  .search-hero .field { font-size: 15px; padding: var(--s3) var(--s4); }
+
+  /* Everything that was given a 44px floor for a thumb. A cursor does not
+     need it, and on a dense screen the floor is what stops a table reading
+     as a table. */
+  .vrow__btn, .pslot__btn, .pview__btn, .cam__x, .cam__shot,
+  .scanbox__all, .sup-barcode__btn, .vform__go, .correct__row .btn,
+  .lrow__lt, .lrow__amt, .dial__step { min-height: var(--s6); }
+  .vsel { min-height: var(--s6); }
+  .dial__step { width: var(--s5); height: var(--s5); }
+
+  /* Hover-to-reveal for a row's SECONDARY actions — never for navigation.
+     The dish is already named and dated in front of you; what you can do
+     with it is the part that only matters once you have reached for it, and
+     ten always-on × buttons down a list read as ten invitations to delete.
+     `:focus-within` keeps every one of them reachable by Tab. */
+  .entryrow .iconbtn {
+    opacity: 0;
+    transition: opacity 120ms ease-out, background-color 140ms ease-out;
+  }
+  .entryrow:hover .iconbtn,
+  .entryrow:focus-within .iconbtn { opacity: 1; }
+  /* A control that vanished under the pointer would be worse than one that
+     was never hidden. */
+  .entryrow .iconbtn:focus-visible { opacity: 1; }
+
+  .vrow__acts, .cook-row__acts { opacity: 0.55; transition: opacity 120ms ease-out; }
+  .vrow:hover .vrow__acts, .vrow:focus-within .vrow__acts,
+  .cook-row:hover .cook-row__acts, .cook-row:focus-within .cook-row__acts { opacity: 1; }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   macOS window chrome.
+
+   `titleBarStyle: Overlay` hands the whole window to the web
+   view and floats the traffic lights over its top-left corner —
+   which is where this app's sidebar brand used to sit. So the
+   sidebar reserves that strip, and the strip becomes the drag
+   handle a title bar would otherwise have provided.
+
+   Gated on [data-chrome="macos"], set in main.tsx only inside a
+   Tauri window on a Mac. A browser tab has real chrome above the
+   page and the Android build has a status bar; reserving 38px in
+   either would just be a gap.
+   ═════════════════════════════════════════════════════════════ */
+
+[data-chrome="macos"] .sidebar { padding-top: 0; }
+
+/* The reserved strip. Draggable, and deliberately taller than the lights
+   themselves so the pointer has somewhere to grab that is not a control. */
+.dragband { display: none; }
+[data-chrome="macos"] .dragband {
+  display: block; height: var(--macos-titlebar); flex: none;
+}
+/* The toolbar carries the attribute too, so the window can be moved by the
+   band beside the date-stepper. Tauri matches the event's own target, so the
+   stepper's buttons inside it are unaffected. */
+[data-chrome="macos"] .toolbar { cursor: default; }
+
+/* ── the desktop sidebar, finished ──────────────────────────── */
+
+@media (min-width: 721px) {
+  /* Search, as a real affordance rather than a shortcut nobody can find.
+     Tertiary weight on purpose: "Add food" above it is the primary action,
+     and two accent-filled buttons stacked would be two CTAs fighting. */
+  .sidebar__find {
+    display: flex; align-items: center; gap: var(--s2);
+    margin: 0 4px var(--s5); padding: 0 var(--s3);
+    min-height: 32px; border-radius: var(--r-md);
+    background: var(--surface); color: var(--ink-3);
+    font-size: 13px; text-align: left;
+    box-shadow: inset 0 0 0 1px var(--chrome-line);
+    transition: color 140ms ease-out, box-shadow 140ms ease-out;
+  }
+  .sidebar__find:hover { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--ink-3); }
+  .sidebar__find .kbd { margin-left: auto; background: var(--kbd-bg); }
+  .sidebar__findword { flex: 1; min-width: 0; }
+
+  /* The shortcut a destination answers to, at footnote weight. Recognition
+     beats recall: a shortcut the user has to be told about in a changelog is
+     a shortcut nobody presses. */
+  .sidebar__key {
+    margin-left: auto; color: var(--ink-3); font-size: 11px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    opacity: 0; transition: opacity 140ms ease-out;
+  }
+  .sidebar__link:hover .sidebar__key,
+  .sidebar__link[aria-current="page"] .sidebar__key { opacity: 1; }
+  .sidebar__link[aria-current="page"] .sidebar__key { color: var(--accent-ink); }
+  .sidebar__cta .kbd { margin-left: auto; background: rgba(255, 255, 255, 0.18); color: #fff; }
+
+  /* The footnote sits at the bottom; the nav no longer needs `margin-top:auto`
+     fighting it for the same space. */
+  .sidebar__note { border-top: 1px solid var(--chrome-line); margin-top: var(--s4); }
+}
+
+/* Below 721px none of the above renders, and the keyboard hints are
+   meaningless on a phone. */
+@media (max-width: 720px) {
+  .sidebar__find, .sidebar__key { display: none; }
+}
+
+/* ── the keyboard cursor in a result list ────────────────────
+   Hover and the arrow keys are the SAME state here: moving the
+   mouse over a row sets it, so there is one treatment rather
+   than two that could disagree about which row Enter acts on.
+   The wash is what hover already gave; the accent rule is what
+   says the highlight is armed.
+
+   Fine-pointer only. On a phone there is no cursor to carry —
+   a tap picks the row it landed on — and a permanent rule down
+   the first result would be claiming a selection nobody made. */
+.hits__hint { color: var(--ink-3); font-size: 11.5px; }
+
+@media (min-width: 721px) and (pointer: fine) {
+  .hit { position: relative; }
+  .hit[data-active="true"] { background: var(--sunken); }
+  .hit[data-active="true"]::before {
+    content: ""; position: absolute; left: 0; top: var(--s1); bottom: var(--s1);
+    width: 2px; border-radius: var(--r-pill); background: var(--accent);
+  }
+}
+
+/* ── the "what kind of thing" tabs on Add food ───────────────
+   Centred over a single narrow column, and left-aligned once
+   the workbench splits at 1080px and the search field below
+   them stops being centred with them. */
+.foodtabs { justify-content: center; }
+@media (min-width: 1080px) { .foodtabs { justify-content: flex-start; } }
+
+/* ── the full nutrient panel, on a wide window ───────────────
+   Twenty-four one-line rows down a 1,100px column puts half a
+   screen of nothing between a nutrient's name and its figure,
+   and asks for a scroll the width was supposed to buy back.
+
+   Two columns instead. `columns` rather than a grid because
+   the groups are wildly different heights — Energy holds one
+   row and Vitamins holds nine — and a grid would rag them into
+   rows as tall as the tallest. A group is kept whole where it
+   can be: the heading is what makes the reading order legible,
+   and a heading stranded at the foot of a column is worse than
+   an unbalanced pair of columns. */
+@media (min-width: 1080px) {
+  .panel { columns: 2; column-gap: var(--s7); }
+  .panel .group { break-inside: avoid; }
+  .panel .group:first-child { margin-top: 0; }
+  .panel .group__name { break-after: avoid; }
+}
+
+/* ── menu-shaped screens ─────────────────────────────────────
+   Library and You are lists of five or six links. Given the
+   whole canvas they put a lone "0" a thousand pixels from the
+   row it belongs to, which is the stretched-phone failure in
+   its purest form: the width was spent, and nothing was bought
+   with it.
+
+   Capped rather than centred. Left-aligned keeps the same
+   starting edge as every other screen, so moving between them
+   does not shift where the eye has to begin. */
+@media (min-width: 1080px) {
+  .screen--list { max-width: 760px; }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   The screen header — one shape, every screen.
+
+   Replaces `.screen__head`, which was a single baseline-aligned
+   wrapping row holding a back link, a title, a subtitle and a
+   primary button all at once. On a phone that row wrapped into
+   itself: the subtitle broke into the heading, and "‹ back" sat
+   stranded to the left of a 22px title looking bolted on.
+
+   Three rows now, in reading order — way back, title and its one
+   action, then what the screen is for. See ScreenHead.tsx.
+   ═════════════════════════════════════════════════════════════ */
+
+.head { display: flex; flex-direction: column; gap: var(--s2); }
+
+/* Bottom-aligned: an action sits level with the foot of the title block
+   rather than floating against the middle of a two-line one. */
+.head__row {
+  display: flex; align-items: flex-end; gap: var(--s3) var(--s4);
+  flex-wrap: wrap;
+}
+.head__text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.head__title { font-size: 22px; }
+/* Wraps under the title block, still right-aligned, when there is no room
+   beside it — rather than squeezing a long title into an ellipsis to keep
+   one row. */
+.head__act { display: flex; gap: var(--s2); flex: none; margin-left: auto; flex-wrap: wrap; }
+.head__sub {
+  color: var(--ink-3); font-size: 14px; margin: 0; max-width: var(--measure);
+}
+
+/* Desktop only. Android's back gesture already does this, and every
+   navigation here is a history entry precisely so that it can — see
+   `useHashRoute` in App.tsx. Drawing a button for it would spend the top row
+   of a phone screen on something the platform gives away.
+
+   Declared display:none FIRST, before the query that turns it on: an
+   unconditional rule of equal specificity beats an earlier conditional one,
+   so the order matters — the same trap `.fab` carries a comment about. */
+.head__back { display: none; }
+
+@media (min-width: 721px) {
+  .head__back {
+    display: inline-flex; align-items: center; gap: 5px;
+    align-self: flex-start; margin-left: calc(var(--s2) * -1);
+    padding: var(--s1) var(--s2); border-radius: var(--r-sm);
+    color: var(--ink-3); font-size: 13px; font-weight: 500;
+    transition: color 140ms ease-out, background-color 140ms ease-out;
+  }
+  .head__back:hover { color: var(--ink); background: var(--sunken); }
+}

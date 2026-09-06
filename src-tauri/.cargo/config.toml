@@ -1,0 +1,4 @@
+# See scripts/sign-and-run.sh. Only the app binary is re-signed; test binaries
+# fall through untouched.
+[target.'cfg(target_os = "macos")']
+runner = "scripts/sign-and-run.sh"

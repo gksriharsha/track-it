@@ -1,0 +1,321 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num {
+      font-family: Newsreader, Georgia, "Times New Roman", serif;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+    }
+    .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #8a8378; font-weight: 600; }
+    .gross {
+      border: none; background: transparent; text-align: right; width: 130px;
+      font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em; font-size: 34px; font-weight: 500; color: #1c1a17;
+      padding: 0; outline: none;
+    }
+    .gross:focus-visible { outline: 2px solid #4a7c59; outline-offset: 3px; border-radius: 8px; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; background: #fbfaf8; color: #1c1a17; display: flex; flex-direction: column; overflow: hidden;">
+
+  <div style="flex: none; border-bottom: 1px solid #e8e4dd; background: #fbfaf8;">
+    <div style="max-width: 1240px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 24px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <svg width="22" height="22" viewBox="0 0 32 32" style="flex: none; color: #4a7c59; display: block;" aria-hidden="true">
+          <path d="M 16 4.9 A 11.1 11.1 0 1 1 6.387 21.55" fill="none" stroke="currentColor" stroke-width="4.8" stroke-linecap="butt"></path>
+          <path d="M 5.175 22.25 A 12.5 12.5 0 0 1 16 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt"></path>
+        </svg>
+        <span style="font-family: Newsreader, Georgia, serif; font-size: 19px; font-weight: 500; letter-spacing: -0.025em;">TrackIt</span>
+      </div>
+      <div style="display: flex; gap: 4px; margin-left: auto;">
+        <span style="padding: 8px 12px; border-radius: 999px; color: #57524a; font-size: 14px; font-weight: 500;">Today</span>
+        <span style="padding: 8px 12px; border-radius: 999px; color: #57524a; font-size: 14px; font-weight: 500;">Add food</span>
+        <span style="padding: 8px 12px; border-radius: 999px; color: #57524a; font-size: 14px; font-weight: 500;">Nutrients</span>
+        <span style="padding: 8px 12px; border-radius: 999px; color: #57524a; font-size: 14px; font-weight: 500;">History</span>
+        <span style="padding: 8px 12px; border-radius: 999px; background: #1c1a17; color: #fbfaf8; font-size: 14px; font-weight: 600;">Recipes</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-height: 0; overflow: hidden;">
+    <div style="max-width: 1240px; margin: 0 auto; padding: 26px 24px 0; display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: 32px;">
+
+      <div style="min-width: 0; display: flex; flex-direction: column; gap: 18px;">
+        <div>
+          <div style="display: flex; align-items: baseline; gap: 12px;">
+            <h1 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.011em;">Rajma masala — what came out</h1>
+            <span style="color: #8a8378; font-size: 14px; margin-left: auto;">Cooked 4 Sep, 19:40</span>
+          </div>
+          <p style="margin: 6px 0 0; color: #57524a; font-size: 14px; max-width: 62ch; text-wrap: pretty;">
+            The pot weighs more than the ingredients did. Weigh what is actually there, and everything downstream is right.
+          </p>
+        </div>
+
+        <!-- THE RECONCILIATION. Raw sum vs measured yield, side by side, with
+             the reason. This is the single most valuable number in the flow. -->
+        <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 20px 24px;">
+          <div style="display: grid; grid-template-columns: 1fr 1px 1fr; gap: 28px; align-items: stretch;">
+
+            <div>
+              <div class="k">On the scale</div>
+              <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 4px;">
+                <input class="gross" value="{{gross}}" onInput="{{setGross}}" inputMode="decimal" aria-label="Gross weight in grams">
+                <span style="color: #8a8378; font-size: 14px;">g</span>
+              </div>
+              <div style="color: #57524a; font-size: 13px; margin-top: 14px;">minus what it is in</div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+                <sc-for list="{{vessels}}" as="v" hint-placeholder-count="3">
+                  <button onClick="{{v.pick}}" style="{{v.chipStyle}}">
+                    {{v.name}} <span class="num" style="opacity: 0.72;">{{v.gramsTxt}} g</span>
+                  </button>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="background: #e8e4dd;"></div>
+
+            <div style="display: flex; flex-direction: column;">
+              <div class="k">Cooked yield</div>
+              <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 4px;">
+                <span class="num" style="font-size: 34px; font-weight: 500; line-height: 1;">{{netTxt}}</span>
+                <span style="color: #8a8378; font-size: 14px;">g</span>
+              </div>
+
+              <!-- Raw → cooked as one bar, so the water gain is a shape rather
+                   than a sentence to parse. -->
+              <div style="margin-top: 16px;">
+                <div style="position: relative; height: 5px; background: #f4f2ee; border-radius: 999px; overflow: hidden;">
+                  <div style="{{rawFill}}"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; gap: 12px; margin-top: 7px; color: #8a8378; font-size: 12px;">
+                  <span>raw <span class="num" style="color: #57524a;">{{rawTxt}}</span> g</span>
+                  <span><span class="num" style="color: #3c6449;">{{gainTxt}}</span> {{gainWord}} water</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <sc-if value="{{overTare}}" hint-placeholder-val="{{false}}">
+            <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid #e8e4dd; color: #57524a; font-size: 12.5px; line-height: 1.55;">
+              The vessel weighs as much as the scale reading. Check which one is selected.
+            </div>
+          </sc-if>
+          <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid #e8e4dd; color: #57524a; font-size: 12.5px; line-height: 1.55; max-width: 84ch; text-wrap: pretty;">
+            Dry rajma roughly triples as it cooks. A katori of the finished dish logged against its raw weight overstates every nutrient about threefold — which is why the cooked weight, not the sum of the ingredients, is what portions divide into.
+          </div>
+        </div>
+
+        <!-- SERVINGS. Named portions already exist in the recipe schema, so
+             this is the screen that fills them in. -->
+        <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 4px 24px 18px;">
+          <div style="display: flex; align-items: baseline; gap: 12px; padding: 16px 0 10px;">
+            <span class="k">Portions</span>
+            <span style="margin-left: auto; color: #8a8378; font-size: 12px;">saved with the recipe — one click to log next time. Energy is a placeholder until the nutrient engine is wired in.</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px 92px 36px; gap: 16px; align-items: center; padding-bottom: 8px;">
+            <span class="k" style="font-size: 10px;">Name</span>
+            <span class="k" style="font-size: 10px; text-align: right;">Grams</span>
+            <span class="k" style="font-size: 10px; text-align: right;">Energy · est.</span>
+            <span class="k" style="font-size: 10px; text-align: right;">Share</span>
+            <span></span>
+          </div>
+
+          <sc-for list="{{portions}}" as="p" hint-placeholder-count="3">
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px 92px 36px; gap: 16px; align-items: center; min-height: 46px; border-top: 1px solid #e8e4dd;">
+              <span style="font-size: 14px; font-weight: 500;">{{p.label}}</span>
+              <span class="num" style="text-align: right; font-size: 15px;">{{p.gramsTxt}}</span>
+              <span class="num" style="text-align: right; font-size: 14px; color: #57524a;">{{p.kcal}}</span>
+              <span class="num" style="text-align: right; font-size: 13px; color: #8a8378;">{{p.share}}</span>
+              <button aria-label="Edit {{p.label}}" title="Edit {{p.label}}" style="width: 32px; height: 32px; border: none; border-radius: 8px; background: transparent; color: #8a8378; display: grid; place-items: center; cursor: pointer;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 20h4L19 9l-4-4L4 16v4z" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              </button>
+            </div>
+          </sc-for>
+
+          <!-- The convenience path, kept subordinate to weighing. -->
+          <div style="display: flex; align-items: center; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e8e4dd; flex-wrap: wrap;">
+            <span style="color: #57524a; font-size: 13.5px;">Or just cut the pot into</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <button onClick="{{fewer}}" aria-label="One fewer part" title="One fewer part" style="width: 34px; height: 34px; border-radius: 8px; border: 1px solid #e8e4dd; background: #ffffff; color: #57524a; display: grid; place-items: center; cursor: pointer;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14" stroke-linecap="round"></path></svg>
+              </button>
+              <span class="num" style="min-width: 30px; text-align: center; font-size: 20px; font-weight: 500;">{{n}}</span>
+              <button onClick="{{more}}" aria-label="One more part" title="One more part" style="width: 34px; height: 34px; border-radius: 8px; border: 1px solid #e8e4dd; background: #ffffff; color: #57524a; display: grid; place-items: center; cursor: pointer;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"></path></svg>
+              </button>
+            </div>
+            <span style="color: #57524a; font-size: 13.5px;">{{partsWord}} of <span class="num" style="font-weight: 550; color: #1c1a17;">{{perTxt}}</span> g</span>
+            <span style="margin-left: auto; color: #8a8378; font-size: 12px; max-width: 34ch; text-wrap: pretty;">Assumes everyone ate one. If they didn't, nothing here can tell.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- THE VESSEL LIBRARY. Its own panel because it outlives any one recipe. -->
+      <div style="min-width: 0; display: flex; flex-direction: column; gap: 16px; padding-bottom: 26px;">
+        <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 4px 20px 18px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; padding: 16px 0 8px;">
+            <span class="k">Your vessels</span>
+            <span style="margin-left: auto; color: #8a8378; font-size: 11.5px;">{{vesselCount}} weighed</span>
+          </div>
+
+          <sc-for list="{{library}}" as="v" hint-placeholder-count="7">
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) 68px 30px; gap: 12px; align-items: center; min-height: 44px; border-top: 1px solid #e8e4dd;">
+              <div style="min-width: 0;">
+                <div style="font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{v.name}}</div>
+                <div style="color: #8a8378; font-size: 11.5px;">{{v.when}}</div>
+              </div>
+              <span class="num" style="text-align: right; font-size: 14.5px;">{{v.gramsTxt}}<span style="font-size: 11px; color: #8a8378; font-family: ui-sans-serif, system-ui, sans-serif; letter-spacing: 0;"> g</span></span>
+              <button aria-label="Weigh {{v.name}} again" title="Weigh {{v.name}} again" style="width: 28px; height: 28px; border: none; border-radius: 8px; background: transparent; color: #8a8378; display: grid; place-items: center; cursor: pointer;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              </button>
+            </div>
+          </sc-for>
+
+          <button style="width: 100%; min-height: 44px; margin-top: 16px; border-radius: 12px; border: 1px dashed #e8e4dd; background: transparent; color: #3c6449; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3c6449" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"></path></svg>
+            Weigh a new vessel
+          </button>
+        </div>
+
+        <div style="background: #f4f2ee; border-radius: 16px; padding: 16px 20px; color: #57524a; font-size: 12.5px; line-height: 1.6;">
+          Each entry is one physical object, weighed empty once. Two steel katoris off the same shelf differ by three or four grams, so vessels are never looked up by type — the number has to be yours or it is not worth subtracting.
+        </div>
+
+        <div style="border: 1px dashed #e8e4dd; border-radius: 16px; padding: 16px 20px; color: #8a8378; font-size: 12.5px; line-height: 1.6;">
+          <span class="k" style="display: block; margin-bottom: 6px;">Still to decide</span>
+          Should a vessel be able to belong to a set — “katori no. 2, one of six” — so you weigh one and the app spreads the small variation across the rest? It would save five weighings and cost a gram of certainty.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 1440, "height": 900}
+}'>
+// One set of physical objects, each weighed empty once. Artboards share no
+// runtime state, so this is duplicated per screen by necessity — but it is the
+// same nine everywhere, and every count derives from it.
+const LIBRARY = [
+  { name: 'Steel thali',           grams: 612,  when: 'weighed 12 Aug' },
+  { name: 'Katori, small (no. 2)', grams: 87,   when: 'weighed 12 Aug' },
+  { name: 'Katori, large',         grams: 128,  when: 'weighed 12 Aug' },
+  { name: 'Dinner plate, ceramic', grams: 341,  when: 'weighed 3 Sep'  },
+  { name: 'Steel tumbler',         grams: 196,  when: 'weighed 12 Aug' },
+  { name: 'Spoon',                 grams: 24,   when: 'weighed 3 Sep'  },
+  { name: 'Steel pot, 3 L',        grams: 310,  when: 'weighed 21 Aug' },
+  { name: 'Kadhai',                grams: 845,  when: 'weighed 21 Aug' },
+  { name: 'Pressure cooker',       grams: 1240, when: 'weighed 21 Aug' },
+];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.vessels = [
+      { id: 'cooker', name: 'Pressure cooker', grams: 1240 },
+      { id: 'kadhai', name: 'Kadhai',          grams: 845  },
+      { id: 'pot',    name: 'Steel pot, 3 L',  grams: 310  },
+    ];
+    this.state = { gross: '2420', vessel: 'cooker', n: 5 };
+    this.setGross = this.setGross.bind(this);
+  }
+
+  setGross(e) {
+    // Digits and at most ONE point: "1.2.3" would otherwise pass and parseFloat
+    // would silently read 1.2.
+    var v = e.target.value.replace(/[^0-9.]/g, '');
+    var i = v.indexOf('.');
+    if (i !== -1) v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '');
+    this.setState({ gross: v });
+  }
+
+  fmt(n) { return (Math.abs(n - Math.round(n)) < 0.05) ? String(Math.round(n)) : n.toFixed(1); }
+
+  renderVals() {
+    var self = this;
+    var RAW = 704;         // sum of what went in, from the cook sheet
+    var KCAL_PER_G = 1.06; // illustrative; the real figure comes from the engine
+
+    var vessel = this.vessels.filter(function (v) { return v.id === self.state.vessel; })[0];
+    var gross = parseFloat(this.state.gross) || 0;
+    var overTare = gross > 0 && gross <= vessel.grams;
+    var net = Math.max(0, gross - vessel.grams);
+    var gain = net - RAW;
+
+    var portions = [
+      { label: '1 katori', grams: 220 },
+      { label: 'Half katori', grams: 110 },
+      { label: 'Bowl (full)', grams: 340 },
+    ].map(function (p) {
+      return {
+        label: p.label,
+        gramsTxt: self.fmt(p.grams),
+        kcal: self.fmt(p.grams * KCAL_PER_G),
+        share: net > 0 ? (p.grams / net * 100).toFixed(0) + '%' : '—',
+      };
+    });
+
+    return {
+      gross: this.state.gross,
+      setGross: this.setGross,
+      netTxt: overTare ? '—' : this.fmt(net),
+      rawTxt: this.fmt(RAW),
+      gainTxt: (gain >= 0 ? '+' : '−') + this.fmt(Math.abs(gain)) + ' g',
+      gainWord: gain >= 0 ? 'from' : 'lost as',
+      overTare: overTare,
+      // The raw share of the cooked weight, drawn as the app draws coverage.
+      rawFill: 'height: 100%; border-radius: 999px; background: #4a7c59; transition: width 200ms ease-out; width: '
+        + (net > 0 ? Math.min(100, RAW / net * 100) : 0) + '%;',
+
+      vessels: this.vessels.map(function (v) {
+        var on = v.id === self.state.vessel;
+        return {
+          name: v.name,
+          gramsTxt: self.fmt(v.grams),
+          chipStyle: 'display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 12px; '
+            + 'border-radius: 999px; font-size: 13px; cursor: pointer; '
+            + 'background: ' + (on ? '#1c1a17' : 'transparent') + '; '
+            + 'border: 1px solid ' + (on ? '#1c1a17' : '#e8e4dd') + '; '
+            + 'color: ' + (on ? '#fbfaf8' : '#57524a') + '; '
+            + 'font-weight: ' + (on ? '600' : '400') + ';',
+          pick: function () { self.setState({ vessel: v.id }); },
+        };
+      }),
+
+      portions: portions,
+      n: this.state.n,
+      partsWord: this.state.n === 1 ? 'part of' : 'equal parts of',
+      perTxt: this.fmt(net / Math.max(1, this.state.n)),
+      more: function () { self.setState({ n: Math.min(20, self.state.n + 1) }); },
+      fewer: function () { self.setState({ n: Math.max(1, self.state.n - 1) }); },
+
+      // The count comes FROM the list. Typed in beside it, it drifted the moment
+      // the list changed — and the list was missing two vessels this same canvas
+      // uses elsewhere.
+      vesselCount: LIBRARY.length,
+      library: LIBRARY.map(function (v) {
+        return { name: v.name, gramsTxt: self.fmt(v.grams), when: v.when };
+      }),
+    };
+  }
+}
+</script>
+</body>
+</html>

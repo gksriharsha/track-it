@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .word { font-family: Newsreader, Georgia, serif; font-weight: 500; letter-spacing: -0.025em; }
+    .cap { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="width: 560px; height: 640px; background: #fbfaf8; color: #1c1a17; padding: 36px 34px; display: flex; flex-direction: column; gap: 24px;">
+
+  <div>
+    <div class="cap">Option B — data-forward</div>
+    <h1 class="word" style="margin: 6px 0 0; font-size: 25px;">The interval</h1>
+    <p style="margin: 7px 0 0; color: #57524a; font-size: 13px; line-height: 1.55;">
+      Three stacked rules. Two land on a value; the third runs past its cap into a
+      lighter tail — the "at least this much, possibly more" the app computes for
+      every partly-measured nutrient.
+    </p>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 40px; padding: 30px 32px; background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10);">
+    <svg width="104" height="104" viewBox="0 0 32 32" style="flex: none; color: #4a7c59;" role="img" aria-label="TrackIt">
+      <path d="M5 9.5 H24" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" fill="none"></path>
+      <path d="M5 16 H17" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" fill="none"></path>
+      <path d="M5 22.5 H21" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" fill="none"></path>
+      <path d="M23.6 22.5 H27" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" fill="none" opacity="0.32"></path>
+    </svg>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 11px;">
+        <svg width="27" height="27" viewBox="0 0 32 32" style="flex: none; color: #4a7c59;" aria-hidden="true">
+          <path d="M5 9.5 H24" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" fill="none"></path>
+          <path d="M5 16 H17" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" fill="none"></path>
+          <path d="M5 22.5 H21" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" fill="none"></path>
+          <path d="M24 22.5 H27" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" fill="none" opacity="0.32"></path>
+        </svg>
+        <span class="word" style="font-size: 26px;">TrackIt</span>
+      </div>
+      <div style="display: flex; align-items: flex-end; gap: 20px;">
+        <sc-for list="{{sizes}}" as="s" hint-placeholder-count="3">
+          <svg width="{{s.px}}" height="{{s.px}}" viewBox="0 0 32 32" style="color: #4a7c59;" aria-hidden="true">
+            <path d="M5 9.5 H24" stroke="currentColor" stroke-width="{{s.w}}" stroke-linecap="round" fill="none"></path>
+            <path d="M5 16 H17" stroke="currentColor" stroke-width="{{s.w}}" stroke-linecap="round" fill="none"></path>
+            <path d="M5 22.5 H21" stroke="currentColor" stroke-width="{{s.w}}" stroke-linecap="round" fill="none"></path>
+            <path d="M24.4 22.5 H27" stroke="currentColor" stroke-width="{{s.w}}" stroke-linecap="round" fill="none" opacity="0.32"></path>
+          </svg>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 11px; padding: 22px 24px; background: #15140f; border-radius: 16px;">
+    <svg width="27" height="27" viewBox="0 0 32 32" style="flex: none; color: #85b393;" aria-hidden="true">
+      <path d="M5 9.5 H24" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" fill="none"></path>
+      <path d="M5 16 H17" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" fill="none"></path>
+      <path d="M5 22.5 H21" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" fill="none"></path>
+      <path d="M24 22.5 H27" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" fill="none" opacity="0.4"></path>
+    </svg>
+    <span class="word" style="font-size: 26px; color: #f2efe9;">TrackIt</span>
+  </div>
+
+  <div style="margin-top: auto; padding: 16px 18px; border: 1px dashed #e8e4dd; border-radius: 12px;">
+    <div class="cap">Tradeoff</div>
+    <p style="margin: 6px 0 0; color: #57524a; font-size: 13px; line-height: 1.55;">
+      The most literal about what the app measures, and the most legible at tiny
+      sizes. But three horizontal rules is close to a generic menu or list glyph, so
+      it earns less recognition as a brand mark than the ring does.
+    </p>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview": {"width": 560, "height": 640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { sizes: [{ px: 32, w: 4 }, { px: 24, w: 4.4 }, { px: 16, w: 5 }] };
+  }
+}
+</script>
+</body>
+</html>

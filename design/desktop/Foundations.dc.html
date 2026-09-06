@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .sw { border-radius: 10px; height: 56px; display: flex; align-items: flex-end; padding: 6px 8px; font-size: 10.5px; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="width: 1040px; height: 1520px; background: #fbfaf8; color: #1c1a17; padding: 44px 48px; display: flex; flex-direction: column; gap: 30px;">
+
+  <div>
+    <div class="cap">Desktop shell — what changed and why</div>
+    <h1 style="margin: 6px 0 0; font-size: 27px; font-weight: 600; font-family: Newsreader, Georgia, serif; letter-spacing: -0.01em;">Four fixes, one system</h1>
+    <p style="margin: 8px 0 0; color: #57524a; font-size: 14px; line-height: 1.6; max-width: 78ch;">
+      Nothing here is a new aesthetic — it is the existing tokens (warm neutrals, one green accent,
+      the terracotta reserved for a limit actually exceeded, Newsreader for numerals) applied with
+      one more degree of hierarchy: tone for structure, not just for state.
+    </p>
+  </div>
+
+  <!-- ── Colour ── -->
+  <div>
+    <div class="cap">Colour — one addition, everything else unchanged</div>
+    <div style="display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 10px; margin-top: 12px;">
+      <div class="sw" style="background:#fbfaf8; color:#8a8378; border:1px solid #e8e4dd;">--bg</div>
+      <div class="sw" style="background:#ffffff; color:#8a8378; border:1px solid #e8e4dd;">--surface</div>
+      <div class="sw" style="background:#f4f2ee; color:#8a8378;">--sunken</div>
+      <div class="sw" style="background:#eeeae1; color:#57524a; box-shadow: 0 0 0 2px #4a7c59 inset;">--chrome<br>NEW</div>
+      <div class="sw" style="background:#4a7c59; color:#fff;">--accent</div>
+      <div class="sw" style="background:#edf3ee; color:#3c6449;">--accent-wash</div>
+      <div class="sw" style="background:#b4553a; color:#fff;">--over</div>
+    </div>
+    <p style="margin: 10px 0 0; color: #57524a; font-size: 13px; line-height: 1.6; max-width: 82ch;">
+      <strong style="color:#1c1a17;">--chrome</strong> is the only new token: a shade past --sunken,
+      used only behind the sidebar and nowhere in the content pane. It says "structure" the way a
+      mail app's source list differs from its reading pane — tone doing the work that a colour
+      change would have overdone. The sidebar's <em>selected</em> nav row also stops inverting to
+      solid ink-on-cream and instead uses --accent-wash + a 3px accent rule, the same restraint the
+      app already applies to "over the limit": a tint, not a block of colour, carries the meaning.
+    </p>
+  </div>
+
+  <!-- ── Type ── -->
+  <div>
+    <div class="cap">Typography — same two faces, more confidence on desktop</div>
+    <div style="display: flex; gap: 40px; margin-top: 14px; align-items: flex-end;">
+      <div>
+        <div class="num" style="font-size: 46px; font-weight: 500;">1,840</div>
+        <div class="cap" style="margin-top: 4px;">Newsreader · numerals, unchanged</div>
+      </div>
+      <div>
+        <div style="font-family: Newsreader, Georgia, serif; font-size: 27px; font-weight: 600; letter-spacing: -0.01em;">Fri, Sep 5</div>
+        <div class="cap" style="margin-top: 4px;">Newsreader · NEW for the desktop screen title —<br>was 22px system-sans; the wordmark's own face now carries it</div>
+      </div>
+      <div>
+        <div style="font-size: 14.5px; font-weight: 600;">Nutrients</div>
+        <div class="cap" style="margin-top: 4px;">System sans · nav &amp; UI labels, unchanged</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── The back-arrow clash ── -->
+  <div>
+    <div class="cap">The back-arrow clash — same glyph, same corner, two different jobs</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 14px;">
+
+      <div style="border: 1px dashed #e8e4dd; border-radius: 14px; padding: 18px 20px;">
+        <div style="font-size: 12px; font-weight: 600; color: #b4553a; margin-bottom: 10px;">AS SHIPPED</div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #4a7c59; text-decoration: underline; text-underline-offset: 2px;">
+          <span style="font-size: 15px;">‹</span><span> back</span>
+        </div>
+        <div style="color: #8a8378; font-size: 11.5px; margin: 2px 0 16px;">Supplements screen — returns to Add food</div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: #57524a;">‹</span>
+          <span style="font-size: 20px; font-weight: 600;">Fri, Sep 5</span>
+          <span style="width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: #57524a;">›</span>
+        </div>
+        <div style="color: #8a8378; font-size: 11.5px; margin-top: 2px;">Today screen — steps one day, never leaves the screen</div>
+        <p style="margin: 14px 0 0; font-size: 12.5px; line-height: 1.55; color: #57524a;">
+          Both put a bare ‹ in the leading corner, at the same size, in the same weight. The corner
+          is the one position this app otherwise reserves for "go back" — so the day-stepper reads
+          as a return action it is not.
+        </p>
+      </div>
+
+      <div style="border: 1px solid #e8e4dd; border-radius: 14px; padding: 18px 20px; background: #ffffff; box-shadow: 0 1px 2px rgba(28,26,23,.05), 0 6px 20px -8px rgba(28,26,23,.1);">
+        <div style="font-size: 12px; font-weight: 600; color: #3c6449; margin-bottom: 10px;">THE FIX</div>
+        <div style="display: flex; align-items: center; height: 36px; border: 1px solid #e8e4dd; border-radius: 10px; width: fit-content; overflow: hidden; margin-bottom: 16px;">
+          <span style="width: 30px; display: grid; place-items: center; color: #57524a;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </span>
+          <span style="width: 1px; align-self: stretch; background: #e8e4dd;"></span>
+          <span style="padding: 0 12px; font-family: Newsreader, Georgia, serif; font-size: 14px; font-weight: 500;">Fri, Sep 5</span>
+          <span style="width: 1px; align-self: stretch; background: #e8e4dd;"></span>
+          <span style="width: 30px; display: grid; place-items: center; color: #57524a;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="width: 30px; height: 30px; border-radius: 999px; border: 1px solid #e8e4dd; display: grid; place-items: center; color: #57524a;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </span>
+          <span style="font-size: 13px; color: #57524a;">Back to Add food</span>
+        </div>
+        <p style="margin: 14px 0 0; font-size: 12.5px; line-height: 1.55; color: #57524a;">
+          The stepper moves out of the corner into a bounded, bordered control — its shape now says
+          "adjust a value," not "return." A single reusable circled-chevron becomes the app's one
+          Back affordance everywhere, replacing the two treatments currently in use — a text
+          link on Supplements, and the same quiet full-word button repeated on both Vessels and
+          Custom foods — worth carrying into those three screens next.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Space ── -->
+  <div style="margin-top: auto; padding: 20px 24px; border: 1px dashed #e8e4dd; border-radius: 16px;">
+    <div class="cap">Space — the arithmetic</div>
+    <p style="margin: 8px 0 0; color: #57524a; font-size: 13.5px; line-height: 1.6; max-width: 84ch;">
+      A 940px content column centred in a 1440px window leaves roughly 250px bare on each side —
+      a third of the window doing nothing. The sidebar (256px) and a two-column top row put almost
+      all of that width to work: the day's headline card and "Worth a look" sit side by side
+      instead of one stacked above a mostly-empty full-width card, and "Add food" gets a fixed,
+      always-visible spot instead of sharing a row with four unrelated destinations.
+    </p>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview": {"width": 1040, "height": 1520}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

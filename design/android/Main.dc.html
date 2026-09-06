@@ -1,0 +1,200 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; overflow: hidden;">
+
+  <!-- Safe area for the real Android status bar. Nothing is drawn here on
+       purpose: the OS paints its own clock and battery over this strip. -->
+  <div style="height: 44px;"></div>
+
+  <div style="padding: 0 20px 0;">
+
+    <!-- Brand sits quiet and small. The screen title is the anchor, not the
+         product name, which the user already knows. -->
+    <div style="display: flex; align-items: center; gap: 8px; height: 28px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="#4a7c59" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="42 14" />
+      </svg>
+      <span style="font-size: 12px; letter-spacing: 0.04em; color: #8a8378; font-weight: 600;">BIOBALANCE</span>
+    </div>
+
+    <!-- Title and the day stepper on one line. The stepper reads as a control
+         because it is a segmented pill, not two loose chevrons. -->
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px;">
+      <h1 style="margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -0.02em;">Today</h1>
+      <div style="display: flex; align-items: center; background: #ffffff; border: 1px solid #e8e4dd; border-radius: 999px; padding: 2px;">
+        <button style="width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; color: #57524a;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+        </button>
+        <span style="font-size: 12px; font-weight: 600; color: #57524a; padding: 0 4px; letter-spacing: 0.01em;">Sat 5</span>
+        <button style="width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; color: #cfc9bf;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Hero. The serif numeral is the app's one distinctive typographic
+         move; giving it real size is what makes the screen feel considered
+         rather than another dashboard. -->
+    <div style="margin-top: 26px; display: flex; align-items: baseline; gap: 10px;">
+      <span class="num" style="font-size: 72px; line-height: 0.86; font-weight: 500;">1,840</span>
+      <span style="font-size: 15px; color: #8a8378;">kcal</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+      <span style="font-size: 13px; color: #57524a;">660 left of 2,500</span>
+      <span style="width: 3px; height: 3px; border-radius: 999px; background: #cfc9bf;"></span>
+      <span style="font-size: 13px; color: #8a8378;">estimated</span>
+    </div>
+
+    <!-- One hairline rail. Rounded, accent-filled, no gradient. -->
+    <div style="height: 4px; background: #eeeae3; border-radius: 999px; margin-top: 14px; overflow: hidden;">
+      <div style="width: 73.6%; height: 100%; background: #4a7c59; border-radius: 999px;"></div>
+    </div>
+
+    <!-- Macros. Each carries its acceptable range underneath, because a
+         macronutrient has no single right number. -->
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px;">
+      <div>
+        <div class="num" style="font-size: 22px; font-weight: 500;">96 g</div>
+        <div style="font-size: 12px; color: #8a8378; margin-top: 2px;">protein</div>
+        <div style="font-size: 11px; color: #a89f92; margin-top: 3px; font-variant-numeric: tabular-nums;">63–219 g</div>
+      </div>
+      <div>
+        <div class="num" style="font-size: 22px; font-weight: 500;">214 g</div>
+        <div style="font-size: 12px; color: #8a8378; margin-top: 2px;">carbs</div>
+        <div style="font-size: 11px; color: #a89f92; margin-top: 3px; font-variant-numeric: tabular-nums;">281–406 g</div>
+      </div>
+      <div>
+        <div class="num" style="font-size: 22px; font-weight: 500;">71 g</div>
+        <div style="font-size: 12px; color: #8a8378; margin-top: 2px;">fat</div>
+        <div style="font-size: 11px; color: #a89f92; margin-top: 3px; font-variant-numeric: tabular-nums;">56–97 g</div>
+      </div>
+    </div>
+
+    <!-- Worth a look -->
+    <div style="background: #ffffff; border-radius: 20px; padding: 18px 18px 8px; margin-top: 26px; box-shadow: 0 1px 2px rgba(28,26,23,0.04), 0 8px 24px -12px rgba(28,26,23,0.10);">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Worth a look</h2>
+        <span style="font-size: 12px; color: #8a8378;">31 of 47 measured</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; margin-top: 10px;">
+        <div style="display: grid; grid-template-columns: 1fr 64px auto; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #f1eee8;">
+          <span>
+            <span style="display: flex; align-items: center; gap: 7px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b4553a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+              <span style="font-size: 14px;">Sodium</span>
+            </span>
+            <span style="display: block; font-size: 11px; color: #8a8378; margin-top: 2px; margin-left: 20px;">above the daily limit</span>
+          </span>
+          <span style="height: 5px; background: #f3e4de; border-radius: 999px; overflow: hidden;">
+            <span style="display: block; width: 100%; height: 100%; background: #b4553a; border-radius: 999px;"></span>
+          </span>
+          <span style="display: flex; align-items: baseline; gap: 7px; justify-content: flex-end;">
+            <span class="num" style="font-size: 14px; font-weight: 500; color: #b4553a;">2,640 mg</span>
+          </span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 64px auto; align-items: center; gap: 12px; padding: 11px 0;">
+          <span>
+            <span style="display: flex; align-items: center; gap: 7px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8a8378" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
+              <span style="font-size: 14px;">Calcium</span>
+            </span>
+            <span style="display: block; font-size: 11px; color: #8a8378; margin-top: 2px; margin-left: 20px;">of RDA</span>
+          </span>
+          <span style="height: 5px; background: #eeeae3; border-radius: 999px; overflow: hidden;">
+            <span style="display: block; width: 41%; height: 100%; background: #4a7c59; border-radius: 999px;"></span>
+          </span>
+          <span style="display: flex; align-items: baseline; gap: 7px; justify-content: flex-end;">
+            <span class="num" style="font-size: 14px; font-weight: 500;">412 mg</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Was an underlined link. Now a real row button with a chevron, which
+           is what it always was: navigation. Soft fill and a rounded corner
+           rather than a hairline rule — a separator line AND a square-cornered
+           full-width box was two boundaries doing one job, and the sharp
+           corners were the only ones in a design of rounded cards and pills.
+           The radius is smaller than the card's 20px, as a nested one should
+           be. -->
+      <button style="display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 46px; margin: 14px 0 10px; padding: 0 14px; background: #f7f5f1; border-radius: 14px; color: #3c6449; font-size: 13px; font-weight: 600;">
+        <span>See all 47 nutrients</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+      </button>
+    </div>
+
+    <div class="cap" style="margin-top: 22px;">What you ate</div>
+  </div>
+
+  <!-- Primary action as a floating button rather than a fifth tab. Adding
+       food is something you DO, not somewhere you go — and it lifts the
+       destination count back to five without crowding. -->
+  <button style="position: absolute; right: 20px; bottom: 96px; width: 56px; height: 56px; border-radius: 999px; background: #4a7c59; color: #ffffff; display: grid; place-items: center; box-shadow: 0 4px 14px -2px rgba(74,124,89,0.45), 0 2px 4px rgba(28,26,23,0.10);">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+  </button>
+
+  <!-- Bottom navigation. Selection is the ACCENT plus a soft wash, never a
+       solid black pill: inversion is what made the old bar read as a row of
+       blobs, and it is the same rule that turned the profile icon black. -->
+  <nav style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.94); backdrop-filter: blur(12px); border-top: 1px solid #e8e4dd; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 6px 4px 18px;">
+
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #3c6449;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px; border-radius: 999px; background: #edf3ee;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /></svg>
+      </span>
+      <span style="font-size: 10.5px; font-weight: 600;">Today</span>
+    </button>
+
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #8a8378;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7" /></svg>
+      </span>
+      <span style="font-size: 10.5px; font-weight: 500;">Nutrients</span>
+    </button>
+
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #8a8378;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 9.5h17M8 3v4M16 3v4" /></svg>
+      </span>
+      <span style="font-size: 10.5px; font-weight: 500;">History</span>
+    </button>
+
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #8a8378;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H9v16H5.5A1.5 1.5 0 0 1 4 18.5z" /><path d="M9 4h5.5A1.5 1.5 0 0 1 16 5.5v13a1.5 1.5 0 0 1-1.5 1.5H9" /><path d="M18 7l2.4.6a1 1 0 0 1 .7 1.2l-2.6 10" /></svg>
+      </span>
+      <span style="font-size: 10.5px; font-weight: 500;">Library</span>
+    </button>
+
+    <!-- The profile lives here now: a labelled destination in the bar every
+         other destination is in, not an unexplained icon floating in the
+         header. -->
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #8a8378;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.4" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg>
+      </span>
+      <span style="font-size: 10.5px; font-weight: 500;">You</span>
+    </button>
+  </nav>
+</div>
+</x-dc>
+</body>
+</html>

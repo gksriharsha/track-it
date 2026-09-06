@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .card { background: #ffffff; border-radius: 20px; padding: 18px; box-shadow: 0 1px 2px rgba(28,26,23,0.04), 0 8px 24px -12px rgba(28,26,23,0.10); }
+    .field { background: #f7f5f1; border-radius: 12px; min-height: 46px; display: flex; align-items: center; padding: 0 13px; font-size: 15px; }
+    .fieldSm { background: #f7f5f1; border-radius: 10px; min-height: 40px; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px; font-size: 14px; }
+    .note { font-size: 12px; color: #8a8378; line-height: 1.6; }
+    .chip { border-radius: 999px; padding: 9px 15px; font-size: 12.5px; font-weight: 500; background: #fff; border: 1px solid #e3ded5; color: #57524a; }
+    .chipOn { border-radius: 999px; padding: 9px 15px; font-size: 12.5px; font-weight: 600; background: #edf3ee; border: 1px solid #cfe0d4; color: #3c6449; }
+    .chipSm { border-radius: 999px; padding: 6px 11px; font-size: 11.5px; font-weight: 500; background: #fff; border: 1px solid #e3ded5; color: #57524a; }
+    .chipSmOn { border-radius: 999px; padding: 6px 11px; font-size: 11.5px; font-weight: 600; background: #edf3ee; border: 1px solid #cfe0d4; color: #3c6449; }
+    .primary { min-height: 50px; border-radius: 14px; background: #4a7c59; color: #fff; font-size: 15px; font-weight: 600; }
+    .quiet { min-height: 50px; padding: 0 20px; border-radius: 14px; border: 1px solid #e3ded5; background: #fff; color: #57524a; font-size: 14px; font-weight: 600; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 1150px; background: #fbfaf8; color: #1c1a17;">
+  <div style="height: 44px;"></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 8px 20px 0;">
+    <button style="width: 40px; height: 40px; border-radius: 999px; background: #f4f2ee; display: grid; place-items: center; color: #57524a; flex: none;">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+    </button>
+    <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.015em; flex: 1;">New recipe</span>
+  </div>
+  <div style="padding: 0 20px 40px;">
+    <div class="card" style="margin-top: 20px;">
+      <div class="cap">Name</div>
+      <div class="field" style="margin-top: 6px;">Rajma chawal</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px;">
+        <span><span class="cap">Servings</span><span class="field" style="margin-top: 6px;"><span class="num">4</span></span></span>
+        <span><span class="cap">Yield</span><span class="field" style="margin-top: 6px; color: #8a8378;"><span class="num">1,212 g</span></span></span>
+      </div>
+      <p class="note" style="margin-top: 10px;">Yield is the sum of the cooked weights below.</p>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Ingredients</h2>
+        <span class="note">raw → cooked</span>
+      </div>
+      <p class="note" style="margin-top: 6px;">
+        Dry rajma roughly triples. Ignoring that reads a katori of cooked beans as if it were dry —
+        a threefold error.
+      </p>
+
+      <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 14px;">
+        <span>
+          <span style="display: block; font-size: 14px; margin-bottom: 6px;">Kidney beans, dry</span>
+          <span style="display: grid; grid-template-columns: 1fr 1fr 36px; gap: 8px; align-items: center;">
+            <span class="fieldSm"><span class="num">128 g</span></span>
+            <span class="fieldSm"><span class="num">384 g</span></span>
+            <button style="width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; color: #b4553a;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+          </span>
+        </span>
+        <span>
+          <span style="display: block; font-size: 14px; margin-bottom: 6px;">Rice, dry</span>
+          <span style="display: grid; grid-template-columns: 1fr 1fr 36px; gap: 8px; align-items: center;">
+            <span class="fieldSm"><span class="num">210 g</span></span>
+            <span class="fieldSm"><span class="num">630 g</span></span>
+            <button style="width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; color: #b4553a;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+          </span>
+        </span>
+        <span>
+          <span style="display: flex; align-items: center; gap: 7px; margin-bottom: 6px;">
+            <span style="font-size: 14px; color: #57524a;">Garam masala</span>
+            <span style="font-size: 9.5px; font-weight: 600; color: #a2563c; background: #f8ede9; border-radius: 999px; padding: 2px 7px;">NO DATA</span>
+          </span>
+          <span style="display: grid; grid-template-columns: 1fr 1fr 36px; gap: 8px; align-items: center;">
+            <span class="fieldSm"><span class="num">8 g</span></span>
+            <span class="fieldSm"><span class="num">8 g</span></span>
+            <button style="width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; color: #b4553a;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+          </span>
+        </span>
+      </div>
+
+      <button style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 46px; margin-top: 16px; border-radius: 14px; background: #f4f2ee; color: #3c6449; font-size: 13px; font-weight: 600;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        Add an ingredient
+      </button>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 600;">What this dish usually is</h2>
+      <p class="note" style="margin-top: 6px;">
+        A starting point only. It fills the tags the first time you log this, and changing it never
+        rewrites a day already logged.
+      </p>
+      <div class="cap" style="margin-top: 14px;">Where it comes from</div>
+      <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+        <button class="chipSmOn">Made at home</button>
+        <button class="chipSm">Ordered in</button>
+        <button class="chipSm">Ate out</button>
+      </div>
+      <div class="cap" style="margin-top: 14px;">Cuisine</div>
+      <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+        <button class="chipSm">South Indian</button>
+        <button class="chipSmOn">North Indian</button>
+        <button class="chipSm" style="border-style: dashed; color: #8a8378;">+ Other</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Named servings</h2>
+        <span class="note">optional</span>
+      </div>
+      <p class="note" style="margin-top: 6px;">So you can log “1 katori” instead of weighing.</p>
+      <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px;">
+        <span class="field" style="flex: 1;">1 katori + 1 cup</span>
+        <span class="fieldSm" style="width: 86px;"><span class="num">303 g</span></span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-top: 22px;">
+      <button class="quiet">Cancel</button>
+      <button class="primary" style="flex: 1;">Save recipe</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

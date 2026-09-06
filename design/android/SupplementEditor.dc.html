@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .card { background: #ffffff; border-radius: 20px; padding: 18px; box-shadow: 0 1px 2px rgba(28,26,23,0.04), 0 8px 24px -12px rgba(28,26,23,0.10); }
+    .field { background: #f7f5f1; border-radius: 12px; min-height: 46px; display: flex; align-items: center; padding: 0 13px; font-size: 15px; }
+    .fieldSm { background: #f7f5f1; border-radius: 10px; min-height: 40px; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px; font-size: 14px; }
+    .note { font-size: 12px; color: #8a8378; line-height: 1.6; }
+    .chipSm { border-radius: 999px; padding: 6px 11px; font-size: 11.5px; font-weight: 500; background: #fff; border: 1px solid #e3ded5; color: #57524a; }
+    .chipSmOn { border-radius: 999px; padding: 6px 11px; font-size: 11.5px; font-weight: 600; background: #edf3ee; border: 1px solid #cfe0d4; color: #3c6449; }
+    .primary { min-height: 50px; border-radius: 14px; background: #4a7c59; color: #fff; font-size: 15px; font-weight: 600; }
+    .quiet { min-height: 50px; padding: 0 20px; border-radius: 14px; border: 1px solid #e3ded5; background: #fff; color: #57524a; font-size: 14px; font-weight: 600; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 1280px; background: #fbfaf8; color: #1c1a17;">
+  <div style="height: 44px;"></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 8px 20px 0;">
+    <button style="width: 40px; height: 40px; border-radius: 999px; background: #f4f2ee; display: grid; place-items: center; color: #57524a; flex: none;">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+    </button>
+    <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.015em; flex: 1;">From the panel</span>
+  </div>
+  <div style="padding: 0 20px 40px;">
+    <div class="card" style="margin-top: 20px;">
+      <div class="cap">Name</div>
+      <div class="field" style="margin-top: 6px;">Vitamin E 400 IU</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px;">
+        <span><span class="cap">One of these is a…</span><span class="field" style="margin-top: 6px;">softgel</span></span>
+        <span><span class="cap">Serving is</span><span class="field" style="margin-top: 6px;"><span class="num">1</span></span></span>
+      </div>
+      <p class="note" style="margin-top: 10px;">
+        Every figure below is per <strong style="color: #57524a;">1 softgel</strong>. Taking a
+        different number is recorded on the day you take it, not here.
+      </p>
+    </div>
+
+    <!-- The regime decides what the panel's SILENCE is worth, so it is asked
+         rather than guessed: nothing on a bottle says which market printed it. -->
+    <div class="card" style="margin-top: 16px;">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Which panel is on it</h2>
+      <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+        <button class="chipSmOn">US “Supplement Facts”</button>
+        <button class="chipSm">Indian or other</button>
+      </div>
+      <p class="note" style="margin-top: 10px;">
+        A US panel must declare fifteen nutrients whenever they are present above a threshold — and
+        must <em>not</em> declare them below it. So leaving one of those out is the pack saying
+        “less than that”, and this app counts it as a bound. Everything else is voluntary: its
+        absence says nothing.
+      </p>
+      <div style="display: flex; gap: 11px; align-items: flex-start; background: #f7f5f1; border-radius: 14px; padding: 14px; margin-top: 14px;">
+        <span style="width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid #c3bcb0; background: #fff; flex: none; margin-top: 1px;"></span>
+        <span>
+          <span style="display: block; font-size: 13.5px; font-weight: 600;">This panel lists everything in the product.</span>
+          <span class="note" style="display: block; margin-top: 3px;">
+            Your own judgement, not the regulation's — a nutrient can be present from an undeclared
+            route. Ticking it counts every omission as a real zero instead of an unknown.
+          </span>
+        </span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">What the panel declares</h2>
+        <span class="note">1 converted, 1 not</span>
+      </div>
+
+      <div style="padding: 14px 0 0;">
+        <span style="display: grid; grid-template-columns: 1fr 76px 62px; gap: 8px; align-items: center;">
+          <span style="font-size: 14px;">Vitamin D</span>
+          <span class="fieldSm"><span class="num">1000</span></span>
+          <span class="fieldSm" style="justify-content: space-between;"><span style="font-size: 12.5px;">IU</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a89f92" stroke-width="2.6" stroke-linecap="round"><path d="M6 9l6 6 6-6" /></svg></span>
+        </span>
+        <p class="note" style="margin-top: 7px; color: #3c6449;">counts as 25 µg — the factor is the same for D2 and D3</p>
+      </div>
+
+      <!-- A refusal is information, not an error the user caused. -->
+      <div style="padding: 16px 0 0; border-top: 1px solid #f1eee8; margin-top: 14px;">
+        <span style="display: grid; grid-template-columns: 1fr 76px 62px; gap: 8px; align-items: center;">
+          <span style="font-size: 14px;">Vitamin E</span>
+          <span class="fieldSm"><span class="num">400</span></span>
+          <span class="fieldSm" style="justify-content: space-between;"><span style="font-size: 12.5px;">IU</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a89f92" stroke-width="2.6" stroke-linecap="round"><path d="M6 9l6 6 6-6" /></svg></span>
+        </span>
+        <div style="display: flex; gap: 7px; margin-top: 10px; flex-wrap: wrap;">
+          <button class="chipSm">Natural — d-alpha</button>
+          <button class="chipSm">Synthetic — dl-alpha</button>
+        </div>
+        <p style="font-size: 12px; color: #57524a; line-height: 1.6; margin: 10px 0 0; padding: 11px 13px; background: #f4f2ee; border-radius: 12px;">
+          400 IU is 268 mg if it is natural and 180 mg if it is synthetic — a 1.49× difference.
+          Until the form is named, this line is stored exactly as printed and counted as unknown.
+        </p>
+      </div>
+
+      <button style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 46px; margin-top: 18px; border-radius: 14px; background: #f4f2ee; color: #3c6449; font-size: 13px; font-weight: 600;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        Add a line
+      </button>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-top: 22px;">
+      <button class="quiet">Cancel</button>
+      <button class="primary" style="flex: 1;">Save supplement</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

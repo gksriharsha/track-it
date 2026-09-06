@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .word { font-family: Newsreader, Georgia, serif; font-weight: 500; letter-spacing: -0.025em; }
+    .serifB { font-family: Newsreader, Georgia, serif; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+    .cap { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="width: 560px; height: 640px; background: #fbfaf8; color: #1c1a17; padding: 36px 34px; display: flex; flex-direction: column; gap: 24px;">
+
+  <div>
+    <div class="cap">Option C — typographic</div>
+    <h1 class="word" style="margin: 6px 0 0; font-size: 25px;">The two-tone B</h1>
+    <p style="margin: 7px 0 0; color: #57524a; font-size: 13px; line-height: 1.55;">
+      A serif B whose upper bowl is solid and lower bowl is outlined — the same
+      known/unknown split, carried by the letter itself. The most conventional
+      option, and the one that needs no explaining.
+    </p>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 40px; padding: 30px 32px; background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10);">
+    <!-- Built from the loaded serif rather than drawn, so the letterform matches
+         the wordmark exactly. The lower bowl is knocked out with a clip. -->
+    <div style="position: relative; width: 104px; height: 104px; flex: none;">
+      <span class="serifB" style="position: absolute; inset: 0; font-size: 104px; color: #4a7c59; clip-path: inset(0 0 46% 0);">B</span>
+      <span class="serifB" style="position: absolute; inset: 0; font-size: 104px; color: transparent; -webkit-text-stroke: 2px #4a7c59; clip-path: inset(54% 0 0 0);">B</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="position: relative; width: 27px; height: 27px; flex: none;">
+          <span class="serifB" style="position: absolute; inset: 0; font-size: 27px; color: #4a7c59; clip-path: inset(0 0 46% 0);">B</span>
+          <span class="serifB" style="position: absolute; inset: 0; font-size: 27px; color: transparent; -webkit-text-stroke: 1.1px #4a7c59; clip-path: inset(54% 0 0 0);">B</span>
+        </div>
+        <span class="word" style="font-size: 26px;">TrackIt</span>
+      </div>
+      <div style="display: flex; align-items: flex-end; gap: 20px;">
+        <sc-for list="{{sizes}}" as="s" hint-placeholder-count="3">
+          <div style="position: relative; width: {{s.px}}px; height: {{s.px}}px;">
+            <span class="serifB" style="position: absolute; inset: 0; font-size: {{s.px}}px; color: #4a7c59; clip-path: inset(0 0 46% 0);">B</span>
+            <span class="serifB" style="position: absolute; inset: 0; font-size: {{s.px}}px; color: transparent; -webkit-text-stroke: {{s.stroke}} #4a7c59; clip-path: inset(54% 0 0 0);">B</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; padding: 22px 24px; background: #15140f; border-radius: 16px;">
+    <div style="position: relative; width: 27px; height: 27px; flex: none;">
+      <span class="serifB" style="position: absolute; inset: 0; font-size: 27px; color: #85b393; clip-path: inset(0 0 46% 0);">B</span>
+      <span class="serifB" style="position: absolute; inset: 0; font-size: 27px; color: transparent; -webkit-text-stroke: 1.1px #85b393; clip-path: inset(54% 0 0 0);">B</span>
+    </div>
+    <span class="word" style="font-size: 26px; color: #f2efe9;">TrackIt</span>
+  </div>
+
+  <div style="margin-top: auto; padding: 16px 18px; border: 1px dashed #e8e4dd; border-radius: 12px;">
+    <div class="cap">Tradeoff</div>
+    <p style="margin: 6px 0 0; color: #57524a; font-size: 13px; line-height: 1.55;">
+      Safe, and it ties tightly to the wordmark. But a letter in a colour is what most
+      apps do, the outlined half turns muddy below 20px, and it depends on a webfont
+      loading — an SVG mark does not.
+    </p>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview": {"width": 560, "height": 640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      sizes: [
+        { px: 32, stroke: '1.3px' },
+        { px: 24, stroke: '1.1px' },
+        { px: 16, stroke: '0.9px' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

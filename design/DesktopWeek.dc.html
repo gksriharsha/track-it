@@ -1,0 +1,188 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num { font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .tnum { font-variant-numeric: tabular-nums; }
+    kbd { font: inherit; font-size: 11px; padding: 2px 5px; border-radius: 4px; background: #f4f2ee; color: #57524a; border: 1px solid #e8e4dd; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; background: #fbfaf8; color: #1c1a17; font-size: 14px; line-height: 1.5; display: grid; grid-template-columns: 216px minmax(0, 1fr); overflow: hidden;">
+
+  <div style="background: #ffffff; border-right: 1px solid #e8e4dd; display: flex; flex-direction: column; padding: 18px 12px;">
+    <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px 18px; font-weight: 650; letter-spacing: -0.02em; font-size: 15px;">
+      <span style="width: 9px; height: 9px; border-radius: 3px; background: #4a7c59; display: block;"></span>
+      TrackIt
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="5">
+        <div style="display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; min-height: 34px; padding: 0 10px; border-radius: 8px; background: {{n.bg}}; color: {{n.fg}}; font-weight: {{n.weight}};">
+          <span>{{n.label}}</span>
+          <kbd>{{n.key}}</kbd>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="overflow: auto; padding: 20px 24px; min-width: 0;">
+    <div style="display: flex; align-items: baseline; gap: 12px;">
+      <h1 style="margin: 0; font-size: 20px;">Last four weeks</h1>
+      <span style="color: #8a8378; font-size: 13px;">averaged over the 19 days you logged</span>
+      <div style="margin-left: auto; display: flex; gap: 6px;">
+        <sc-for list="{{ranges}}" as="r" hint-placeholder-count="4">
+          <button onClick="{{r.pick}}" style="min-height: 30px; padding: 0 12px; border: 1px solid {{r.border}}; border-radius: 999px; background: {{r.bg}}; color: {{r.fg}}; font: inherit; font-size: 12px; font-weight: {{r.weight}};">{{r.label}}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- THE DESKTOP-ONLY VIEW. Twenty-eight days across fourteen nutrients is
+         392 cells: unreadable on a phone, and the only shape that makes a
+         PATTERN visible rather than a single day's numbers. -->
+    <div style="display: grid; grid-template-columns: 132px repeat(28, minmax(0, 1fr)) 78px; gap: 2px; margin-top: 20px; align-items: center;">
+
+      <span></span>
+      <sc-for list="{{days}}" as="d" hint-placeholder-count="28">
+        <span style="font-size: 9px; color: {{d.color}}; text-align: center; font-weight: {{d.weight}};">{{d.label}}</span>
+      </sc-for>
+      <span style="font-size: 10px; color: #8a8378; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; text-align: right;">Avg</span>
+
+      <sc-for list="{{rows}}" as="row" hint-placeholder-count="14">
+        <span style="font-size: 12px; color: {{row.labelColor}}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px;">{{row.name}}</span>
+        <sc-for list="{{row.cells}}" as="c" hint-placeholder-count="28">
+          <span title="{{c.tip}}" style="height: 22px; border-radius: 3px; background: {{c.bg}}; display: block;"></span>
+        </sc-for>
+        <span class="tnum" style="font-size: 12px; text-align: right; color: {{row.avgColor}}; font-weight: 550;">{{row.avg}}</span>
+      </sc-for>
+    </div>
+
+    <!-- The legend has to name the blank, or a gap reads as a zero. -->
+    <div style="display: flex; align-items: center; gap: 18px; margin-top: 22px; flex-wrap: wrap;">
+      <span style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: #57524a;">
+        <span style="display: flex; gap: 2px;">
+          <sc-for list="{{scale}}" as="s" hint-placeholder-count="5">
+            <span style="width: 18px; height: 12px; border-radius: 2px; background: {{s.bg}}; display: block;"></span>
+          </sc-for>
+        </span>
+        0 → 100%+ of target
+      </span>
+      <span style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: #57524a;">
+        <span style="width: 18px; height: 12px; border-radius: 2px; background: #b4553a; display: block;"></span>
+        over a limit
+      </span>
+      <span style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: #57524a;">
+        <span style="width: 18px; height: 12px; border-radius: 2px; background: transparent; box-shadow: inset 0 0 0 1px #e8e4dd; display: block;"></span>
+        nothing logged, or nothing measured it
+      </span>
+    </div>
+
+    <p style="color: #8a8378; font-size: 12px; margin: 16px 0 0; max-width: 74ch; text-wrap: pretty;">
+      Nine days in this window are blank because you logged nothing. They are
+      excluded from the average rather than counted as zeros — dividing by all
+      28 would understate every nutrient by a third. Vitamin D and B12 are pale
+      almost every day you did log, which is the pattern worth acting on.
+    </p>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 1440, "height": 900}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { range: '28' };
+  }
+
+  renderVals() {
+    const ink = '#1c1a17', ink2 = '#57524a', ink3 = '#8a8378', over = '#b4553a', line = '#e8e4dd';
+
+    // A single hue ramped by value: the quantity is one variable, so it gets
+    // one hue. Terracotta is reserved for a limit breach, nothing else.
+    const ramp = ['#e7eee9', '#c5d8cb', '#9dbfa8', '#6f9e80', '#4a7c59'];
+    const cell = (v) => {
+      if (v === null) return { bg: 'transparent', tip: 'nothing logged' };
+      if (v === 'over') return { bg: over, tip: 'above the daily limit' };
+      const i = Math.min(4, Math.floor(v / 25));
+      return { bg: ramp[i], tip: Math.round(v) + '% of target' };
+    };
+
+    // Illustrative values, not measured data. `null` = a day with nothing
+    // logged; the pattern of blanks is deliberate.
+    const gaps = new Set([3, 4, 11, 12, 18, 22, 23, 26, 27]);
+    const seed = (base, spread, i) => {
+      const wobble = ((i * 37) % 23) / 23;
+      return Math.max(4, Math.min(135, base + (wobble - 0.5) * spread * 2));
+    };
+
+    const NUTRIENTS = [
+      ['Protein', 104, 30], ['Fiber', 112, 34], ['Sodium', 'limit', 0],
+      ['Iron', 36, 16], ['Calcium', 44, 20], ['Magnesium', 88, 26],
+      ['Zinc', 78, 24], ['Folate', 96, 30], ['Vitamin C', 82, 40],
+      ['Vitamin D', 13, 8], ['Vitamin B12', 34, 14], ['Vitamin A', 61, 30],
+      ['Selenium', null, 0], ['Iodine', null, 0],
+    ];
+
+    const rows = NUTRIENTS.map(([name, base, spread]) => {
+      const cells = [];
+      let sum = 0, n = 0;
+      for (let i = 0; i < 28; i++) {
+        if (gaps.has(i)) { cells.push(cell(null)); continue; }
+        if (base === null) { cells.push(cell(null)); continue; }   // never measured
+        if (base === 'limit') {
+          const overDay = i % 4 === 1;
+          cells.push(overDay ? cell('over') : cell(seed(78, 26, i)));
+          sum += overDay ? 118 : seed(78, 26, i); n++;
+          continue;
+        }
+        const v = seed(base, spread, i);
+        cells.push(cell(v)); sum += v; n++;
+      }
+      const avgV = n ? sum / n : null;
+      return {
+        name,
+        cells,
+        labelColor: base === null ? ink3 : ink,
+        avg: avgV === null ? '—' : Math.round(avgV) + '%',
+        avgColor: base === null ? ink3 : avgV < 50 ? over : ink2,
+      };
+    });
+
+    return {
+      nav: [['today','Today','1'],['week','Week','2'],['trends','Trends','3'],['recipes','Recipes','4'],['foods','Foods','5']]
+        .map(([id, label, key]) => {
+          const on = id === 'week';
+          return { label, key, bg: on ? ink : 'transparent', fg: on ? '#fbfaf8' : ink2, weight: on ? '600' : '500' };
+        }),
+
+      ranges: [['7','7 days'],['28','4 weeks'],['90','3 months'],['custom','Custom']].map(([id, label]) => {
+        const on = this.state.range === id;
+        return { label, pick: () => this.setState({ range: id }),
+                 bg: on ? ink : 'transparent', border: on ? ink : line, fg: on ? '#fbfaf8' : ink2,
+                 weight: on ? '600' : '400' };
+      }),
+
+      days: Array.from({ length: 28 }, (_, i) => {
+        const isMonday = i % 7 === 0;
+        return { label: isMonday ? 'M' : '·', color: isMonday ? ink3 : line, weight: isMonday ? '600' : '400' };
+      }),
+
+      rows,
+      scale: ramp.map((bg) => ({ bg })),
+    };
+  }
+}
+</script>
+</body>
+</html>

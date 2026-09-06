@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .card { background: #ffffff; border-radius: 20px; padding: 18px; box-shadow: 0 1px 2px rgba(28,26,23,0.04), 0 8px 24px -12px rgba(28,26,23,0.10); }
+    .field { background: #f7f5f1; border-radius: 12px; min-height: 46px; display: flex; align-items: center; padding: 0 13px; font-size: 15px; }
+    .fieldSm { background: #f7f5f1; border-radius: 10px; min-height: 40px; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px; font-size: 14px; }
+    .note { font-size: 12px; color: #8a8378; line-height: 1.6; }
+    .chipSm { border-radius: 999px; padding: 6px 11px; font-size: 11.5px; font-weight: 500; background: #fff; border: 1px solid #e3ded5; color: #57524a; }
+    .chipSmOn { border-radius: 999px; padding: 6px 11px; font-size: 11.5px; font-weight: 600; background: #edf3ee; border: 1px solid #cfe0d4; color: #3c6449; }
+    .primary { min-height: 50px; border-radius: 14px; background: #4a7c59; color: #fff; font-size: 15px; font-weight: 600; }
+    .quiet { min-height: 50px; padding: 0 20px; border-radius: 14px; border: 1px solid #e3ded5; background: #fff; color: #57524a; font-size: 14px; font-weight: 600; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 900px; background: #fbfaf8; color: #1c1a17;">
+  <div style="height: 44px;"></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 8px 20px 0;">
+    <button style="width: 40px; height: 40px; border-radius: 999px; background: #f4f2ee; display: grid; place-items: center; color: #57524a; flex: none;">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+    </button>
+    <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.015em; flex: 1;">Import a spreadsheet</span>
+  </div>
+  <div style="padding: 0 20px 40px;">
+    <p class="note" style="margin: 14px 2px 0;">
+      Bring in a log you kept elsewhere. Rows become entries on the days they name, and foods the
+      sheet describes become your own foods — kept out of search so they never crowd it.
+    </p>
+
+    <div class="card" style="margin-top: 18px; border: 1px dashed #ddd6ca; box-shadow: none; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 30px 18px;">
+      <span style="width: 46px; height: 46px; border-radius: 999px; background: #f4f2ee; display: grid; place-items: center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11" /><path d="M8 10.5l4 4 4-4" /><path d="M4.5 17.5v2a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-2" /></svg>
+      </span>
+      <span style="font-size: 14px; font-weight: 600;">Choose a .csv or .xlsx</span>
+      <span class="note" style="text-align: center;">Nothing leaves this device.</span>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">food-log-2025.csv</h2>
+        <span class="note">418 rows</span>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 14px;">
+        <span style="flex: 1; text-align: center; background: #edf3ee; border-radius: 12px; padding: 12px 6px;">
+          <span class="num" style="display: block; font-size: 21px; font-weight: 500; color: #3c6449;">397</span>
+          <span style="font-size: 10.5px; color: #3c6449;">ready</span>
+        </span>
+        <span style="flex: 1; text-align: center; background: #f8ede9; border-radius: 12px; padding: 12px 6px;">
+          <span class="num" style="display: block; font-size: 21px; font-weight: 500; color: #a2563c;">14</span>
+          <span style="font-size: 10.5px; color: #a2563c;">need a fix</span>
+        </span>
+        <span style="flex: 1; text-align: center; background: #f4f2ee; border-radius: 12px; padding: 12px 6px;">
+          <span class="num" style="display: block; font-size: 21px; font-weight: 500; color: #8a8378;">7</span>
+          <span style="font-size: 10.5px; color: #8a8378;">already here</span>
+        </span>
+      </div>
+
+      <div class="cap" style="margin-top: 18px;">Columns</div>
+      <div style="display: flex; flex-direction: column; margin-top: 6px;">
+        <span style="display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #f1eee8;">
+          <span style="flex: 1; font-size: 14px;">Date</span>
+          <span class="chipSmOn">date</span>
+        </span>
+        <span style="display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #f1eee8;">
+          <span style="flex: 1; font-size: 14px;">Item</span>
+          <span class="chipSmOn">description</span>
+        </span>
+        <span style="display: flex; align-items: center; gap: 10px; padding: 11px 0;">
+          <span style="flex: 1; font-size: 14px;">Qty (g)</span>
+          <span class="chipSmOn">grams</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Rows that cannot be read are listed, never dropped quietly. -->
+    <div class="card" style="margin-top: 16px;">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 600;">14 rows this app cannot read</h2>
+      <div style="display: flex; flex-direction: column; margin-top: 10px;">
+        <span style="display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f1eee8;">
+          <span class="num" style="font-size: 12px; color: #a89f92; width: 34px;">31</span>
+          <span class="note" style="flex: 1;">“two katoris” is not a weight</span>
+        </span>
+        <span style="display: flex; gap: 10px; padding: 9px 0;">
+          <span class="num" style="font-size: 12px; color: #a89f92; width: 34px;">96</span>
+          <span class="note" style="flex: 1;">no date in the row</span>
+        </span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-top: 22px;">
+      <button class="quiet">Cancel</button>
+      <button class="primary" style="flex: 1;">Import 397 rows</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Desktop — Today, redesigned", "is_interactive": true },
+    { "file": "Foundations.dc.html", "x": 1540, "y": 0, "w": 1040, "h": 1520, "title": "Foundations — what changed and why" }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -190,
+      "w": 1440,
+      "text": "DESKTOP PASS — colour/type/tone, space, the plain top button, and the back-arrow clash.\n\nAll four fixes land in one shell: a sidebar (chrome-toned, distinct from the canvas) replaces the flat top nav; Add food is promoted to a real primary button instead of a pill matching four unrelated destinations; the day-stepper moves out of the screen's leading corner — the one spot this app's real Back buttons occupy — into a bounded control with its own shape; and the freed width puts the hero and \"Worth a look\" side by side instead of stacked in a centred 940px column.\n\nWorking: the stepper genuinely steps (try it — the hero and macros change), \"Today\" jumps back, the nav rail highlights on click, and the Rajma masala row expands. \"Worth a look\" and the log are one illustrative day, not per-day data — the point being proven is the shell and the stepper, not a second backend."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

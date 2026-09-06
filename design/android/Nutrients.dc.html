@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .nr { display: grid; grid-template-columns: minmax(0,1.35fr) 58px auto; align-items: center; gap: 11px; padding: 11px 0; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 390px; height: 940px; background: #fbfaf8; color: #1c1a17; overflow: hidden;">
+  <div style="height: 44px;"></div>
+
+  <div style="padding: 0 20px;">
+    <h1 style="margin: 20px 0 0; font-size: 30px; font-weight: 600; letter-spacing: -0.02em;">Nutrients</h1>
+    <p style="margin: 6px 0 0; font-size: 13px; color: #8a8378;">Today · 31 of 47 measured</p>
+
+    <div style="display: flex; background: #f0ede7; border-radius: 999px; padding: 3px; margin-top: 18px;">
+      <button style="flex: 1; min-height: 38px; border-radius: 999px; background: #ffffff; color: #1c1a17; font-size: 13px; font-weight: 600; box-shadow: 0 1px 2px rgba(28,26,23,0.06);">All</button>
+      <button style="flex: 1; min-height: 38px; border-radius: 999px; color: #8a8378; font-size: 13px; font-weight: 500;">Measured</button>
+      <button style="flex: 1; min-height: 38px; border-radius: 999px; color: #8a8378; font-size: 13px; font-weight: 500;">Can't assess</button>
+    </div>
+
+    <div style="background: #ffffff; border-radius: 20px; padding: 16px 18px 6px; margin-top: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.04), 0 8px 24px -12px rgba(28,26,23,0.10);">
+
+      <div class="cap">Energy &amp; macros</div>
+      <div class="nr" style="border-bottom: 1px solid #f1eee8;">
+        <span><span style="font-size: 14px;">Protein</span></span>
+        <span style="height: 5px; background: #eeeae3; border-radius: 999px; overflow: hidden;"><span style="display: block; width: 100%; height: 100%; background: #4a7c59; border-radius: 999px;"></span></span>
+        <span style="display: flex; align-items: baseline; gap: 7px; justify-content: flex-end;">
+          <span class="num" style="font-size: 14px; font-weight: 500;">96 g</span>
+          <span class="num" style="font-size: 12px; color: #8a8378; min-width: 34px; text-align: right;">171%</span>
+        </span>
+      </div>
+      <div class="nr" style="border-bottom: 1px solid #f1eee8;">
+        <span>
+          <span style="font-size: 14px;">Fibre</span>
+          <span style="display: block; font-size: 11px; color: #8a8378;">of adequate intake</span>
+        </span>
+        <span style="height: 5px; background: #eeeae3; border-radius: 999px; overflow: hidden;"><span style="display: block; width: 61%; height: 100%; background: #4a7c59; border-radius: 999px;"></span></span>
+        <span style="display: flex; align-items: baseline; gap: 7px; justify-content: flex-end;">
+          <span class="num" style="font-size: 14px; font-weight: 500;">23 g</span>
+          <span class="num" style="font-size: 12px; color: #8a8378; min-width: 34px; text-align: right;">61%</span>
+        </span>
+      </div>
+
+      <div class="cap" style="margin-top: 14px;">Vitamins</div>
+      <div class="nr" style="border-bottom: 1px solid #f1eee8;">
+        <span>
+          <span style="font-size: 14px;">Vitamin B12</span>
+          <span style="display: block; font-size: 11px; color: #8a8378;">1,000 µg of it from a supplement</span>
+        </span>
+        <span style="height: 5px; background: #eeeae3; border-radius: 999px; overflow: hidden;"><span style="display: block; width: 100%; height: 100%; background: #4a7c59; border-radius: 999px;"></span></span>
+        <span style="display: flex; align-items: baseline; gap: 7px; justify-content: flex-end;">
+          <span class="num" style="font-size: 14px; font-weight: 500;">1,004 µg</span>
+        </span>
+      </div>
+
+      <!-- A partial reading. No bar at all: an empty track would assert
+           "0% of target", which is the lie the whole data model avoids. -->
+      <div class="nr" style="border-bottom: 1px solid #f1eee8;">
+        <span>
+          <span style="font-size: 14px; color: #57524a;">Folate</span>
+          <span style="display: block; font-size: 11px; color: #8a8378;">3 items unmeasured</span>
+        </span>
+        <span></span>
+        <span style="display: flex; justify-content: flex-end;">
+          <span class="num" style="font-size: 14px; font-weight: 500; color: #57524a;">≥ 186 µg</span>
+        </span>
+      </div>
+
+      <div class="nr">
+        <span>
+          <span style="font-size: 14px; color: #8a8378;">Vitamin K</span>
+          <span style="display: block; font-size: 11px; color: #8a8378;">no data in 6 items</span>
+        </span>
+        <span></span>
+        <span style="display: flex; justify-content: flex-end;">
+          <span class="num" style="font-size: 14px; color: #8a8378;">—</span>
+        </span>
+      </div>
+
+      <!-- The extended tier, set apart so a blank reads as a gap in the
+           source data rather than a personal deficiency. -->
+      <div style="border-top: 1px solid #f1eee8; margin-top: 8px; padding-top: 14px;">
+        <div style="font-size: 13px; font-weight: 600;">Limited data</div>
+        <p style="margin: 5px 0 10px; font-size: 12px; color: #8a8378; line-height: 1.6;">
+          Iodine, chromium, biotin and molybdenum are largely absent from the bundled USDA sets.
+          A blank here reflects the source, not your intake.
+        </p>
+        <div class="nr" style="padding: 9px 0;">
+          <span><span style="font-size: 14px; color: #8a8378;">Iodine</span></span>
+          <span></span>
+          <span style="display: flex; justify-content: flex-end;"><span class="num" style="font-size: 14px; color: #8a8378;">—</span></span>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin: 14px 4px 0; font-size: 12px; color: #a89f92; line-height: 1.6;">
+      Percentages are of the DRIs for your profile. “—” means no data, not zero.
+    </p>
+  </div>
+
+  <button style="position: absolute; right: 20px; bottom: 96px; width: 56px; height: 56px; border-radius: 999px; background: #4a7c59; color: #ffffff; display: grid; place-items: center; box-shadow: 0 4px 14px -2px rgba(74,124,89,0.45), 0 2px 4px rgba(28,26,23,0.10);">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+  </button>
+
+  <nav style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.94); backdrop-filter: blur(12px); border-top: 1px solid #e8e4dd; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 6px 4px 18px;">
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #8a8378;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /></svg></span>
+      <span style="font-size: 10.5px; font-weight: 500;">Today</span>
+    </button>
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #3c6449;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px; border-radius: 999px; background: #edf3ee;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7" /></svg></span>
+      <span style="font-size: 10.5px; font-weight: 600;">Nutrients</span>
+    </button>
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #8a8378;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 9.5h17M8 3v4M16 3v4" /></svg></span>
+      <span style="font-size: 10.5px; font-weight: 500;">History</span>
+    </button>
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #8a8378;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H9v16H5.5A1.5 1.5 0 0 1 4 18.5z" /><path d="M9 4h5.5A1.5 1.5 0 0 1 16 5.5v13a1.5 1.5 0 0 1-1.5 1.5H9" /><path d="M18 7l2.4.6a1 1 0 0 1 .7 1.2l-2.6 10" /></svg></span>
+      <span style="font-size: 10.5px; font-weight: 500;">Library</span>
+    </button>
+    <button style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; padding-top: 6px; color: #8a8378;">
+      <span style="display: grid; place-items: center; width: 44px; height: 26px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.4" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg></span>
+      <span style="font-size: 10.5px; font-weight: 500;">You</span>
+    </button>
+  </nav>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,205 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .word {
+      font-family: Newsreader, Georgia, "Times New Roman", serif;
+      font-weight: 500; letter-spacing: -0.025em;
+    }
+    .cap { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="width: 900px; height: 1060px; background: #fbfaf8; color: #1c1a17; padding: 44px 48px; display: flex; flex-direction: column; gap: 30px;">
+
+  <div>
+    <div class="cap">Option A — the leading mark</div>
+    <h1 class="word" style="margin: 6px 0 0; font-size: 30px; font-weight: 600;">The measured arc</h1>
+    <p style="margin: 8px 0 0; color: #57524a; font-size: 14px; line-height: 1.55; max-width: 62ch; text-wrap: pretty;">
+      One ring, two weights. The heavy sweep is what has been measured; the hairline
+      completing it is what has not. It is the coverage bar bent into a circle — the
+      single idea that separates this app from every other tracker, drawn as a dial
+      because that is also what a nutrient target is.
+    </p>
+  </div>
+
+  <!-- THE MARK, large. Never a gap: the ring always closes, so the mark reads as
+       whole while the weight change carries the meaning. -->
+  <div style="display: flex; align-items: center; gap: 56px; padding: 34px 40px; background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10);">
+    <svg width="132" height="132" viewBox="0 0 32 32" style="flex: none; color: #4a7c59;" role="img" aria-label="TrackIt">
+      <path d="M 16 4.5 A 11.5 11.5 0 1 1 6.041 21.75" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="butt"></path>
+      <path d="M 4.915 22.4 A 12.8 12.8 0 0 1 16 3.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="butt"></path>
+    </svg>
+
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <!-- Horizontal lockup. The wordmark is Newsreader, the serif the app already
+           loads for its numerals — so the identity reuses its one typographic
+           choice instead of introducing another sans. -->
+      <div style="display: flex; align-items: center; gap: 13px;">
+        <svg width="30" height="30" viewBox="0 0 32 32" style="flex: none; color: #4a7c59;" aria-hidden="true">
+          <path d="M 16 4.7 A 11.3 11.3 0 1 1 6.214 21.65" fill="none" stroke="currentColor" stroke-width="4.4" stroke-linecap="butt"></path>
+          <path d="M 5.045 22.325 A 12.65 12.65 0 0 1 16 3.35" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="butt"></path>
+        </svg>
+        <span class="word" style="font-size: 31px;">TrackIt</span>
+      </div>
+
+      <div style="height: 1px; background: #e8e4dd;"></div>
+
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <svg width="20" height="20" viewBox="0 0 32 32" style="flex: none; color: #4a7c59;" aria-hidden="true">
+          <path d="M 16 5.2 A 10.8 10.8 0 1 1 6.647 21.4" fill="none" stroke="currentColor" stroke-width="5.4" stroke-linecap="butt"></path>
+          <path d="M 5.348 22.15 A 12.3 12.3 0 0 1 16 3.7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="butt"></path>
+        </svg>
+        <span class="word" style="font-size: 20px;">TrackIt</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Small sizes. The hairline thickens as the mark shrinks, so the two-weight
+       contrast survives at 16px instead of dissolving into a plain ring. -->
+  <div>
+    <div class="cap">Holds together small — the hairline thickens as it shrinks</div>
+    <div style="display: flex; align-items: flex-end; gap: 34px; margin-top: 12px; padding: 24px 28px; background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10);">
+      <sc-for list="{{sizes}}" as="s" hint-placeholder-count="5">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 9px;">
+          <svg width="{{s.px}}" height="{{s.px}}" viewBox="0 0 32 32" style="color: #4a7c59;" aria-hidden="true">
+            <path d="{{s.dThick}}" fill="none" stroke="currentColor" stroke-width="{{s.thick}}" stroke-linecap="butt"></path>
+            <path d="{{s.dThin}}" fill="none" stroke="currentColor" stroke-width="{{s.thin}}" stroke-linecap="butt"></path>
+          </svg>
+          <span class="cap" style="letter-spacing: 0.04em;">{{s.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- Why the outer edge is fixed. This is the whole difference between a mark
+       and two arcs sitting next to each other, so it is worth showing. -->
+  <div>
+    <div class="cap">The construction — weight grows inward, never outward</div>
+    <div style="display: flex; align-items: center; gap: 40px; margin-top: 12px; padding: 24px 28px; background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10);">
+      <svg width="118" height="118" viewBox="0 0 32 32" style="flex: none;" aria-hidden="true">
+        <circle cx="16" cy="16" r="13.5" fill="none" stroke="#b4553a" stroke-width="0.25" stroke-dasharray="0.9 0.7"></circle>
+        <path d="M 16 4.5 A 11.5 11.5 0 1 1 6.041 21.75" fill="none" stroke="#4a7c59" stroke-width="4" stroke-linecap="butt"></path>
+        <path d="M 4.915 22.4 A 12.8 12.8 0 0 1 16 3.2" fill="none" stroke="#4a7c59" stroke-width="1.4" stroke-linecap="butt"></path>
+        <path d="M 16 16 L 16 1.4" stroke="#b4553a" stroke-width="0.25" stroke-dasharray="0.9 0.7"></path>
+        <path d="M 16 16 L 3.36 23.3" stroke="#b4553a" stroke-width="0.25" stroke-dasharray="0.9 0.7"></path>
+      </svg>
+      <p style="margin: 0; color: #57524a; font-size: 13.5px; line-height: 1.6; max-width: 54ch; text-wrap: pretty;">
+        Both arcs sit on one outer radius, so the silhouette is a single unbroken
+        circle and the entire weight change lands on the inside. Aligning the
+        <em>centrelines</em> instead — the obvious construction — steps the outer edge
+        at both junctions and the mark stops reading as a ring at all.
+        <br><br>
+        The caps are butt, not round. On a circular arc a butt cap is perpendicular to
+        the tangent and therefore exactly radial, so both caps meet on the same
+        radius line and the step reads as a crisp shoulder. Round caps bulge past
+        each junction on both arcs and stack into lumps.
+      </p>
+    </div>
+  </div>
+
+  <!-- On dark, and as an app tile. -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div>
+      <div class="cap">On dark</div>
+      <div style="display: flex; align-items: center; gap: 13px; margin-top: 12px; padding: 30px 28px; background: #15140f; border-radius: 16px;">
+        <svg width="30" height="30" viewBox="0 0 32 32" style="flex: none; color: #85b393;" aria-hidden="true">
+          <path d="M 16 4.7 A 11.3 11.3 0 1 1 6.214 21.65" fill="none" stroke="currentColor" stroke-width="4.4" stroke-linecap="butt"></path>
+          <path d="M 5.045 22.325 A 12.65 12.65 0 0 1 16 3.35" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="butt"></path>
+        </svg>
+        <span class="word" style="font-size: 31px; color: #f2efe9;">TrackIt</span>
+      </div>
+      <p style="margin: 10px 0 0; color: #8a8378; font-size: 12px; line-height: 1.5;">
+        The accent desaturates to #85b393 on dark, matching the app's own token —
+        full-chroma green glares against a near-black ground.
+      </p>
+    </div>
+
+    <div>
+      <div class="cap">App tile</div>
+      <div style="display: flex; gap: 16px; margin-top: 12px; align-items: flex-end;">
+        <div style="width: 118px; height: 118px; border-radius: 26px; background: #4a7c59; display: grid; place-items: center; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 12px 32px -10px rgba(28,26,23,0.16);">
+          <svg width="70" height="70" viewBox="0 0 32 32" style="color: #fbfaf8;" aria-hidden="true">
+            <path d="M 16 4.5 A 11.5 11.5 0 1 1 6.041 21.75" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="butt"></path>
+            <path d="M 4.915 22.4 A 12.8 12.8 0 0 1 16 3.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="butt"></path>
+          </svg>
+        </div>
+        <div style="width: 58px; height: 58px; border-radius: 13px; background: #4a7c59; display: grid; place-items: center;">
+          <svg width="34" height="34" viewBox="0 0 32 32" style="color: #fbfaf8;" aria-hidden="true">
+            <path d="M 16 4.7 A 11.3 11.3 0 1 1 6.214 21.65" fill="none" stroke="currentColor" stroke-width="4.4" stroke-linecap="butt"></path>
+            <path d="M 5.045 22.325 A 12.65 12.65 0 0 1 16 3.35" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="butt"></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- The mark is not decoration: it is the same geometry the product draws. -->
+  <div style="margin-top: auto; padding: 20px 24px; border: 1px dashed #e8e4dd; border-radius: 16px;">
+    <div class="cap">Why this one</div>
+    <p style="margin: 8px 0 0; color: #57524a; font-size: 14px; line-height: 1.6; max-width: 74ch; text-wrap: pretty;">
+      It is the product's own geometry. Every nutrient row in the app draws a heavy
+      fill against a light track, and the hairline in this ring is that track. So the
+      mark is not a metaphor bolted on afterwards — it is the interface's smallest
+      unit, closed into a circle. It reads as a dial at a glance, survives one colour
+      and 16px, and quietly states the thing the app is for: some of this is known,
+      some of it is not, and the difference is visible.
+    </p>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 900, "height": 1060}
+}'>
+class Component extends DCLogic {
+  renderVals() {
+    // Both arcs sit on ONE outer radius (13.5 in a 32 viewBox) and thicken
+    // inward, so the silhouette stays a single circle at every size. That means
+    // the endpoints move when the stroke width changes — hence computing the
+    // paths rather than hard-coding one pair and rescaling the strokes.
+    const R = 13.5, C = 16;
+    const at = (r, deg) => {
+      const a = (deg * Math.PI) / 180;
+      const q = (n) => +n.toFixed(3);
+      return `${q(C + r * Math.cos(a))} ${q(C + r * Math.sin(a))}`;
+    };
+    const arc = (w, from, to, large) => {
+      const r = +(R - w / 2).toFixed(3);
+      return `M ${at(r, from)} A ${r} ${r} 0 ${large} 1 ${at(r, to)}`;
+    };
+
+    // The stroke pair is retuned per size rather than scaled uniformly: a 1.4
+    // hairline at 16px is sub-pixel and would vanish, so the ratio tightens as
+    // the mark shrinks.
+    const pairs = [
+      { px: 64, thick: 4, thin: 1.4 },
+      { px: 40, thick: 4.2, thin: 1.6 },
+      { px: 32, thick: 4.4, thin: 1.7 },
+      { px: 24, thick: 4.8, thin: 2 },
+      { px: 16, thick: 5.4, thin: 2.4 },
+    ];
+
+    return {
+      sizes: pairs.map((p) => ({
+        ...p,
+        label: String(p.px),
+        dThick: arc(p.thick, -90, 150, 1),
+        dThin: arc(p.thin, 150, 270, 0),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

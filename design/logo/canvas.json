@@ -1,0 +1,25 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 900, "h": 1060, "title": "Option A · The measured arc — recommended" },
+    { "file": "OptionB.dc.html", "x": 1020, "y": 0, "w": 560, "h": 640, "title": "Option B · The interval" },
+    { "file": "OptionC.dc.html", "x": 1700, "y": 0, "w": 560, "h": 640, "title": "Option C · The two-tone B" },
+    { "file": "OptionD.dc.html", "x": 2380, "y": 0, "w": 560, "h": 640, "title": "Option D · The split grain" }
+  ],
+  "annotations": [
+    {
+      "id": "note-brief",
+      "x": 0,
+      "y": -230,
+      "w": 900,
+      "text": "A GREEN SQUARE SAYS NOTHING. THIS SHOULD SAY WHAT THE APP DOES.\n\nEvery tracker could use a leaf or a scale. The one thing that makes TrackIt different is that it distinguishes what has been measured from what has not — so the mark carries that, and nothing else.\n\nOption A is built and running in the app right now; the three beside it are genuine alternatives on different axes (data-diagram, typographic, organic), each with its tradeoff stated. Say which you want and I will switch it."
+    },
+    {
+      "id": "note-alts",
+      "x": 1020,
+      "y": -140,
+      "w": 1920,
+      "text": "THE ALTERNATIVES — different axes, not three shades of the same idea. Each card states the case against itself as well as for it."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -1,0 +1,8 @@
+[package]
+name = "trackit-core"
+version = "0.1.0"
+edition = "2021"
+description = "Pure domain logic for TrackIt: nutrient values, intervals, and aggregation."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

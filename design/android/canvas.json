@@ -1,0 +1,56 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Screens" },
+    { "id": "page-2", "name": "Detail & editors" },
+    { "id": "page-3", "name": "What changed" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "Today", "page": "page-1" },
+    { "file": "AddFood.dc.html", "x": 490, "y": 0, "w": 390, "h": 844, "title": "Add food", "page": "page-1" },
+    { "file": "Nutrients.dc.html", "x": 980, "y": 0, "w": 390, "h": 940, "title": "Nutrients", "page": "page-1" },
+    { "file": "History.dc.html", "x": 1470, "y": 0, "w": 390, "h": 1000, "title": "History", "page": "page-1" },
+    { "file": "Library.dc.html", "x": 1960, "y": 0, "w": 390, "h": 844, "title": "Library", "page": "page-1" },
+    { "file": "You.dc.html", "x": 2450, "y": 0, "w": 390, "h": 844, "title": "You", "page": "page-1" },
+
+    { "file": "Profile.dc.html", "x": 0, "y": 0, "w": 390, "h": 1180, "title": "Profile", "page": "page-2" },
+    { "file": "Targets.dc.html", "x": 490, "y": 0, "w": 390, "h": 844, "title": "Targets & goals", "page": "page-2" },
+    { "file": "Recipes.dc.html", "x": 980, "y": 0, "w": 390, "h": 844, "title": "Recipes", "page": "page-2" },
+    { "file": "CustomFoods.dc.html", "x": 1470, "y": 0, "w": 390, "h": 844, "title": "Your foods", "page": "page-2" },
+    { "file": "Supplements.dc.html", "x": 1960, "y": 0, "w": 390, "h": 844, "title": "Supplements", "page": "page-2" },
+    { "file": "Vessels.dc.html", "x": 2450, "y": 0, "w": 390, "h": 844, "title": "Vessels", "page": "page-2" },
+
+    { "file": "RecipeBuilder.dc.html", "x": 0, "y": 1320, "w": 390, "h": 1150, "title": "New recipe", "page": "page-2" },
+    { "file": "CustomFoodEditor.dc.html", "x": 490, "y": 1320, "w": 390, "h": 1230, "title": "Transcribe a pack", "page": "page-2" },
+    { "file": "SupplementEditor.dc.html", "x": 980, "y": 1320, "w": 390, "h": 1280, "title": "Transcribe a supplement", "page": "page-2" },
+    { "file": "Import.dc.html", "x": 1470, "y": 1320, "w": 390, "h": 900, "title": "Import a spreadsheet", "page": "page-2" },
+
+    { "file": "Controls.dc.html", "x": 0, "y": 0, "w": 880, "h": 940, "title": "What changed, and why", "page": "page-3" }
+  ],
+  "annotations": [
+    {
+      "id": "nav-note",
+      "x": 0,
+      "y": -170,
+      "w": 340,
+      "page": "page-1",
+      "text": "The five destinations, plus Add food.\n\nAdd food moved from a tab to the floating button — it is an action, not a place. That frees the fifth slot for You, which is where the profile lives now instead of an unexplained black icon in the header."
+    },
+    {
+      "id": "detail-note",
+      "x": 0,
+      "y": -170,
+      "w": 340,
+      "page": "page-2",
+      "text": "Everything reached by pushing from a destination. All of these open with a back button in a soft circle rather than an underlined “‹ back”, and none of them carry the bottom bar."
+    },
+    {
+      "id": "editors-note",
+      "x": 1960,
+      "y": 1320,
+      "w": 300,
+      "page": "page-2",
+      "text": "The three editors are the app's most involved screens. Each keeps its honesty rules visible: a printed 0 stored as a bound, an IU refused until the form is named, and rows an import cannot read listed rather than dropped."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num { font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .tnum { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; font-size: 15px; line-height: 1.55; overflow: hidden; display: flex; flex-direction: column;">
+
+  <div style="display: flex; align-items: center; gap: 6px; padding: 20px 20px 8px;">
+    <button style="width: 44px; height: 44px; border: none; background: none; color: #57524a; font-size: 20px; line-height: 1;">‹</button>
+    <h1 style="margin: 0; font-size: 19px; font-weight: 600;">Today</h1>
+    <button style="width: 44px; height: 44px; border: none; background: none; color: #8a8378; font-size: 20px; line-height: 1;">›</button>
+  </div>
+
+  <div style="flex: 1; overflow-y: auto; padding: 6px 20px 30px;">
+
+    <!-- A VERDICT, not a panel. On a phone the answer has to arrive in one
+         sentence; the 47-row table is a desk activity and lives there. -->
+    <p class="num" style="font-size: 27px; line-height: 1.25; font-weight: 500; margin: 0 0 6px; text-wrap: pretty;">
+      Short on three things,<br>over on one.
+    </p>
+    <p style="color: #57524a; font-size: 14px; margin: 0 0 22px;">
+      Judged from the 34 of 47 nutrients your six items actually measured.
+    </p>
+
+    <!-- Each finding is a full-width card, not a table row: on a phone the
+         thing you might act on should be tappable without aiming. -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <sc-for list="{{findings}}" as="f" hint-placeholder-count="4">
+        <button onClick="{{f.open}}" style="display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; min-height: 76px; padding: 14px 16px; border: none; border-radius: 12px; background: #ffffff; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); text-align: left; color: inherit; font: inherit;">
+          <span style="min-width: 0;">
+            <span style="display: block; font-weight: 600;">{{f.name}}</span>
+            <span style="display: block; color: #57524a; font-size: 13px; margin-top: 1px;">{{f.detail}}</span>
+          </span>
+          <span style="text-align: right;">
+            <span class="num" style="display: block; font-size: 25px; line-height: 1; color: {{f.color}};">{{f.pct}}</span>
+            <span style="display: block; color: #8a8378; font-size: 11px; margin-top: 3px;">of target</span>
+          </span>
+        </button>
+      </sc-for>
+    </div>
+
+    <!-- The honest bucket, stated once and plainly rather than as 13 rows
+         of em-dashes the user has to scroll past. -->
+    <div style="margin-top: 22px; padding: 15px 16px; border: 1px dashed #e8e4dd; border-radius: 12px;">
+      <div style="font-weight: 600; font-size: 14px;">13 can't be assessed</div>
+      <p style="color: #57524a; font-size: 13px; margin: 4px 0 0;">
+        Iodine, selenium, biotin and ten others — two of today's items carry no
+        data for them. That is the source data, not your intake.
+      </p>
+    </div>
+
+    <sc-if value="{{showAll}}" hint-placeholder-val="{{true}}">
+      <div style="margin-top: 18px;">
+        <sc-for list="{{allRows}}" as="r" hint-placeholder-count="8">
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; min-height: 44px; border-bottom: 1px solid #e8e4dd;">
+            <span style="color: {{r.nameColor}};">{{r.name}}</span>
+            <span class="tnum" style="color: {{r.valueColor}}; font-weight: 550;">{{r.value}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <button onClick="{{toggleAll}}" style="width: 100%; min-height: 48px; margin-top: 18px; border: 1px solid #e8e4dd; border-radius: 12px; background: transparent; color: #3c6449; font: inherit; font-weight: 550;">
+      {{allLabel}}
+    </button>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 8px 12px 26px; background: #ffffff; border-top: 1px solid #e8e4dd;">
+    <button style="min-height: 52px; border: none; border-radius: 10px; background: transparent; color: #57524a; font: inherit; font-size: 13px; font-weight: 500;">Log</button>
+    <button style="min-height: 52px; border: none; border-radius: 10px; background: #1c1a17; color: #fbfaf8; font: inherit; font-size: 13px; font-weight: 600;">Day</button>
+    <button style="min-height: 52px; border: none; border-radius: 10px; background: transparent; color: #57524a; font: inherit; font-size: 13px; font-weight: 500;">Trends</button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { showAll: false };
+  }
+
+  renderVals() {
+    const ink = '#1c1a17', ink3 = '#8a8378', over = '#b4553a';
+
+    // Illustrative values, not measured data.
+    const all = [
+      ['Protein', '58 g', 1], ['Fiber', '34 g', 1], ['Folate', '410 ug', 1],
+      ['Magnesium', '389 mg', 1], ['Vitamin C', '78 mg', 1], ['Zinc', '9.2 mg', 1],
+      ['Potassium', '3,410 mg', 1], ['Calcium', '520 mg', 1],
+      ['Iodine', '—', 0], ['Selenium', '—', 0], ['Biotin (B7)', '—', 0],
+    ];
+
+    return {
+      findings: [
+        { name: 'Sodium', detail: 'above the daily limit', pct: '118%', color: over, open: () => {} },
+        { name: 'Vitamin D', detail: 'dairy is the only source today', pct: '12%', color: ink, open: () => {} },
+        { name: 'Iron', detail: 'plant iron absorbs less readily', pct: '34%', color: ink, open: () => {} },
+        { name: 'Vitamin B12', detail: 'only from the curd', pct: '38%', color: ink, open: () => {} },
+      ],
+      showAll: this.state.showAll,
+      allLabel: this.state.showAll ? 'Hide the full list' : 'Show all 47 nutrients',
+      toggleAll: () => this.setState({ showAll: !this.state.showAll }),
+      allRows: all.map(([name, value, known]) => ({
+        name, value,
+        nameColor: known ? ink : ink3,
+        valueColor: known ? ink : ink3,
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

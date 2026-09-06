@@ -1,0 +1,361 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      /* ── Unchanged from src/styles.css — the app's real tokens, copied
+           verbatim so this reads as the same product, not a new one. ── */
+      --bg: #fbfaf8; --surface: #ffffff; --sunken: #f4f2ee; --line: #e8e4dd;
+      --ink: #1c1a17; --ink-2: #57524a; --ink-3: #8a8378;
+      --accent: #4a7c59; --accent-ink: #3c6449; --accent-wash: #edf3ee;
+      --over: #b4553a; --over-wash: #f8ede9;
+      --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+      --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+      --lift: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10);
+      --lift-hi: 0 1px 2px rgba(28,26,23,0.06), 0 12px 32px -10px rgba(28,26,23,0.16);
+
+      /* ── New for the desktop shell. One addition, not a repaint: a
+           neutral a shade past --sunken, used only for the chrome (sidebar +
+           toolbar) so it reads as structure around the canvas rather than
+           more canvas. Same warm family, same 0.02-ish saturation — the
+           "shades/tints/tones" the app already commits to, applied to
+           hierarchy instead of decoration. ── */
+      --chrome: #eeeae1;
+      --chrome-line: #e3ddd0;
+    }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .tnum { font-variant-numeric: tabular-nums; }
+    a { color: var(--accent); } a:hover { color: var(--accent-ink); }
+    button { font: inherit; color: inherit; cursor: pointer; background: none; border: none; padding: 0; }
+    .icon { flex: none; display: block; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; background: var(--bg); color: var(--ink); display: flex; overflow: hidden;">
+
+  <!-- ═══════════════════════════ SIDEBAR ═══════════════════════════
+       Chrome, not canvas: a distinct tone (--chrome) says "this is the
+       app's structure" the moment your eye lands on it, the way a mail
+       client's source list differs from its reading pane. Everything that
+       used to be a row of equal-weight text pills across the top now has
+       room to be what it actually is: one create action, and four places. -->
+  <aside style="width: 256px; flex: none; background: var(--chrome); border-right: 1px solid var(--chrome-line); display: flex; flex-direction: column; padding: 20px 16px;">
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px;">
+      <svg width="28" height="28" viewBox="0 0 32 32" class="icon" style="color: var(--accent);" role="img" aria-label="TrackIt">
+        <path d="M 16 4.7 A 11.3 11.3 0 1 1 6.214 21.65" fill="none" stroke="currentColor" stroke-width="4.4" stroke-linecap="butt"></path>
+        <path d="M 5.045 22.325 A 12.65 12.65 0 0 1 16 3.35" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="butt"></path>
+      </svg>
+      <span style="font-family: Newsreader, Georgia, serif; font-size: 20px; font-weight: 500; letter-spacing: -0.025em;">TrackIt</span>
+    </div>
+
+    <!-- The one thing that was "a simple button on top": Add food is an
+         ACTION, not a PLACE, and it was styled identically to the four
+         destinations beside it. It gets the app's real primary-button
+         treatment (the same .btn used everywhere else something commits)
+         and a fixed spot of its own, above the places you navigate to. -->
+    <button style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; margin: 0 4px 18px; border-radius: var(--r-md); background: var(--accent); color: #fff; font-size: 14.5px; font-weight: 600; box-shadow: var(--lift); transition: background-color 140ms ease-out;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="icon"><path d="M12 5v14M5 12h14" stroke-linecap="round"></path></svg>
+      Add food
+    </button>
+
+    <nav aria-label="Main" style="display: flex; flex-direction: column; gap: 2px;">
+      <sc-for list="{{navItems}}" as="item" hint-placeholder-count="4">
+        <button onClick="{{item.pick}}" aria-current="{{item.current}}" style="{{item.rowStyle}}">
+          <span style="{{item.railStyle}}"></span>
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="icon">{{item.iconHtml}}</svg>
+          <span>{{item.label}}</span>
+        </button>
+      </sc-for>
+    </nav>
+
+    <div style="margin-top: auto; padding: 12px 12px 4px; color: var(--ink-3); font-size: 12px; line-height: 1.5;">
+      13,694 reference foods, plus what you've added yourself.
+    </div>
+  </aside>
+
+  <!-- ═══════════════════════════ CONTENT ═══════════════════════════ -->
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;">
+
+    <!-- Toolbar. Screen-specific, not a second brand bar — the sidebar
+         already carries identity, so this is free to hold only what THIS
+         screen needs: the date, moved out of the far-left corner that the
+         app's own Back buttons occupy everywhere else. -->
+    <div style="flex: none; height: 72px; display: flex; align-items: center; gap: 12px; padding: 0 36px; border-bottom: 1px solid var(--line); background: var(--surface);">
+
+      <!-- THE FIX. Bounded in one control (border, radius, background) so
+           its shape says "adjust a value" — not a bare glyph sitting where
+           this app's real Back buttons live. Calendar glyph in place of the
+           old flanking chevrons-around-a-heading; chevrons demoted to small
+           segments INSIDE the pill, where a stepper's arrows belong. -->
+      <div style="display: flex; align-items: stretch; height: 40px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); overflow: hidden;">
+        <button onClick="{{stepBack}}" aria-label="Previous day" style="width: 34px; display: grid; place-items: center; color: var(--ink-2); transition: background-color 120ms ease-out;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon"><path d="M14 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </button>
+        <span style="width: 1px; background: var(--line); align-self: stretch;"></span>
+        <span style="display: flex; align-items: center; gap: 8px; padding: 0 14px; min-width: 168px; justify-content: center;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="1.8" class="icon">
+            <rect x="4.5" y="5.5" width="15" height="14.5" rx="2"></rect>
+            <path d="M4.5 9.5h15"></path>
+            <path d="M8.5 3.5v4M15.5 3.5v4"></path>
+            <circle cx="12" cy="14.5" r="1.3" fill="var(--ink-3)" stroke="none"></circle>
+          </svg>
+          <span class="num" style="font-size: 15px; font-weight: 500; white-space: nowrap;">{{day.full}}</span>
+        </span>
+        <span style="width: 1px; background: var(--line); align-self: stretch;"></span>
+        <button onClick="{{stepForward}}" disabled="{{day.forwardDisabled}}" aria-label="Next day" style="width: 34px; display: grid; place-items: center; color: var(--ink-2); opacity: {{day.forwardOpacity}}; transition: background-color 120ms ease-out;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon"><path d="M10 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </button>
+      </div>
+
+      <!-- "Return to today" is a JUMP, so it is its own small button beside
+           the stepper rather than a conditional text link tucked after the
+           heading — the old pattern only appeared once you had already
+           stepped away, which is exactly when it is least easy to notice. -->
+      <button onClick="{{jumpToday}}" disabled="{{day.isToday}}" style="height: 40px; padding: 0 14px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 13.5px; font-weight: 500; opacity: {{day.todayOpacity}};">
+        Today
+      </button>
+
+      <span style="margin-left: auto; color: var(--ink-3); font-size: 13px;">{{day.entriesTxt}}</span>
+    </div>
+
+    <!-- Scroll area -->
+    <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 32px 36px 48px;">
+      <div style="max-width: 1120px; display: flex; flex-direction: column; gap: 24px;">
+
+        <!-- Row 1: hero + worth-a-look side by side. On a 1440 window the
+             old centred 940px column left roughly 250px of bare margin on
+             each side; putting the day's two headline cards next to each
+             other uses that width for a second fact instead of white space. -->
+        <div style="display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 24px; align-items: start;">
+
+          <section style="background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--lift); padding: 28px 32px;">
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+              <span class="num" style="font-size: 60px; line-height: 0.92; font-weight: 500;">{{day.kcalTxt}}</span>
+              <span style="color: var(--ink-3); font-size: 16px;">kcal</span>
+            </div>
+            <div style="color: var(--ink-2); font-size: 14px; margin-top: 8px;">{{day.leftTxt}} left of 2,200</div>
+            <div style="height: 4px; background: var(--sunken); border-radius: var(--r-pill); margin-top: 16px; overflow: hidden;">
+              <div style="height: 100%; background: var(--accent); border-radius: var(--r-pill); width: {{day.pct}}%; transition: width 260ms ease-out;"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line);">
+              <div><div class="tnum" style="font-size: 20px; font-weight: 600;">{{day.proteinTxt}}</div><div style="color: var(--ink-3); font-size: 13px; margin-top: 2px;">protein</div></div>
+              <div><div class="tnum" style="font-size: 20px; font-weight: 600;">{{day.carbsTxt}}</div><div style="color: var(--ink-3); font-size: 13px; margin-top: 2px;">carbs</div></div>
+              <div><div class="tnum" style="font-size: 20px; font-weight: 600;">{{day.fatTxt}}</div><div style="color: var(--ink-3); font-size: 13px; margin-top: 2px;">fat</div></div>
+            </div>
+          </section>
+
+          <section style="background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--lift); padding: 22px 24px;">
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+              <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Worth a look</h2>
+              <span style="margin-left: auto; color: var(--ink-3); font-size: 12px;">32 of 47 measured</span>
+            </div>
+            <div style="display: flex; flex-direction: column; margin-top: 10px;">
+              <div style="display: grid; grid-template-columns: minmax(0,1.3fr) minmax(48px,1fr) auto; align-items: center; gap: 10px; min-height: 44px;">
+                <span style="min-width: 0;"><span aria-hidden style="color: var(--over); margin-right: 6px;">↑</span>Sodium<span style="display: block; color: var(--ink-3); font-size: 11.5px;">above the daily limit</span></span>
+                <span style="height: 5px; background: var(--sunken); border-radius: var(--r-pill); overflow: hidden;"><span style="display: block; height: 100%; width: 100%; background: var(--over); border-radius: var(--r-pill);"></span></span>
+                <span style="display: flex; align-items: baseline; gap: 6px; white-space: nowrap;"><span class="tnum" style="font-weight: 550; color: var(--over);">2,690 mg</span><span class="tnum" style="color: var(--over); font-size: 12.5px;">118%</span></span>
+              </div>
+              <div style="display: grid; grid-template-columns: minmax(0,1.3fr) minmax(48px,1fr) auto; align-items: center; gap: 10px; min-height: 44px; border-top: 1px solid var(--line);">
+                <span style="min-width: 0;"><span aria-hidden style="color: var(--over); margin-right: 6px;">↑</span>Saturated fat<span style="display: block; color: var(--ink-3); font-size: 11.5px;">above the daily limit</span></span>
+                <span style="height: 5px; background: var(--sunken); border-radius: var(--r-pill); overflow: hidden;"><span style="display: block; height: 100%; width: 100%; background: var(--over); border-radius: var(--r-pill);"></span></span>
+                <span style="display: flex; align-items: baseline; gap: 6px; white-space: nowrap;"><span class="tnum" style="font-weight: 550; color: var(--over);">23.4 g</span><span class="tnum" style="color: var(--over); font-size: 12.5px;">109%</span></span>
+              </div>
+            </div>
+            <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px;">
+              15 more can't be assessed. <a href="#">See all 47 nutrients</a>
+            </div>
+          </section>
+        </div>
+
+        <!-- Row 2: the log. Full width now that it isn't fighting a 940px
+             cap — the meal groups sit at real reading width instead of
+             wrapping every ingredient line early. -->
+        <section style="background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--lift); padding: 24px 32px 28px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px;">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 600;">What you ate</h2>
+            <a href="#" style="margin-left: auto; font-size: 12px;">Add food</a>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 600; margin-bottom: 2px;">breakfast</div>
+            <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+              <span style="flex: 1; min-width: 0;">Greek yogurt, plain</span>
+              <span style="color: var(--ink-3); font-size: 12px;">170 g</span>
+              <button aria-label="Remove Greek yogurt, plain" style="width: 34px; height: 34px; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--ink-3); font-size: 15px;">×</button>
+            </div>
+          </div>
+
+          <div style="margin-top: 20px;">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 600; margin-bottom: 2px;">lunch</div>
+
+            <div style="border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px;">
+              <button onClick="{{toggleRow}}" aria-expanded="{{isExpanded}}" style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; min-height: 44px; border-radius: var(--r-sm); padding: 0 4px; margin: 0 -4px;">
+                <span style="flex: 1; min-width: 0;">
+                  Rajma masala
+                  <span style="display: block; color: var(--ink-3); font-size: 12px; margin-top: 1px;">220 g of a 1,180 g recipe (5 servings) · home-cooked, north indian</span>
+                </span>
+                <span aria-hidden style="color: var(--ink-3); font-size: 15px; transform: {{expandGlyphRotate}}; transition: transform 160ms ease-out;">›</span>
+              </button>
+              <button aria-label="Remove Rajma masala" style="flex: none; width: 34px; height: 34px; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--ink-3); font-size: 15px;">×</button>
+
+              <sc-if value="{{isExpanded}}" hint-placeholder-val="{{true}}">
+                <div style="background: var(--sunken); border-radius: var(--r-sm); padding: 14px 18px; margin: 2px 0 10px;">
+                  <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 600; margin-bottom: 8px;">What went into it</div>
+                  <div style="display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; font-size: 13px; color: var(--ink-2);"><span>Rajma (kidney beans), dry</span><span class="tnum">47 g</span></div>
+                  <div style="display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; font-size: 13px; color: var(--ink-2);"><span>Onion, red</span><span class="tnum">38 g</span></div>
+                  <div style="display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; font-size: 13px; color: var(--ink-2);"><span>Tomato</span><span class="tnum">41 g</span></div>
+                  <div style="display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; font-size: 13px; color: var(--ink-2);"><span>Ghee</span><span class="tnum">7 g</span></div>
+                  <div style="display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; font-size: 13px; color: var(--ink-3);"><span>Asafoetida (hing) <span style="font-size: 11px;">no composition data</span></span><span class="tnum">0.2 g</span></div>
+                  <p style="margin: 10px 0 0; font-size: 12px; color: var(--ink-3);">The hing's nutrients count as unmeasured for the day, not as zero — which is why some totals above read “—”.</p>
+                </div>
+              </sc-if>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 10px; min-height: 44px; border-top: 1px solid var(--line);">
+              <span style="flex: 1; min-width: 0;">Cucumber, raw</span>
+              <span style="color: var(--ink-3); font-size: 12px;">80 g</span>
+              <button aria-label="Remove Cucumber, raw" style="width: 34px; height: 34px; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--ink-3); font-size: 15px;">×</button>
+            </div>
+          </div>
+
+          <div style="margin-top: 20px;">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 600; margin-bottom: 2px;">dinner</div>
+            <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+              <span style="flex: 1; min-width: 0;">Paneer tikka, home-made</span>
+              <span style="color: var(--ink-3); font-size: 12px;">140 g</span>
+              <button aria-label="Remove Paneer tikka, home-made" style="width: 34px; height: 34px; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--ink-3); font-size: 15px;">×</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview": {"width": 1440, "height": 900}}'>
+const DAYS = [
+  { label: "today",     full: "Fri, Sep 5", kcal: 1840, protein: 96,  carbs: 188, fat: 58, entries: 4 },
+  { label: "yesterday", full: "Thu, Sep 4", kcal: 2260, protein: 121, carbs: 240, fat: 71, entries: 8 },
+  { label: "2daysago",  full: "Wed, Sep 3", kcal: 1510, protein: 74,  carbs: 165, fat: 46, entries: 6 },
+];
+
+const NAV_ICONS = {
+  today: '<circle cx="12" cy="12" r="7.2"></circle><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"></circle>',
+  nutrients: '<path d="M4.5 7.5h9M4.5 12h14M4.5 16.5h6" stroke-linecap="round"></path>',
+  history: '<circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2" stroke-linecap="round" stroke-linejoin="round"></path>',
+  recipes: '<path d="M6 12a6 6 0 0 0 12 0" stroke-linecap="round"></path><path d="M5 12h14" stroke-linecap="round"></path><path d="M8.5 12V9a3.5 3.5 0 0 1 7 0v3"></path>',
+};
+
+const NAV = [
+  { id: "today", label: "Today" },
+  { id: "nutrients", label: "Nutrients" },
+  { id: "history", label: "History" },
+  { id: "recipes", label: "Recipes" },
+];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { dayIndex: 0, activeNav: "today", expanded: "rajma" };
+    this.stepBack = this.stepBack.bind(this);
+    this.stepForward = this.stepForward.bind(this);
+    this.jumpToday = this.jumpToday.bind(this);
+    this.toggleRow = this.toggleRow.bind(this);
+  }
+
+  // "Previous day" moves further into the past — index UP the array.
+  stepBack() {
+    this.setState((s) => ({ dayIndex: Math.min(DAYS.length - 1, s.dayIndex + 1) }));
+  }
+  // "Next day" moves toward today — index DOWN, and stops there. This is a
+  // stepper over a fixed range, not history navigation: there is nowhere
+  // "forward" of today to go, exactly like the disabled state already says.
+  stepForward() {
+    this.setState((s) => ({ dayIndex: Math.max(0, s.dayIndex - 1) }));
+  }
+  jumpToday() {
+    this.setState({ dayIndex: 0 });
+  }
+  toggleRow() {
+    this.setState((s) => ({ expanded: s.expanded === "rajma" ? null : "rajma" }));
+  }
+
+  fmt(n) {
+    return n.toLocaleString();
+  }
+
+  renderVals() {
+    const self = this;
+    const d = DAYS[this.state.dayIndex];
+    const isToday = this.state.dayIndex === 0;
+    const forwardDisabled = isToday;
+    const TARGET = 2200;
+    const left = Math.max(TARGET - d.kcal, 0);
+    const pct = Math.min((d.kcal / TARGET) * 100, 100);
+
+    const navItems = NAV.map((n) => {
+      const current = self.state.activeNav === n.id;
+      return {
+        label: n.label,
+        current: current ? "page" : undefined,
+        iconHtml: NAV_ICONS[n.id],
+        rowStyle:
+          "position: relative; display: flex; align-items: center; gap: 12px; min-height: 40px; " +
+          "padding: 0 12px; border-radius: var(--r-md); font-size: 14px; " +
+          "font-weight: " + (current ? "600" : "500") + "; " +
+          "color: " + (current ? "var(--accent-ink)" : "var(--ink-2)") + "; " +
+          "background: " + (current ? "var(--accent-wash)" : "transparent") + "; " +
+          "transition: background-color 140ms ease-out, color 140ms ease-out;",
+        // The selected place is a tint + a leading rule, not an inverted
+        // black pill — one more spot where tone carries the meaning that
+        // stark on/off contrast used to.
+        railStyle:
+          "position: absolute; left: -16px; top: 6px; bottom: 6px; width: 3px; border-radius: 999px; " +
+          "background: " + (current ? "var(--accent)" : "transparent") + ";",
+        pick: () => self.setState({ activeNav: n.id }),
+      };
+    });
+
+    return {
+      navItems: navItems,
+      day: {
+        full: d.full,
+        kcalTxt: this.fmt(d.kcal),
+        leftTxt: this.fmt(left),
+        pct: pct,
+        proteinTxt: d.protein + " g",
+        carbsTxt: d.carbs + " g",
+        fatTxt: d.fat + " g",
+        entriesTxt: d.entries + " items",
+        isToday: isToday,
+        todayOpacity: isToday ? 0.4 : 1,
+        forwardDisabled: forwardDisabled,
+        forwardOpacity: forwardDisabled ? 0.35 : 1,
+      },
+      stepBack: this.stepBack,
+      stepForward: this.stepForward,
+      jumpToday: this.jumpToday,
+      toggleRow: this.toggleRow,
+      isExpanded: this.state.expanded === "rajma",
+      expandGlyphRotate: this.state.expanded === "rajma" ? "rotate(90deg)" : "rotate(0deg)",
+    };
+  }
+}
+</script>
+</body>
+</html>

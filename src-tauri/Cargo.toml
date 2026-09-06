@@ -1,0 +1,56 @@
+[package]
+name = "trackit"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "trackit_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+trackit-core = { path = "../crates/core" }
+# `bundled` compiles SQLite from source, so FTS5 is guaranteed present and the
+# Android build does not depend on whatever libsqlite3 the device happens to ship.
+rusqlite = { version = "0.40", features = ["bundled"] }
+# Needed on Android: resource_dir() is "asset://localhost/", not a filesystem
+# path, so the bundled database must be read through the asset manager.
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Mobile release packages should contain executable code, not the symbol and
+# per-codegen-unit baggage useful to a debugger. LTO also lets the linker drop
+# Rust paths that this particular target never calls (including platform-gated
+# branches), while `s` keeps the remaining machine code compact.
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+# Apple Vision reads the nutrition panel on device — nothing is uploaded. The
+# feature sets are pared to what still-image text recognition actually touches,
+# so a label scan does not drag CoreML, AVFoundation and CoreMedia into the
+# build. Versions match what tauri already pins in Cargo.lock (objc2 0.6.4, the
+# framework crates 0.3.2) so the graph stays on one copy of each.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSData", "NSDictionary", "NSError", "NSObject", "NSString"] }
+objc2-core-foundation = { version = "0.3.2", features = ["CFBase", "CFCGTypes", "CFData", "CFDictionary", "CFNumber", "CFString", "objc2"] }
+# ImageIO decodes the encoded bytes and, just as importantly, tells us the EXIF
+# orientation: a panel photographed in portrait arrives rotated, and Vision
+# reads nothing at all from sideways text.
+objc2-image-io = { version = "0.3.2", default-features = false, features = ["std", "CGImageSource", "CGImageProperties", "objc2", "objc2-core-graphics"] }
+objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "VNDefines", "VNError", "VNTypes", "VNObservation", "VNRequest", "VNRequestHandler", "VNRequestRevisionProviding", "VNRecognizeTextRequest", "VNDetectBarcodesRequest", "objc2-core-foundation", "objc2-core-graphics", "objc2-image-io"] }

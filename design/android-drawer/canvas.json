@@ -1,0 +1,49 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "The design" },
+    { "id": "page-2", "name": "Also considered" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "Drawer — all eleven places", "page": "page-1", "is_interactive": true },
+    { "file": "Anatomy.dc.html", "x": 490, "y": 0, "w": 880, "h": 840, "title": "Measured", "page": "page-1" },
+
+    { "file": "Hybrid.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "Drawer + three shortcuts", "page": "page-2", "is_interactive": true },
+    { "file": "Swap.dc.html", "x": 490, "y": 0, "w": 390, "h": 844, "title": "Alternative — the same five, moved", "page": "page-2", "is_interactive": true },
+    { "file": "Reach.dc.html", "x": 980, "y": 0, "w": 820, "h": 660, "title": "The case for keeping a bar", "page": "page-2" }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -220,
+      "w": 900,
+      "page": "page-1",
+      "text": "THE MENU IS IN A LEFT DRAWER. NOTHING IS ON THE BOTTOM EDGE.\n\nThe frame works: tap the menu button, tap a destination, tap the dimmed page.\n\nEleven destinations in one panel, grouped. The two headings are what used to be destinations — Library and You were hub screens whose only job was to hold a list of links, and the drawer holds those lists instead. So a screen leaves the app, and Recipes is one tap from anywhere rather than three.\n\nAdd food stays on the screen rather than going in the drawer: it is an action, not a place, and it is the only reason to open the app in a hurry. It sits at the ordinary 24 pt inset now that there is no bar to clear.\n\nBuilt and running on a device. The second page holds two directions that were not chosen, including one I argued for and was overruled on — kept because the reasoning is still worth reading, not as a proposal."
+    },
+    {
+      "id": "gains",
+      "x": 0,
+      "y": 900,
+      "w": 390,
+      "page": "page-1",
+      "text": "76 pt of screen back, and the day's own content runs to the bottom of it."
+    },
+    {
+      "id": "back-gesture",
+      "x": 490,
+      "y": 900,
+      "w": 420,
+      "page": "page-1",
+      "text": "A REAL DEFECT FOUND ON THE DEVICE, NOT YET FIXED.\n\nThe system Back gesture does not close the drawer. It closes the APP — and it does that from every screen, which is a pre-existing bug the drawer only made visible.\n\nTauri's generated activity asks `webView.canGoBack()`, which reads the WebView's native back-forward list. Every screen change in this app is a hash change, and same-document navigations never enter that list, so the answer is always no and the activity is finished.\n\nUntil that is fixed the menu button is the only way to close the drawer. The edge swipe cannot help either: on Android 10 and later that gesture belongs to the system."
+    },
+    {
+      "id": "considered",
+      "x": 0,
+      "y": -240,
+      "w": 900,
+      "page": "page-2",
+      "text": "NOT CHOSEN. Both work — tap through them.\n\nLEFT — the drawer plus three shortcuts on the bottom edge. This was my recommendation, on the grounds that the bottom third of a phone is the only comfortable one-thumb zone and Today is opened at every meal. It was overruled, correctly: the instruction was to get the menu off the bottom edge, and keeping a bar there reinstated the thing that had been rejected. The argument is on the artboard to the right.\n\nRIGHT — the literal first reading: the same five destinations, relocated, with Library still a hub you walk through. Smaller and safer, and it pays the drawer's tap while collecting none of its capacity."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

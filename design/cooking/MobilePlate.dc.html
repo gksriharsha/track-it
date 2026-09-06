@@ -1,0 +1,212 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num {
+      font-family: Newsreader, Georgia, "Times New Roman", serif;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+    }
+    .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #8a8378; font-weight: 600; }
+    .gross {
+      width: 100%; border: none; background: transparent; text-align: right;
+      font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em; font-size: 30px; font-weight: 500; color: #1c1a17;
+      padding: 0; outline: none; min-width: 0;
+    }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; display: flex; flex-direction: column; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #e8e4dd; flex: none;">
+    <button aria-label="Back" style="flex: none; width: 44px; height: 44px; margin-left: -12px; border: none; background: transparent; border-radius: 8px; display: grid; place-items: center; cursor: pointer;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="1.8" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+    </button>
+    <div style="min-width: 0; flex: 1;">
+      <div style="font-weight: 600; font-size: 15px;">Weigh the plate</div>
+      <div style="color: #8a8378; font-size: 12px;">Rajma masala · from tonight's pot</div>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 14px;">
+
+    <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 16px;">
+      <div style="display: flex; align-items: baseline; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid #e8e4dd;">
+        <span class="k" style="flex: none;">Scale reads</span>
+        <input class="gross" value="{{gross}}" onInput="{{setGross}}" inputMode="decimal" aria-label="Total weight on the scale, in grams">
+        <span style="flex: none; color: #8a8378; font-size: 13px;">g</span>
+      </div>
+
+      <!-- STACKING is the part every tare tool gets wrong. A katori sits on a
+           thali; both are under the food, so both come off. Multi-select, with
+           a running total, rather than one vessel at a time. -->
+      <div style="padding-top: 12px;">
+        <div style="display: flex; align-items: baseline; gap: 8px;">
+          <span class="k">What's under the food</span>
+          <span style="margin-left: auto; color: #8a8378; font-size: 11.5px;">tap all that apply</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;">
+          <sc-for list="{{vessels}}" as="v" hint-placeholder-count="5">
+            <button onClick="{{v.toggle}}" role="checkbox" aria-checked="{{v.on}}" style="{{v.rowStyle}}">
+              <span style="flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; background: {{v.boxBg}}; border: 1.5px solid {{v.boxLine}};">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="{{v.tickInk}}" stroke-width="3"><path d="M4 12.5l5 5L20 6.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              </span>
+              <span style="min-width: 0; text-align: left; flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{v.name}}</span>
+              <span class="num" style="flex: none; font-size: 14px; color: #57524a;">{{v.gramsTxt}} g</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e8e4dd;">
+        <span style="font-size: 13.5px; color: #57524a;">Vessels weigh</span>
+        <span style="margin-left: auto; white-space: nowrap;"><span class="num" style="font-size: 16px; color: #57524a;">−{{tareTxt}}</span><span style="color: #8a8378; font-size: 12px;"> g</span></span>
+      </div>
+
+      <div style="display: flex; align-items: flex-end; gap: 10px; margin-top: 12px; padding: 14px; border-radius: 12px; background: #edf3ee;">
+        <div style="min-width: 0;">
+          <div class="k" style="font-size: 10px; color: #3c6449;">Food on the plate</div>
+          <div style="color: #3c6449; font-size: 12px; margin-top: 2px; opacity: 0.85;">{{shareTxt}}</div>
+        </div>
+        <div style="margin-left: auto; text-align: right; white-space: nowrap;">
+          <span class="num" style="font-size: 34px; font-weight: 500; line-height: 1; color: #1c1a17;">{{netTxt}}</span>
+          <span style="color: #3c6449; font-size: 13px;"> g</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- The honest limit of the whole feature, said once and plainly. -->
+    <div style="padding: 12px 14px; border-radius: 12px; background: #f4f2ee; color: #57524a; font-size: 12.5px; line-height: 1.55;">
+      Each vessel here was weighed empty, once, as <em>that</em> object — two katoris off the same shelf differ by three or four grams, so a table of vessel types would put the error straight back.
+      If your scale has a tare button it is still better; this is for the plate that is already served.
+    </div>
+
+    <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 16px;">
+      <div style="display: flex; align-items: baseline; gap: 8px;">
+        <span class="k">Your vessels</span>
+        <span style="margin-left: auto; color: #8a8378; font-size: 11.5px;">{{vesselCount}} weighed</span>
+      </div>
+      <p style="margin: 8px 0 12px; font-size: 12.5px; line-height: 1.5; color: #8a8378;">
+        Adding one is two steps: put it empty on the scale, then save. It is never asked for again.
+      </p>
+      <button style="width: 100%; min-height: 46px; border-radius: 12px; border: 1px dashed #e8e4dd; background: transparent; color: #3c6449; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3c6449" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"></path></svg>
+        Weigh a new vessel
+      </button>
+    </div>
+  </div>
+
+  <div style="flex: none; background: #ffffff; border-top: 1px solid #e8e4dd; padding: 12px 16px 22px; display: flex; align-items: center; gap: 14px;">
+    <div style="min-width: 0;">
+      <div class="k" style="font-size: 10px;">Logging</div>
+      <div style="font-size: 13px; color: #57524a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Rajma masala · dinner</div>
+    </div>
+    <button style="margin-left: auto; flex: none; min-height: 48px; padding: 0 20px; border-radius: 12px; border: none; background: #4a7c59; color: #ffffff; font-size: 15px; font-weight: 600; white-space: nowrap;">
+      Log <span class="num">{{netTxt}}</span> g
+    </button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 390, "height": 844}
+}'>
+// The whole library is nine objects; this screen offers the five that go under
+// a served plate. The count must come from the library, not from the subset.
+const LIBRARY_SIZE = 9;
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    // The five you eat off, out of a library of LIBRARY_SIZE. Cookware lives in
+    // the same library but is never under a served plate.
+    this.vessels = [
+      { id: 'thali',  name: 'Steel thali',            grams: 612 },
+      { id: 'katori', name: 'Katori, small (no. 2)',  grams: 87  },
+      { id: 'plate',  name: 'Dinner plate, ceramic',  grams: 341 },
+      { id: 'glass',  name: 'Steel tumbler',          grams: 196 },
+      { id: 'spoon',  name: 'Spoon',                  grams: 24  },
+    ];
+    // Rajma in a katori, katori on the thali — the common case, and the one a
+    // single-vessel picker gets wrong by 600 g.
+    this.state = { gross: '967', on: { thali: true, katori: true } };
+    this.setGross = this.setGross.bind(this);
+  }
+
+  setGross(e) {
+    // Digits and at most ONE point: "1.2.3" would otherwise pass the filter and
+    // parseFloat would silently read 1.2.
+    var v = e.target.value.replace(/[^0-9.]/g, '');
+    var i = v.indexOf('.');
+    if (i !== -1) v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '');
+    this.setState({ gross: v });
+  }
+
+  fmt(n) { return (Math.abs(n - Math.round(n)) < 0.05) ? String(Math.round(n)) : n.toFixed(1); }
+
+  renderVals() {
+    var self = this;
+    var YIELD = 1180; // the pot this plate came out of
+
+    var tare = 0;
+    var vessels = this.vessels.map(function (v) {
+      var on = !!self.state.on[v.id];
+      if (on) tare += v.grams;
+      return {
+        name: v.name,
+        on: on,
+        gramsTxt: self.fmt(v.grams),
+        boxBg: on ? '#4a7c59' : 'transparent',
+        boxLine: on ? '#4a7c59' : '#e8e4dd',
+        tickInk: on ? '#ffffff' : 'transparent',
+        rowStyle: 'width: 100%; min-height: 44px; display: flex; align-items: center; gap: 12px; '
+          + 'padding: 6px 10px; border: none; border-radius: 8px; cursor: pointer; text-align: left; '
+          + 'background: ' + (on ? '#f4f2ee' : 'transparent') + ';',
+        toggle: function () {
+          var next = Object.assign({}, self.state.on);
+          next[v.id] = !next[v.id];
+          self.setState({ on: next });
+        },
+      };
+    });
+
+    var gross = parseFloat(this.state.gross) || 0;
+    // A reading at or below the tare is a wrong vessel selection, not 0 g of food.
+    var overTare = gross > 0 && gross <= tare;
+    var net = Math.max(0, gross - tare);
+    var share = YIELD > 0 ? net / YIELD * 100 : 0;
+
+    return {
+      gross: this.state.gross,
+      setGross: this.setGross,
+      vessels: vessels,
+      vesselCount: LIBRARY_SIZE,
+      tareTxt: this.fmt(tare),
+      netTxt: overTare ? '—' : this.fmt(net),
+      // Telling you the fraction of the pot is what makes the number
+      // meaningful — 268 g means nothing on its own.
+      shareTxt: overTare
+        ? 'the vessels weigh more than the reading'
+        : net > 0 ? share.toFixed(0) + '% of the pot' : 'nothing yet',
+    };
+  }
+}
+</script>
+</body>
+</html>

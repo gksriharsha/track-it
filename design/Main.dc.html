@@ -1,0 +1,182 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num { font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .tnum { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; font-size: 15px; line-height: 1.55; position: relative; overflow: hidden; display: flex; flex-direction: column;">
+
+  <!-- STATUS STRIP — compact on purpose. On a phone the day's total is
+       reassurance, not the task. It gets one line, not a hero. -->
+  <div style="display: flex; align-items: baseline; gap: 10px; padding: 20px 20px 14px;">
+    <span class="num" style="font-size: 30px; line-height: 1; font-weight: 500;">{{kcal}}</span>
+    <span style="color: #8a8378; font-size: 13px;">of 2,200 kcal</span>
+    <button onClick="{{cycleMeal}}" style="margin-left: auto; min-height: 44px; padding: 0 14px; border: 1px solid #e8e4dd; border-radius: 999px; background: #ffffff; color: #57524a; font: inherit; font-size: 13px; text-transform: capitalize;">
+      {{meal}}
+    </button>
+  </div>
+  <div style="height: 3px; background: #f4f2ee; margin: 0 20px 4px; border-radius: 999px; overflow: hidden;">
+    <div style="height: 100%; background: #4a7c59; border-radius: 999px; width: {{pctCss}};"></div>
+  </div>
+
+  <div style="flex: 1; overflow-y: auto; padding: 14px 20px 20px;">
+
+    <!-- LOG AGAIN — the whole point of the phone app. People eat the same
+         twenty things; each tile carries the portion you usually take, so
+         the common case is ONE tap with no typing and no search. -->
+    <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px;">
+      <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #8a8378; font-weight: 600;">Log again</span>
+      <span style="margin-left: auto; color: #8a8378; font-size: 12px;">your usual portion</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+      <sc-for list="{{tiles}}" as="t" hint-placeholder-count="6">
+        <button onClick="{{t.log}}" style="min-height: 84px; padding: 12px 14px; border: none; border-radius: 12px; background: {{t.bg}}; box-shadow: {{t.shadow}}; text-align: left; color: inherit; font: inherit; display: flex; flex-direction: column; gap: 3px; justify-content: center;">
+          <span style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{t.name}}</span>
+          <span style="color: #57524a; font-size: 13px;">{{t.portion}}</span>
+          <span style="color: {{t.hintColor}}; font-size: 12px; font-weight: 550;">{{t.hint}}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <!-- Search is the fallback, not the front door. -->
+    <button style="display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; margin-top: 14px; padding: 0 16px; border: 1px solid #e8e4dd; border-radius: 12px; background: #ffffff; color: #8a8378; font: inherit; text-align: left;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8a8378" stroke-width="1.8" style="flex: none;">
+        <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.5-4.5"></path>
+      </svg>
+      Something else
+    </button>
+
+    <!-- Today's list, compact. Reviewing happens on the desktop. -->
+    <div style="display: flex; align-items: baseline; gap: 8px; margin: 26px 0 6px;">
+      <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #8a8378; font-weight: 600;">Today</span>
+      <span style="margin-left: auto; color: #8a8378; font-size: 12px;">{{itemCount}}</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column;">
+      <sc-for list="{{logged}}" as="e" hint-placeholder-count="3">
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; min-height: 48px; padding: 6px 0; border-bottom: 1px solid #e8e4dd;">
+          <span style="min-width: 0;">
+            <span style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{e.name}}</span>
+            <span style="display: block; color: #8a8378; font-size: 12px; text-transform: capitalize;">{{e.meal}}</span>
+          </span>
+          <span class="tnum" style="color: #57524a; font-size: 14px;">{{e.grams}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{isEmpty}}" hint-placeholder-val="{{true}}">
+      <p style="color: #8a8378; font-size: 14px; margin: 10px 0 0;">Nothing yet. Tap a tile above.</p>
+    </sc-if>
+  </div>
+
+  <!-- THREE tabs, not five. Fewer, bigger, thumb-height. Everything the
+       desktop offers as a fifth sidebar entry lives inside these. -->
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 8px 12px 26px; background: #ffffff; border-top: 1px solid #e8e4dd;">
+    <sc-for list="{{tabs}}" as="tab" hint-placeholder-count="3">
+      <button onClick="{{tab.pick}}" style="min-height: 52px; border: none; border-radius: 10px; background: {{tab.bg}}; color: {{tab.fg}}; font: inherit; font-weight: {{tab.weight}}; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+        <span style="font-size: 13px;">{{tab.label}}</span>
+      </button>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    // Sample day. Illustrative values, not measured data.
+    this.state = {
+      meal: 'lunch',
+      tab: 'log',
+      kcal: 1598,
+      justLogged: null,
+      logged: [
+        { name: 'Yogurt, plain (dahi)', meal: 'breakfast', grams: '150 g' },
+        { name: 'Mungo beans (urad dal)', meal: 'breakfast', grams: '158 g' },
+        { name: 'Beans, kidney (rajma)', meal: 'lunch', grams: '215 g' },
+      ],
+    };
+  }
+
+  renderVals() {
+    const MEALS = ['breakfast', 'lunch', 'dinner', 'snack'];
+    const usual = [
+      { name: 'Dahi', portion: '1 katori · 150 g', kcal: 92 },
+      { name: 'Roti', portion: '3 pieces · 135 g', kcal: 312 },
+      { name: 'Urad dal', portion: '1 katori · 158 g', kcal: 168 },
+      { name: 'Rajma', portion: '1 katori · 215 g', kcal: 274 },
+      { name: 'Palak paneer', portion: '1 katori · 180 g', kcal: 286 },
+      { name: 'Bhindi', portion: '1 katori · 140 g', kcal: 46 },
+    ];
+
+    const log = (u) => () =>
+      this.setState({
+        kcal: this.state.kcal + u.kcal,
+        justLogged: u.name,
+        logged: [...this.state.logged, { name: u.name, meal: this.state.meal, grams: u.portion.split('· ')[1] }],
+      });
+
+    const pct = Math.min((this.state.kcal / 2200) * 100, 100);
+
+    return {
+      kcal: this.state.kcal.toLocaleString(),
+      pctCss: pct.toFixed(0) + '%',
+      meal: this.state.meal,
+      cycleMeal: () =>
+        this.setState({ meal: MEALS[(MEALS.indexOf(this.state.meal) + 1) % MEALS.length] }),
+
+      tiles: usual.map((u) => {
+        const done = this.state.justLogged === u.name;
+        return {
+          ...u,
+          log: log(u),
+          // A tap confirms in place rather than navigating away — the point
+          // of the phone app is that logging never costs you a screen.
+          bg: done ? '#edf3ee' : '#ffffff',
+          shadow: done ? 'inset 0 0 0 1.5px #4a7c59' : '0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10)',
+          hint: done ? 'added' : '',
+          hintColor: '#3c6449',
+        };
+      }),
+
+      logged: [...this.state.logged].reverse(),
+      itemCount: this.state.logged.length + ' items',
+      isEmpty: this.state.logged.length === 0,
+
+      tabs: [
+        ['log', 'Log'],
+        ['day', 'Day'],
+        ['trends', 'Trends'],
+      ].map(([id, label]) => {
+        const on = this.state.tab === id;
+        return {
+          label,
+          pick: () => this.setState({ tab: id }),
+          bg: on ? '#1c1a17' : 'transparent',
+          fg: on ? '#fbfaf8' : '#57524a',
+          weight: on ? '600' : '500',
+        };
+      }),
+    };
+  }
+}
+</script>
+</body>
+</html>

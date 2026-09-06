@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 14px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .spec { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid #e8e4dd; }
+    .spec__k { flex: 1; min-width: 0; font-size: 13px; color: #57524a; }
+    .spec__v { font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums; font-size: 14px; color: #1c1a17; }
+    .row { display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 16px; border-radius: 999px; }
+  </style>
+</helmet>
+
+<div style="width: 880px; height: 840px; background: #fbfaf8; color: #1c1a17; padding: 36px 40px; box-sizing: border-box; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="#4a7c59" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="42 14" />
+    </svg>
+    <span style="font-size: 12px; letter-spacing: 0.04em; color: #8a8378; font-weight: 600;">BIOBALANCE · ANDROID</span>
+  </div>
+
+  <h1 style="margin: 14px 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em;">Measured</h1>
+  <p style="margin: 0 0 26px; font-size: 14px; color: #57524a; max-width: 620px;">
+    Both halves — the drawer and the bar it did not replace — plus what the drawer costs and what
+    pays for it. Values are the app's own tokens; no new colour, radius or type size is introduced
+    here.
+  </p>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+
+    <!-- LEFT: the panel, and what a row looks like in each state. -->
+    <div>
+      <div class="cap">The panel</div>
+      <div style="margin-top: 8px;">
+        <div class="spec"><span class="spec__k">Width, of a 390 pt screen</span><span class="spec__v">300 pt</span></div>
+        <div class="spec"><span class="spec__k">Surface</span><span class="spec__v">#ffffff</span></div>
+        <div class="spec"><span class="spec__k">Right edge</span><span class="spec__v">1 pt #e8e4dd</span></div>
+        <div class="spec"><span class="spec__k">Scrim over the page</span><span class="spec__v">#1c1a17 at 32%</span></div>
+        <div class="spec"><span class="spec__k">Row height · icon · gap</span><span class="spec__v">48 · 20 · 14</span></div>
+        <div class="spec"><span class="spec__k">Row inset · wash radius</span><span class="spec__v">16 · 999</span></div>
+        <div class="spec" style="border-bottom: none;"><span class="spec__k">Rows · groups</span><span class="spec__v">11 · 3</span></div>
+      </div>
+
+      <div class="cap" style="margin-top: 24px;">What the bottom edge gives back</div>
+      <div style="margin-top: 8px;">
+        <div class="spec"><span class="spec__k">Bar removed</span><span class="spec__v">76 pt</span></div>
+        <div class="spec"><span class="spec__k">Add food, at the ordinary inset</span><span class="spec__v">56 · 24 pt up</span></div>
+        <div class="spec" style="border-bottom: none;"><span class="spec__k">Menu button, top left</span><span class="spec__v">44 × 44</span></div>
+      </div>
+
+      <div class="cap" style="margin-top: 26px;">A row, in each state</div>
+      <div style="margin-top: 8px; background: #ffffff; border: 1px solid #e8e4dd; border-radius: 16px; padding: 10px;">
+
+        <div class="row" style="color: #57524a;">
+          <span style="display: grid; place-items: center; width: 20px; height: 20px; flex: none;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7" /></svg>
+          </span>
+          <span style="flex: 1; font-size: 14.5px; font-weight: 500; color: #1c1a17;">Nutrients</span>
+          <span style="font-size: 11.5px; color: #8a8378;">rest</span>
+        </div>
+
+        <div class="row" style="background: #edf3ee; color: #4a7c59;">
+          <span style="display: grid; place-items: center; width: 20px; height: 20px; flex: none;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /></svg>
+          </span>
+          <span style="flex: 1; font-size: 14.5px; font-weight: 600; color: #4a7c59;">Today</span>
+          <span style="font-size: 11.5px; color: #4a7c59;">selected</span>
+        </div>
+
+        <div class="row" style="background: #f4f2ee; color: #57524a;">
+          <span style="display: grid; place-items: center; width: 20px; height: 20px; flex: none;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6.5A1.5 1.5 0 0 1 6.5 5H18v14H6.5A1.5 1.5 0 0 1 5 17.5z" /><path d="M18 5v14" /></svg>
+          </span>
+          <span style="flex: 1; font-size: 14.5px; font-weight: 500; color: #1c1a17;">Recipes</span>
+          <span style="font-size: 11.5px; color: #8a8378;">pressed</span>
+        </div>
+      </div>
+
+      <p style="margin: 12px 0 0; font-size: 12.5px; line-height: 1.55; color: #8a8378;">
+        Selected is the accent over its own wash, never an inverted pill — the rule the bottom bar
+        already followed, widened from a 44×26 chip to a whole row.
+      </p>
+    </div>
+
+    <!-- RIGHT: motion, the four ways it closes, and the honest objection. -->
+    <div>
+      <div class="cap">How it opens and closes</div>
+      <div style="margin-top: 8px;">
+        <div class="spec"><span class="spec__k">Panel</span><span class="spec__v">240 ms</span></div>
+        <div class="spec"><span class="spec__k">Scrim, so the page dims first</span><span class="spec__v">200 ms</span></div>
+        <div class="spec" style="border-bottom: none;"><span class="spec__k">Curve</span><span class="spec__v">0.05, 0.7, 0.1, 1</span></div>
+      </div>
+
+      <div class="cap" style="margin-top: 24px;">Four ways out, all of them expected</div>
+      <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: #57524a;">
+          <span style="display: grid; place-items: center; width: 22px; height: 22px; color: #4a7c59; flex: none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          </span>
+          The menu button, again
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: #57524a;">
+          <span style="display: grid; place-items: center; width: 22px; height: 22px; color: #4a7c59; flex: none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16" /><path d="M9 12h11M16 8l4 4-4 4" /></svg>
+          </span>
+          A swipe from the left edge opens it; a swipe back closes it
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: #57524a;">
+          <span style="display: grid; place-items: center; width: 22px; height: 22px; color: #4a7c59; flex: none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3" /></svg>
+          </span>
+          A tap on the dimmed page
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: #57524a;">
+          <span style="display: grid; place-items: center; width: 22px; height: 22px; color: #4a7c59; flex: none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11H7.5l4-4M7.5 11l4 4" /><path d="M20 11v6" /></svg>
+          </span>
+          The system Back gesture — which must close the drawer, not leave the app
+        </div>
+      </div>
+
+      <div style="margin-top: 26px; background: #f8ede9; border: 1px solid #eddcd4; border-radius: 16px; padding: 16px 18px;">
+        <div class="cap" style="color: #b4553a;">The tax, and what pays it</div>
+        <p style="margin: 8px 0 0; font-size: 13px; line-height: 1.6; color: #57524a;">
+          A drawer costs a reach to the top-left corner plus a tap on every switch, and that lands
+          on Today too. I argued for keeping three shortcuts on the bottom edge to avoid it; that
+          version is on the second page. It was not chosen, and the instruction it contradicted was
+          the plain one: the menu comes off the bottom.
+        </p>
+        <p style="margin: 10px 0 0; font-size: 13px; line-height: 1.6; color: #57524a;">
+          The drawer earns its place a different way: <strong style="font-weight: 600;">eleven</strong>
+          destinations, not five. The six that could not fit were behind a Library hub you had to
+          walk through, and the drawer holds that list instead — so a screen leaves the app and
+          Recipes is one tap from anywhere.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

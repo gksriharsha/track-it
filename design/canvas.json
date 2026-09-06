@@ -1,0 +1,28 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "PHONE · Log — the home screen", "is_interactive": true },
+    { "file": "MobileDay.dc.html", "x": 510, "y": 0, "w": 390, "h": 844, "title": "PHONE · Day — a verdict", "is_interactive": true },
+    { "file": "MobileTrends.dc.html", "x": 1020, "y": 0, "w": 390, "h": 844, "title": "PHONE · Trends — ranked, not a grid", "is_interactive": true },
+
+    { "file": "DesktopWorkspace.dc.html", "x": 0, "y": 1240, "w": 1440, "h": 900, "title": "DESKTOP · Workspace — table + inspector", "is_interactive": true },
+    { "file": "DesktopWeek.dc.html", "x": 1560, "y": 1240, "w": 1440, "h": 900, "title": "DESKTOP · Four weeks — 392 cells", "is_interactive": true },
+    { "file": "DesktopCommand.dc.html", "x": 3120, "y": 1240, "w": 1440, "h": 900, "title": "DESKTOP · ⌘K — type the whole entry", "is_interactive": true }
+  ],
+  "annotations": [
+    {
+      "id": "note-phone",
+      "x": 0,
+      "y": -300,
+      "w": 900,
+      "text": "TOP ROW — THE PHONE. A CAPTURE INSTRUMENT.\n\nYou are standing in a kitchen, one hand, mid-meal, ten seconds. So the home screen IS the log surface: you eat the same twenty things, and each tile carries the portion you usually take. The common case is ONE tap — no typing, no search, no screen change.\n\nThree tabs, not five. Targets are 52-84px. The day's total gets one line instead of a hero, because on a phone it is reassurance, not the task.\n\nTap the tiles on the first screen — the count and the list respond."
+    },
+    {
+      "id": "note-desktop",
+      "x": 0,
+      "y": 930,
+      "w": 1100,
+      "text": "BOTTOM ROW — THE DESKTOP. AN ANALYSIS WORKSPACE.\n\nSitting down, keyboard, two hands, minutes rather than seconds. Nothing here is a stretched phone screen:\n\n· A dense sortable table where the phone has a scroll list. Click the Coverage header to find what is dragging the day's confidence down.\n· An inspector pane that FOLLOWS the selection — drill-down costs no navigation. Click any row.\n· A persistent five-item sidebar with keyboard numbers, where the phone gets three big tabs.\n· ⌘K instead of a tab: you type \"150g urad dal\" and never touch the mouse.\n\nThe middle screen is the view a phone cannot have — 28 days across 14 nutrients is 392 cells, and the only shape that makes a PATTERN visible. Compare it with Trends on the phone row: same data, ranked into four cards."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .pane { background: #ffffff; border-radius: 16px; padding: 20px; border: 1px solid #e8e4dd; }
+    .paneBad { background: #fdfaf9; border-radius: 16px; padding: 20px; border: 1px dashed #e0cec7; }
+    .why { font-size: 12px; color: #8a8378; line-height: 1.6; margin: 10px 0 0; }
+  </style>
+</helmet>
+
+<div style="width: 880px; min-height: 940px; background: #fbfaf8; color: #1c1a17; padding: 36px 40px 44px;">
+
+  <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em;">What changed, and why</h1>
+  <p style="margin: 8px 0 0; font-size: 14px; color: #57524a; max-width: 62ch;">
+    Two rules produced most of the complaints. Underlined green text borrowed the web's
+    link vocabulary for things that were never links, and “selection by inversion” painted
+    whatever was active solid black — which is what turned the profile icon into a blot.
+  </p>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 28px;">
+    <div class="cap">Before</div>
+    <div class="cap">After</div>
+  </div>
+
+  <!-- 1 ─ navigation -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px; align-items: start;">
+    <div class="paneBad">
+      <div style="font-size: 13px; font-weight: 600; margin-bottom: 14px;">Navigating somewhere</div>
+      <div style="display: flex; flex-direction: column; gap: 12px; align-items: flex-start;">
+        <span style="color: #4a7c59; text-decoration: underline; text-underline-offset: 2px; font-size: 13px;">‹ back</span>
+        <span style="color: #4a7c59; text-decoration: underline; text-underline-offset: 2px; font-size: 13px;">Targets and goals ›</span>
+        <span style="color: #4a7c59; text-decoration: underline; text-underline-offset: 2px; font-size: 13px;">See all 47 nutrients</span>
+      </div>
+      <p class="why">13px underlined text, ~20px tall. Under the 44px minimum, and it reads as a hyperlink in an app that has no hyperlinks.</p>
+    </div>
+
+    <div class="pane">
+      <div style="font-size: 13px; font-weight: 600; margin-bottom: 14px;">Navigating somewhere</div>
+      <div style="display: flex; flex-direction: column; gap: 12px; align-items: stretch;">
+        <button style="width: 40px; height: 40px; border-radius: 999px; background: #f4f2ee; display: grid; place-items: center; color: #57524a;">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+        </button>
+        <button style="display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 0 14px; text-align: left; background: #f7f5f1; border-radius: 12px;">
+          <span style="flex: 1; font-size: 14px;">Targets &amp; goals</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c3bcb0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+        </button>
+        <button style="display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 46px; padding: 0 14px; background: #f7f5f1; border-radius: 14px; color: #3c6449; font-size: 13px; font-weight: 600;">
+          <span>See all 47 nutrients</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+        </button>
+      </div>
+      <p class="why">An icon button, a row, or a full-width action — all ≥44px, all rounded like everything else in the design, none underlined and none boxed in a hairline.</p>
+    </div>
+  </div>
+
+  <!-- 2 ─ inline actions -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; align-items: start;">
+    <div class="paneBad">
+      <div style="font-size: 13px; font-weight: 600; margin-bottom: 14px;">Acting on the thing in front of you</div>
+      <div style="display: flex; gap: 16px; align-items: center;">
+        <span style="color: #4a7c59; text-decoration: underline; text-underline-offset: 2px; font-size: 13px;">change</span>
+        <span style="color: #4a7c59; text-decoration: underline; text-underline-offset: 2px; font-size: 13px;">cancel</span>
+        <span style="color: #4a7c59; text-decoration: underline; text-underline-offset: 2px; font-size: 13px;">Edit profile</span>
+      </div>
+      <p class="why">Three different weights of action rendered identically, and all of them look like they will open a page.</p>
+    </div>
+
+    <div class="pane">
+      <div style="font-size: 13px; font-weight: 600; margin-bottom: 14px;">Acting on the thing in front of you</div>
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button style="font-size: 12px; font-weight: 600; color: #3c6449; border: 1px solid #d6e0d8; border-radius: 999px; padding: 8px 15px; background: #ffffff;">Edit</button>
+        <button style="font-size: 12px; font-weight: 600; color: #57524a; border-radius: 999px; padding: 8px 15px; background: #f4f2ee;">Change</button>
+        <button style="font-size: 12px; font-weight: 600; color: #8a8378; border-radius: 999px; padding: 8px 15px;">Cancel</button>
+        <button style="font-size: 13px; font-weight: 600; color: #ffffff; background: #4a7c59; border-radius: 12px; padding: 11px 20px;">Save profile</button>
+      </div>
+      <p class="why">Four visible weights: outlined, filled-quiet, ghost, and one solid primary. The hierarchy now carries the meaning.</p>
+    </div>
+  </div>
+
+  <!-- 3 ─ selection -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; align-items: start;">
+    <div class="paneBad">
+      <div style="font-size: 13px; font-weight: 600; margin-bottom: 14px;">Showing what is selected</div>
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <span style="background: #1c1a17; color: #fbfaf8; font-size: 14px; font-weight: 600; border-radius: 999px; padding: 8px 14px;">Add food</span>
+        <span style="color: #57524a; font-size: 14px; padding: 8px 14px;">Nutrients</span>
+        <span style="width: 34px; height: 34px; border-radius: 12px; background: #1c1a17; display: inline-grid; place-items: center;">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fbfaf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.4" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg>
+        </span>
+      </div>
+      <p class="why">Selection by inversion. On a warm off-white ground a solid black pill is the heaviest thing on screen — and applied to the header icon it read as a blot, not a control.</p>
+    </div>
+
+    <div class="pane">
+      <div style="font-size: 13px; font-weight: 600; margin-bottom: 14px;">Showing what is selected</div>
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <span style="background: #edf3ee; color: #3c6449; font-size: 14px; font-weight: 600; border-radius: 999px; padding: 8px 14px;">Today</span>
+        <span style="color: #8a8378; font-size: 14px; padding: 8px 14px;">Nutrients</span>
+        <span style="display: inline-flex; flex-direction: column; align-items: center; gap: 3px; color: #3c6449;">
+          <span style="display: grid; place-items: center; width: 44px; height: 26px; border-radius: 999px; background: #edf3ee;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.4" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg>
+          </span>
+          <span style="font-size: 10.5px; font-weight: 600;">You</span>
+        </span>
+      </div>
+      <p class="why">The accent plus a soft wash. Still unambiguous, a fraction of the visual weight — and the profile is now a labelled destination rather than a bare icon.</p>
+    </div>
+  </div>
+
+  <!-- 4 ─ where things live -->
+  <div style="background: #ffffff; border: 1px solid #e8e4dd; border-radius: 16px; padding: 22px; margin-top: 24px;">
+    <div style="font-size: 13px; font-weight: 600;">Where things live</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 14px;">
+      <div>
+        <div class="cap" style="margin-bottom: 8px;">Before — five tabs, one an action</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: #57524a;">
+          <span style="background: #f4f2ee; border-radius: 8px; padding: 6px 10px;">Today</span>
+          <span style="background: #1c1a17; color: #fbfaf8; border-radius: 8px; padding: 6px 10px;">Add food</span>
+          <span style="background: #f4f2ee; border-radius: 8px; padding: 6px 10px;">Nutrients</span>
+          <span style="background: #f4f2ee; border-radius: 8px; padding: 6px 10px;">History</span>
+          <span style="background: #f4f2ee; border-radius: 8px; padding: 6px 10px;">Recipes</span>
+        </div>
+        <p class="why">Profile had nowhere to go, so it became an unlabelled icon in the header. Recipes, your foods, supplements and vessels were scattered behind other screens.</p>
+      </div>
+      <div>
+        <div class="cap" style="margin-bottom: 8px;">After — four places, one action, one you</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: #57524a;">
+          <span style="background: #edf3ee; color: #3c6449; border-radius: 8px; padding: 6px 10px; font-weight: 600;">Today</span>
+          <span style="background: #f4f2ee; border-radius: 8px; padding: 6px 10px;">Nutrients</span>
+          <span style="background: #f4f2ee; border-radius: 8px; padding: 6px 10px;">History</span>
+          <span style="background: #f4f2ee; border-radius: 8px; padding: 6px 10px;">Library</span>
+          <span style="background: #f4f2ee; border-radius: 8px; padding: 6px 10px;">You</span>
+          <span style="width: 28px; height: 28px; border-radius: 999px; background: #4a7c59; display: inline-grid; place-items: center;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          </span>
+        </div>
+        <p class="why">Adding food becomes the floating button — reachable from every screen, not just its own tab. Library gathers recipes, your foods, supplements and vessels. You holds the profile and its targets.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

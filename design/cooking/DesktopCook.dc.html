@@ -1,0 +1,372 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num {
+      font-family: Newsreader, Georgia, "Times New Roman", serif;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+    }
+    .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #8a8378; font-weight: 600; }
+    /* The desktop equivalent of the wheel: the number itself is the control.
+       ew-resize is the whole affordance — no spinner, no stepper chrome. */
+    .scrub { cursor: ew-resize; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .scrub:focus-visible { outline: 2px solid #4a7c59; outline-offset: 2px; border-radius: 8px; }
+    .kbd {
+      display: inline-block; min-width: 20px; padding: 1px 5px; border-radius: 5px;
+      border: 1px solid #e8e4dd; background: #ffffff; color: #57524a;
+      font-size: 11px; font-weight: 600; text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; background: #fbfaf8; color: #1c1a17; display: flex; flex-direction: column; overflow: hidden;">
+
+  <!-- The app's own topbar, unchanged: the mark, the wordmark, the five tabs.
+       Cooking is a state of the app, not a separate product. -->
+  <div style="flex: none; border-bottom: 1px solid #e8e4dd; background: #fbfaf8;">
+    <div style="max-width: 1240px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 24px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <svg width="22" height="22" viewBox="0 0 32 32" style="flex: none; color: #4a7c59; display: block;" aria-hidden="true">
+          <path d="M 16 4.9 A 11.1 11.1 0 1 1 6.387 21.55" fill="none" stroke="currentColor" stroke-width="4.8" stroke-linecap="butt"></path>
+          <path d="M 5.175 22.25 A 12.5 12.5 0 0 1 16 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt"></path>
+        </svg>
+        <span style="font-family: Newsreader, Georgia, serif; font-size: 19px; font-weight: 500; letter-spacing: -0.025em;">TrackIt</span>
+      </div>
+      <div style="display: flex; gap: 4px; margin-left: auto;">
+        <span style="padding: 8px 12px; border-radius: 999px; color: #57524a; font-size: 14px; font-weight: 500;">Today</span>
+        <span style="padding: 8px 12px; border-radius: 999px; color: #57524a; font-size: 14px; font-weight: 500;">Add food</span>
+        <span style="padding: 8px 12px; border-radius: 999px; color: #57524a; font-size: 14px; font-weight: 500;">Nutrients</span>
+        <span style="padding: 8px 12px; border-radius: 999px; color: #57524a; font-size: 14px; font-weight: 500;">History</span>
+        <span style="padding: 8px 12px; border-radius: 999px; background: #1c1a17; color: #fbfaf8; font-size: 14px; font-weight: 600;">Recipes</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-height: 0; overflow: hidden;">
+    <div style="max-width: 1240px; margin: 0 auto; padding: 28px 24px 0; display: grid; grid-template-columns: minmax(0, 1fr) 348px; gap: 32px; height: 100%;">
+
+      <!-- THE COOK SHEET. Desktop shows every ingredient's drift at once and
+           gives the keyboard the fine control a phone gives the thumb. -->
+      <div style="min-width: 0; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+          <h1 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.011em;">Rajma masala</h1>
+          <span style="padding: 4px 10px; border-radius: 999px; background: #edf3ee; color: #3c6449; font-size: 11px; font-weight: 600; letter-spacing: 0.03em;">COOKING</span>
+          <span style="color: #8a8378; font-size: 14px; margin-left: auto;">{{changedPhrase}}</span>
+        </div>
+        <p style="margin: 6px 0 20px; color: #57524a; font-size: 14px; max-width: 62ch; text-wrap: pretty;">
+          The recipe is what you meant to add. Correct each line to what actually went in — drag the number sideways, or arrow through it.
+        </p>
+
+        <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 4px 24px 16px;">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) 76px 110px 140px 48px 30px; gap: 14px; align-items: center; padding: 12px 0 8px;">
+            <span class="k">Ingredient</span>
+            <span class="k" style="text-align: right;">Recipe</span>
+            <span class="k" style="text-align: right;">Actual</span>
+            <span class="k" style="text-align: center;">Drift</span>
+            <span class="k" style="text-align: right;">%</span>
+            <span></span>
+          </div>
+
+          <sc-for list="{{items}}" as="it" hint-placeholder-count="6">
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) 76px 110px 140px 48px 30px; gap: 14px; align-items: center; min-height: 56px; border-top: 1px solid #e8e4dd;">
+              <div style="min-width: 0;">
+                <div style="font-size: 14.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{it.name}}</div>
+                <div style="color: #8a8378; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{it.source}}</div>
+              </div>
+
+              <div class="num" style="text-align: right; color: #8a8378; font-size: 15px;">{{it.calledTxt}}</div>
+
+              <!-- The number IS the control. Drag it; or focus it and arrow. -->
+              <div class="scrub" tabIndex="0" role="spinbutton" aria-label="{{it.name}} in grams"
+                   aria-valuenow="{{it.actual}}" aria-valuemin="0" aria-valuetext="{{it.valueText}}"
+                   onPointerDown="{{it.down}}" onPointerMove="{{it.move}}" onPointerUp="{{it.up}}" onPointerCancel="{{it.up}}" onKeyDown="{{it.key}}"
+                   style="{{it.scrubStyle}}">
+                <span class="num" style="font-size: 19px; font-weight: 500;">{{it.actualTxt}}</span>
+                <span style="color: #8a8378; font-size: 12px;">g</span>
+              </div>
+
+              <!-- A drift bar centred on zero: length reads magnitude, side
+                   reads direction. A left-anchored bar could not show "less". -->
+              <div style="position: relative; height: 5px; background: #f4f2ee; border-radius: 999px;">
+                <div style="position: absolute; left: 50%; top: -4px; width: 1px; height: 13px; background: #e8e4dd;"></div>
+                <div style="{{it.barStyle}}"></div>
+              </div>
+
+              <div class="num" style="text-align: right; font-size: 14px; color: {{it.pctInk}};">{{it.pctTxt}}</div>
+
+              <button onClick="{{it.reset}}" disabled="{{it.atRecipe}}" aria-label="{{it.resetLabel}}" title="{{it.resetLabel}}" style="{{it.resetStyle}}">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+                  <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+              </button>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 20px; margin-top: 16px; color: #8a8378; font-size: 12.5px; flex-wrap: wrap;">
+          <span style="display: flex; align-items: center; gap: 7px;"><span class="kbd">↑</span><span class="kbd">↓</span> one notch — 2% of that line, half a gram at the finest</span>
+          <span style="display: flex; align-items: center; gap: 7px;"><span class="kbd">⇧</span> + arrow, five</span>
+          <span style="display: flex; align-items: center; gap: 7px;"><span class="kbd">0</span> back to the recipe</span>
+        </div>
+
+        <!-- Why a notch is not a fixed number of grams. The one piece of
+             mechanism a cook needs to trust the control. -->
+        <p style="margin: 14px 0 0; color: #8a8378; font-size: 12.5px; line-height: 1.55; max-width: 66ch; text-wrap: pretty;">
+          A notch is about 2% of what the line calls for, rounded to something a kitchen scale can show — so it is 5&nbsp;g on the beans and half a gram on the hing. One fixed step would be uselessly coarse at one end and maddening at the other.
+        </p>
+      </div>
+
+      <!-- THE CONSEQUENCE RAIL. Desktop has the room to answer "so what?" while
+           you are still standing at the stove. -->
+      <div style="min-width: 0; display: flex; flex-direction: column; gap: 16px;">
+        <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 18px 20px;">
+          <div class="k">In the pot</div>
+          <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 4px;">
+            <span class="num" style="font-size: 40px; font-weight: 500; line-height: 1;">{{potTxt}}</span>
+            <span style="color: #8a8378; font-size: 14px;">g raw</span>
+          </div>
+          <div style="color: #57524a; font-size: 13px; margin-top: 8px;">
+            Recipe as written: <span class="num">{{calledTotalTxt}}</span> g
+          </div>
+          <div style="position: relative; height: 5px; background: #f4f2ee; border-radius: 999px; margin-top: 16px;">
+            <div style="position: absolute; left: 50%; top: -4px; width: 1px; height: 13px; background: #e8e4dd;"></div>
+            <div style="{{potFill}}"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; gap: 10px; margin-top: 9px; color: #8a8378; font-size: 11.5px;">
+            <span>lighter</span><span style="color: #57524a;">{{potDrift}}</span><span>heavier</span>
+          </div>
+        </div>
+
+        <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 18px 20px;">
+          <div style="display: flex; align-items: baseline; gap: 8px;">
+            <span class="k">What moved</span>
+            <span style="margin-left: auto; color: #8a8378; font-size: 11.5px;">whole pot, vs the recipe</span>
+          </div>
+          <div style="display: flex; flex-direction: column; margin-top: 10px;">
+            <sc-for list="{{moved}}" as="m" hint-placeholder-count="5">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; min-height: 38px; border-top: 1px solid #e8e4dd; padding: 6px 0;">
+                <span style="font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{m.name}}</span>
+                <span style="white-space: nowrap;">
+                  <span class="num" style="font-size: 14px; font-weight: 550; color: #57524a;">{{m.delta}}</span>
+                  <span style="color: #8a8378; font-size: 12px;"> {{m.unit}}</span>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{nothingMoved}}" hint-placeholder-val="{{false}}">
+            <p style="margin: 10px 0 0; color: #8a8378; font-size: 12.5px; line-height: 1.5;">
+              Nothing has moved enough to show yet. Change a line and this fills in.
+            </p>
+          </sc-if>
+          <p style="margin: 12px 0 0; color: #8a8378; font-size: 12px; line-height: 1.5;">
+            Nutrients that moved too little to matter are left out. Asafoetida has no
+            composition data at all, so changing that line moves nothing here — a gap,
+            not a zero. Densities stand in for the nutrient engine.
+          </p>
+        </div>
+
+        <div style="background: #f4f2ee; border-radius: 16px; padding: 16px 20px; color: #57524a; font-size: 12.5px; line-height: 1.55;">
+          Nothing is committed until you finish cooking and weigh what came out. Raw totals are an estimate — water changes everything.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: none; background: #ffffff; border-top: 1px solid #e8e4dd;">
+    <div style="max-width: 1240px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 20px;">
+      <button style="min-height: 44px; padding: 0 20px; border-radius: 12px; border: 1px solid #e8e4dd; background: transparent; color: #57524a; font-size: 14px; font-weight: 500;">Discard changes</button>
+      <span style="color: #8a8378; font-size: 13px;">{{changedPhrase}}</span>
+      <button style="margin-left: auto; min-height: 44px; padding: 0 24px; border-radius: 12px; border: none; background: #4a7c59; color: #ffffff; font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        Done cooking — weigh the pot
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      </button>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 1440, "height": 900}
+}'>
+// Approximate per-100 g figures standing in for the nutrient engine, so the
+// consequence rail answers the scrub instead of asserting fixed numbers.
+// Asafoetida is absent on purpose — the app has no composition data for it.
+const DENSITY = {
+  rajma:  { kcal: 333, fat: 0.83, sat: 0.12, vitc: 4.5,  vita: 0 },
+  onion:  { kcal: 40,  fat: 0.10, sat: 0.04, vitc: 7.4,  vita: 0 },
+  tomato: { kcal: 18,  fat: 0.20, sat: 0.03, vitc: 13.7, vita: 42 },
+  ghee:   { kcal: 876, fat: 99.5, sat: 61.9, vitc: 0,    vita: 840 },
+  ginger: { kcal: 80,  fat: 0.75, sat: 0.20, vitc: 5.0,  vita: 0 },
+};
+
+const NUTRIENTS = [
+  { key: 'kcal', name: 'Energy',         unit: 'kcal', dp: 0, floor: 1 },
+  { key: 'fat',  name: 'Total fat',      unit: 'g',    dp: 1, floor: 0.1 },
+  { key: 'sat',  name: 'Saturated fat',  unit: 'g',    dp: 1, floor: 0.1 },
+  { key: 'vitc', name: 'Vitamin C',      unit: 'mg',   dp: 1, floor: 0.1 },
+  { key: 'vita', name: 'Vitamin A, RAE', unit: 'µg',   dp: 0, floor: 1 },
+];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.recipe = [
+      { id: 'rajma',  name: 'Rajma (kidney beans), dry', source: 'USDA · Kidney beans, red, mature seeds, raw', called: 250 },
+      { id: 'onion',  name: 'Onion, red',                source: 'USDA · Onions, red, raw',                    called: 180 },
+      { id: 'tomato', name: 'Tomato',                    source: 'USDA · Tomatoes, red, ripe, raw',            called: 220 },
+      { id: 'ghee',   name: 'Ghee',                      source: 'FNDDS · anhydrous milk fat proxy',           called: 30  },
+      { id: 'ginger', name: 'Ginger, fresh',             source: 'USDA · Ginger root, raw',                    called: 15  },
+      { id: 'hing',   name: 'Asafoetida (hing)',         source: 'no composition data',                        called: 1   },
+    ];
+    var actual = {};
+    for (var i = 0; i < this.recipe.length; i++) actual[this.recipe[i].id] = this.recipe[i].called;
+    actual.onion = 205;
+    actual.ghee = 38;
+    actual.tomato = 195;
+
+    this.state = { actual: actual };
+    this.drag = null;
+  }
+
+  step(called) {
+    var nice = [0.5, 1, 2, 5, 10, 25, 50];
+    var want = called * 0.02;
+    for (var i = 0; i < nice.length; i++) if (want <= nice[i]) return nice[i];
+    return 50;
+  }
+
+  set(id, grams) {
+    var actual = Object.assign({}, this.state.actual);
+    actual[id] = Math.max(0, Math.round(grams * 10) / 10);
+    this.setState({ actual: actual });
+  }
+
+  fmt(n) { return (Math.abs(n - Math.round(n)) < 0.05) ? String(Math.round(n)) : n.toFixed(1); }
+
+  renderVals() {
+    var self = this;
+    var CAP = 50;      // the drift bar saturates at ±50%
+    var PX_PER = 7;    // scrub sensitivity: one notch per 7px of drag
+
+    var pot = 0, calledTotal = 0, changed = 0;
+
+    var items = this.recipe.map(function (r) {
+      var a = self.state.actual[r.id];
+      var st = self.step(r.called);
+      var d = a - r.called;
+      var pct = d / r.called * 100;
+      pot += a; calledTotal += r.called;
+      if (d !== 0) changed++;
+
+      var mag = Math.min(Math.abs(pct), CAP) / CAP * 50; // % of half-width
+      return {
+        name: r.name,
+        source: r.source,
+        calledTxt: self.fmt(r.called),
+        actualTxt: self.fmt(a),
+        actual: a,
+        valueText: self.fmt(a) + ' grams, ' + (d === 0 ? 'as written' : (pct > 0 ? 'up ' : 'down ') + Math.abs(pct).toFixed(0) + ' per cent'),
+        pctTxt: d === 0 ? '—' : (pct > 0 ? '+' : '−') + Math.abs(pct).toFixed(0) + '%',
+        // Drift is not an error; the app keeps #b4553a for a limit exceeded.
+        pctInk: d === 0 ? '#8a8378' : '#57524a',
+        barStyle: 'position: absolute; top: 0; height: 5px; border-radius: 999px; background: #4a7c59; '
+          + 'transition: width 120ms ease-out, left 120ms ease-out; '
+          + (d >= 0 ? 'left: 50%; ' : 'left: ' + (50 - mag) + '%; ')
+          + 'width: ' + mag + '%;',
+        scrubStyle: 'display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; '
+          + 'padding: 6px 10px; border-radius: 8px; '
+          + 'background: ' + (d === 0 ? 'transparent' : '#f4f2ee') + '; '
+          + 'box-shadow: inset 0 0 0 1px ' + (d === 0 ? '#e8e4dd' : 'transparent') + ';',
+        atRecipe: d === 0,
+        resetLabel: d === 0 ? r.name + ' already matches the recipe' : 'Reset ' + r.name + ' to ' + self.fmt(r.called) + ' g',
+        resetStyle: 'width: 32px; height: 32px; border: none; border-radius: 8px; background: transparent; display: grid; place-items: center; '
+          + 'cursor: ' + (d === 0 ? 'default' : 'pointer') + '; '
+          + 'color: ' + (d === 0 ? '#e8e4dd' : '#8a8378') + ';',
+
+        down: function (e) {
+          if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
+          e.currentTarget.focus();
+          self.drag = { id: r.id, x: e.clientX, from: self.state.actual[r.id] };
+        },
+        move: function (e) {
+          if (!self.drag || self.drag.id !== r.id) return;
+          var notches = Math.round((e.clientX - self.drag.x) / PX_PER);
+          self.set(r.id, self.drag.from + notches * st);
+        },
+        up: function () { self.drag = null; },
+        key: function (e) {
+          var mul = e.shiftKey ? 5 : 1;
+          if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); self.set(r.id, self.state.actual[r.id] + st * mul); }
+          else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); self.set(r.id, self.state.actual[r.id] - st * mul); }
+          else if (e.key === '0') { e.preventDefault(); self.set(r.id, r.called); }
+        },
+        reset: function () { self.set(r.id, r.called); },
+      };
+    });
+
+    // Derived from the drift, not hardcoded, so the rail answers the scrub.
+    // Asafoetida is deliberately absent from DENSITY: the app has no composition
+    // data for it, and a line with no data cannot move a total — a zero here
+    // would assert an absence nobody measured.
+    var moved = NUTRIENTS.map(function (n) {
+      var acc = 0;
+      for (var j = 0; j < self.recipe.length; j++) {
+        var rr = self.recipe[j];
+        var per100 = DENSITY[rr.id];
+        if (!per100) continue;
+        acc += (self.state.actual[rr.id] - rr.called) / 100 * per100[n.key];
+      }
+      return { name: n.name, unit: n.unit, raw: acc, dp: n.dp, floor: n.floor };
+    }).filter(function (m) {
+      return Math.abs(m.raw) >= m.floor;
+    }).map(function (m) {
+      return {
+        name: m.name,
+        unit: m.unit,
+        delta: (m.raw > 0 ? '+' : '−') + Math.abs(m.raw).toFixed(m.dp),
+      };
+    });
+
+    var potDiff = pot - calledTotal;
+    var potPctOff = calledTotal > 0 ? potDiff / calledTotal * 100 : 0;
+    var potMag = Math.min(Math.abs(potPctOff), CAP) / CAP * 50; // % of half-width
+
+    return {
+      items: items,
+      potTxt: this.fmt(pot),
+      calledTotalTxt: this.fmt(calledTotal),
+      changedPhrase: changed === 0
+        ? 'Every line matches the recipe'
+        : changed + (changed === 1 ? ' line differs' : ' lines differ') + ' from the recipe',
+      // Centred on the recipe total: length is magnitude, side is direction. A
+      // left-anchored bar cannot say "less than the recipe" at all — which is
+      // why 101% of the recipe used to draw as a 72%-full track.
+      potFill: 'position: absolute; top: 0; height: 5px; border-radius: 999px; background: #4a7c59; '
+        + 'transition: width 160ms ease-out, left 160ms ease-out; '
+        + (potDiff >= 0 ? 'left: 50%; ' : 'left: ' + (50 - potMag) + '%; ')
+        + 'width: ' + potMag + '%;',
+      potDrift: potDiff === 0
+        ? 'exactly as written'
+        : (potDiff > 0 ? '+' : '−') + this.fmt(Math.abs(potDiff)) + ' g vs the recipe',
+      moved: moved,
+      nothingMoved: moved.length === 0,
+    };
+  }
+}
+</script>
+</body>
+</html>

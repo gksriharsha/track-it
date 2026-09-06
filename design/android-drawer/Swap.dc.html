@@ -1,0 +1,210 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .row { display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 16px; border-radius: 999px; width: 100%; border: none; text-align: left; cursor: pointer; font: inherit; }
+    .row:active { transform: scale(0.985); }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; overflow: hidden;">
+
+  <!-- Safe area for the real Android status bar. Nothing drawn here on purpose. -->
+  <div style="height: 44px;"></div>
+
+  <div style="padding: 0 20px;">
+    <div style="display: flex; align-items: center; gap: 6px; height: 44px; margin-left: -10px;">
+      <button onClick="{{ toggle }}" aria-label="Open the menu" style="width: 44px; height: 44px; border: none; background: none; border-radius: 999px; display: grid; place-items: center; color: #57524a; cursor: pointer;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+      </button>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="#4a7c59" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="42 14" />
+      </svg>
+      <span style="font-size: 12px; letter-spacing: 0.04em; color: #8a8378; font-weight: 600;">BIOBALANCE</span>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px;">
+      <h1 style="margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -0.02em;">{{ title }}</h1>
+      <div style="display: flex; align-items: center; background: #ffffff; border: 1px solid #e8e4dd; border-radius: 999px; padding: 2px;">
+        <button style="width: 34px; height: 34px; border: none; background: none; border-radius: 999px; display: grid; place-items: center; color: #57524a;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+        </button>
+        <span style="font-size: 12px; font-weight: 600; color: #57524a; padding: 0 4px; letter-spacing: 0.01em;">Sat 5</span>
+        <button style="width: 34px; height: 34px; border: none; background: none; border-radius: 999px; display: grid; place-items: center; color: #cfc9bf;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+        </button>
+      </div>
+    </div>
+
+    <div style="margin-top: 26px; display: flex; align-items: baseline; gap: 10px;">
+      <span class="num" style="font-size: 72px; line-height: 0.86; font-weight: 500;">1,840</span>
+      <span style="font-size: 15px; color: #8a8378;">kcal</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+      <span style="font-size: 13px; color: #57524a;">660 left of 2,500</span>
+      <span style="font-size: 13px; color: #8a8378;">·</span>
+      <span style="font-size: 13px; color: #8a8378;">estimated for you</span>
+    </div>
+    <div style="height: 6px; border-radius: 999px; background: #e8e4dd; margin-top: 16px; overflow: hidden;">
+      <div style="width: 73.6%; height: 100%; background: #4a7c59; border-radius: 999px;"></div>
+    </div>
+
+    <div class="cap" style="margin-top: 30px;">What you ate</div>
+    <div style="margin-top: 12px; background: #ffffff; border: 1px solid #e8e4dd; border-radius: 16px; padding: 4px 16px;">
+      <div style="display: flex; align-items: center; gap: 12px; height: 58px;">
+        <span style="flex: 1; min-width: 0;">
+          <span style="display: block; font-size: 14.5px; font-weight: 500;">Rajma masala</span>
+          <span style="display: block; font-size: 12px; color: #8a8378;">lunch · 300 g from the pot</span>
+        </span>
+        <span class="num" style="font-size: 16px; color: #57524a;">412</span>
+      </div>
+    </div>
+  </div>
+
+  <button style="position: absolute; right: 20px; bottom: 24px; width: 56px; height: 56px; border: none; border-radius: 999px; background: #4a7c59; color: #ffffff; display: grid; place-items: center; box-shadow: 0 4px 14px -2px rgba(74,124,89,0.45), 0 2px 4px rgba(28,26,23,0.10); cursor: pointer;">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+  </button>
+
+  <div onClick="{{ close }}" style="{{ scrimStyle }}"></div>
+
+  <aside style="{{ drawerStyle }}">
+    <div style="height: 44px; flex: none;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 8px 20px 0; flex: none;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="#4a7c59" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="42 14" />
+      </svg>
+      <span style="font-size: 12.5px; letter-spacing: 0.04em; color: #57524a; font-weight: 600;">BIOBALANCE</span>
+    </div>
+
+    <div style="padding: 14px 10px 24px; flex: 1; min-height: 0;">
+      <sc-for list="{{ items }}" as="item" hint-placeholder-count="5">
+        <button class="row" onClick="{{ item.pick }}" style="{{ item.rowStyle }}">
+          <span style="display: grid; place-items: center; width: 20px; height: 20px; flex: none;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="{{ item.stroke }}" stroke-linecap="round" stroke-linejoin="round">
+              <path d="{{ item.d1 }}" />
+              <path d="{{ item.d2 }}" />
+            </svg>
+          </span>
+          <span style="{{ item.labelStyle }}">{{ item.label }}</span>
+          <span style="{{ item.chevStyle }}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+          </span>
+        </button>
+      </sc-for>
+
+      <!-- The cost of this version, stated where it is paid. Five rows in a
+           300px panel is a lot of empty drawer, and the five things it holds
+           were already one tap away on the bar. -->
+      <div style="margin: 20px 16px 0; padding-top: 16px; border-top: 1px solid #e8e4dd;">
+        <span style="display: block; font-size: 12px; line-height: 1.5; color: #8a8378;">
+          Recipes, your foods, supplements, vessels and bottles still live one level down, inside Library.
+        </span>
+      </div>
+    </div>
+  </aside>
+</div>
+</x-dc>
+<script data-dc-script data-props='{
+  "$preview": { "width": 390, "height": 844 },
+  "startOpen": { "editor": "boolean", "default": true, "section": "Drawer" }
+}'>
+/**
+ * The literal reading of the request: the same five destinations, moved from
+ * the bottom edge to a left drawer. Nothing else changes.
+ *
+ * Kept as a real alternative because it is the smaller change and the easier
+ * one to ship. Its cost is visible in the frame: every switch now takes two
+ * taps instead of one, the panel is mostly empty, and Library is still a hub
+ * screen you walk THROUGH rather than a place you arrive at — so the drawer
+ * pays the tap and collects none of the capacity it was bought for.
+ */
+class Component extends DCLogic {
+  rows() {
+    return [
+      { id: 'today', label: 'Today', hub: false,
+        d1: 'M3 10.5L12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z', d2: '' },
+      { id: 'nutrients', label: 'Nutrients', hub: false,
+        d1: 'M5 20V10M12 20V4M19 20v-7', d2: '' },
+      { id: 'history', label: 'History', hub: false,
+        d1: 'M6 5h12a2.5 2.5 0 0 1 2.5 2.5v11a2.5 2.5 0 0 1-2.5 2.5H6a2.5 2.5 0 0 1-2.5-2.5v-11A2.5 2.5 0 0 1 6 5z',
+        d2: 'M3.5 9.5h17M8 3v4M16 3v4' },
+      // The two rows that still lead somewhere else. The chevron is the tell.
+      { id: 'library', label: 'Library', hub: true,
+        d1: 'M4 5.5A1.5 1.5 0 0 1 5.5 4H9v16H5.5A1.5 1.5 0 0 1 4 18.5z',
+        d2: 'M9 4h5.5A1.5 1.5 0 0 1 16 5.5v13a1.5 1.5 0 0 1-1.5 1.5H9' },
+      { id: 'you', label: 'You', hub: true,
+        d1: 'M12 5.1a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8z', d2: 'M5.5 20a6.5 6.5 0 0 1 13 0' },
+    ];
+  }
+
+  titleFor(id) {
+    const titles = { today: 'Today', nutrients: 'Nutrients', history: 'History', library: 'Library', you: 'You' };
+    return titles[id] || 'Today';
+  }
+
+  renderVals() {
+    const st = this.state || {};
+    const open = st.open === undefined ? this.props.startOpen !== false : st.open;
+    const dest = st.dest || 'today';
+
+    const drawerStyle = [
+      'position: absolute; top: 0; bottom: 0; left: 0; width: 300px',
+      'background: #ffffff; border-right: 1px solid #e8e4dd',
+      'box-shadow: 4px 0 24px -6px rgba(28,26,23,0.18)',
+      'display: flex; flex-direction: column',
+      'transition: transform 240ms cubic-bezier(0.05, 0.7, 0.1, 1)',
+      open ? 'transform: translateX(0)' : 'transform: translateX(-101%)',
+    ].join('; ');
+
+    const scrimStyle = [
+      'position: absolute; inset: 0; background: #1c1a17',
+      'transition: opacity 200ms ease-out',
+      open
+        ? 'opacity: 0.32; pointer-events: auto; cursor: pointer'
+        : 'opacity: 0; pointer-events: none',
+    ].join('; ');
+
+    const items = this.rows().map((item) => {
+      const on = item.id === dest;
+      return {
+        d1: item.d1,
+        d2: item.d2,
+        label: item.label,
+        stroke: on ? 2 : 1.9,
+        rowStyle: on
+          ? 'background: #edf3ee; color: #4a7c59'
+          : 'background: none; color: #57524a',
+        labelStyle: on
+          ? 'flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; color: #4a7c59'
+          : 'flex: 1; min-width: 0; font-size: 14.5px; font-weight: 500; color: #1c1a17',
+        chevStyle: item.hub
+          ? 'display: grid; place-items: center; color: #cfc9bf; flex: none'
+          : 'display: none',
+        pick: () => this.setState({ dest: item.id, open: false }),
+      };
+    });
+
+    return {
+      title: this.titleFor(dest),
+      items: items,
+      drawerStyle: drawerStyle,
+      scrimStyle: scrimStyle,
+      toggle: () => this.setState({ open: !open, dest: dest }),
+      close: () => this.setState({ open: false, dest: dest }),
+    };
+  }
+}
+</script>
+</body>
+</html>

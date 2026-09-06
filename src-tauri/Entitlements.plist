@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  bundle.macOS.hardenedRuntime defaults to true, and the hardened runtime denies
+  camera access outright unless the signed binary carries this entitlement — the
+  NSCameraUsageDescription string alone is not enough once the app is signed.
+
+  This file is only consulted at codesign time. An unsigned local build ignores it,
+  which is why the camera can work in a local build and stop working in a signed
+  one; that is the failure this file exists to prevent.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.camera</key>
+	<true/>
+</dict>
+</plist>

@@ -1,0 +1,75 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "PHONE · Cook — the wheel",
+      "is_interactive": true
+    },
+    {
+      "file": "MobileYield.dc.html",
+      "x": 470,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "PHONE · Cooked — yield & portions",
+      "is_interactive": true
+    },
+    {
+      "file": "MobilePlate.dc.html",
+      "x": 940,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "PHONE · Weigh the plate",
+      "is_interactive": true
+    },
+    {
+      "file": "DesktopCook.dc.html",
+      "x": 0,
+      "y": 1160,
+      "w": 1440,
+      "h": 900,
+      "title": "DESKTOP · The cook sheet",
+      "is_interactive": true
+    },
+    {
+      "file": "DesktopYield.dc.html",
+      "x": 1560,
+      "y": 1160,
+      "w": 1440,
+      "h": 900,
+      "title": "DESKTOP · Yield, portions & vessels",
+      "is_interactive": true
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -300,
+      "w": 1330,
+      "text": "A RECIPE IS A STARTING POINT, NOT A MEASUREMENT.\n\nThree things, one flow: adjust what actually went in → weigh what came out → subtract the vessel when you serve it. All five screens work — turn the wheel, drag the desktop numbers, type a scale reading, tick vessels on and off.\n\nThe wheel is a JOG dial, not a 0–500 g gauge. This recipe runs from 250 g of beans to 1 g of hing; one absolute scale cannot serve both. A notch is about 2% of what that line calls for, floored at half a gram — the finest a kitchen scale shows — so it is 5 g on the beans and 0.5 g on the hing. And the RING'S SPAN follows the notch rather than being fixed at ±50%: ten notches fill each side whichever line is bound, so the dial feels the same on all of them. The heavy mark at 12 o'clock is what the recipe says.\n\nWorth knowing where that breaks down: on 1 g of hing, one notch is half the ingredient. The dial is honest about it — it just cannot give you resolution a scale does not have.\n\nDrift is never red. The app keeps #b4553a for a limit actually exceeded; more onion than written is information, not an error."
+    },
+    {
+      "id": "desktop-note",
+      "x": 0,
+      "y": 924,
+      "w": 1400,
+      "text": "DESKTOP IS NOT THE PHONE WITH MORE ROOM — THERE IS NO WHEEL HERE.\n\nA wheel is a thumb control. With a mouse and a keyboard the better instrument is the whole recipe at once: every line's drift visible as a bar centred on zero, the number itself draggable sideways, arrow keys for one notch and shift-arrow for five, 0 to snap back. Then desktop spends its extra width on the question a phone has no room to answer — what the drift actually did, computed live from the amounts as you scrub them, while you are still at the stove.\n\nTwo honest limits on that rail: the nutrient densities behind it stand in for the real engine, and asafoetida is deliberately absent from them. The app has no composition data for hing, so changing that line moves nothing — which is a gap, not a zero, and the app's whole reason for existing is not to confuse the two."
+    },
+    {
+      "id": "open",
+      "x": 3060,
+      "y": 1160,
+      "w": 320,
+      "text": "OPEN QUESTIONS\n\n1. Should turning the wheel past a full revolution keep going, or stop at ±50%? Right now the number keeps going and the ring saturates.\n\n2. Vessel sets — weigh one katori of six and spread the variation, or weigh all six? Saves five weighings, costs a gram.\n\n3. Should a cooked pot stay open for days, so leftovers on Thursday still draw down Monday's pot?"
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; overflow: hidden;">
+  <div style="height: 44px;"></div>
+
+  <!-- Opened from the floating button, so it closes rather than going back. -->
+  <div style="display: flex; align-items: center; gap: 12px; padding: 8px 20px 0;">
+    <button style="width: 40px; height: 40px; border-radius: 999px; background: #f4f2ee; display: grid; place-items: center; color: #57524a; flex: none;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+    </button>
+    <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.015em; flex: 1;">Add food</span>
+    <span style="font-size: 12px; font-weight: 600; color: #3c6449; background: #edf3ee; border-radius: 999px; padding: 6px 12px;">Lunch</span>
+  </div>
+
+  <div style="padding: 0 20px;">
+
+    <!-- Search is the focal point of the screen, so it gets weight and a
+         resting shadow rather than sitting flush like a filter. -->
+    <div style="display: flex; align-items: center; gap: 10px; background: #ffffff; border-radius: 16px; padding: 0 14px; min-height: 52px; margin-top: 18px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 8px 22px -14px rgba(28,26,23,0.16);">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8a8378" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" /></svg>
+      <span style="flex: 1; font-size: 15px; color: #a89f92;">urad dal, ghee, broccoli…</span>
+      <button style="width: 34px; height: 34px; border-radius: 999px; background: #f4f2ee; display: grid; place-items: center; color: #57524a; flex: none;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2L9 5h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z" /><circle cx="12" cy="12.5" r="3.2" /></svg>
+      </button>
+    </div>
+
+    <!-- Segmented control: one control, three states. -->
+    <div style="display: flex; background: #f0ede7; border-radius: 999px; padding: 3px; margin-top: 16px;">
+      <button style="flex: 1; min-height: 38px; border-radius: 999px; background: #ffffff; color: #1c1a17; font-size: 13px; font-weight: 600; box-shadow: 0 1px 2px rgba(28,26,23,0.06);">Foods</button>
+      <button style="flex: 1; min-height: 38px; border-radius: 999px; color: #8a8378; font-size: 13px; font-weight: 500;">Recipes</button>
+      <button style="flex: 1; min-height: 38px; border-radius: 999px; color: #8a8378; font-size: 13px; font-weight: 500;">Supplements</button>
+    </div>
+
+    <!-- Recents give the screen something to do before a single keystroke. -->
+    <div class="cap" style="margin-top: 26px;">Logged recently</div>
+    <div style="background: #ffffff; border-radius: 20px; margin-top: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(28,26,23,0.04), 0 8px 24px -12px rgba(28,26,23,0.10);">
+
+      <button style="display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 0 18px; text-align: left; border-bottom: 1px solid #f1eee8;">
+        <span style="flex: 1; min-width: 0;">
+          <span style="display: block; font-size: 15px;">Rajma chawal</span>
+          <span style="display: block; font-size: 12px; color: #8a8378; margin-top: 1px;">Your recipe · 303 g a serving</span>
+        </span>
+        <span style="width: 32px; height: 32px; border-radius: 999px; background: #edf3ee; display: grid; place-items: center; flex: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3c6449" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </span>
+      </button>
+
+      <button style="display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 0 18px; text-align: left; border-bottom: 1px solid #f1eee8;">
+        <span style="flex: 1; min-width: 0;">
+          <span style="display: block; font-size: 15px;">Cheese, cheddar</span>
+          <span style="display: block; font-size: 12px; color: #8a8378; margin-top: 1px;">Reference · per 100 g</span>
+        </span>
+        <span style="width: 32px; height: 32px; border-radius: 999px; background: #edf3ee; display: grid; place-items: center; flex: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3c6449" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </span>
+      </button>
+
+      <button style="display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 0 18px; text-align: left;">
+        <span style="flex: 1; min-width: 0;">
+          <span style="display: block; font-size: 15px;">Ghee</span>
+          <span style="display: block; font-size: 12px; color: #8a8378; margin-top: 1px;">Reference · the numbers are a proxy</span>
+        </span>
+        <span style="width: 32px; height: 32px; border-radius: 999px; background: #edf3ee; display: grid; place-items: center; flex: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3c6449" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </span>
+      </button>
+    </div>
+
+    <p style="margin: 20px 4px 0; font-size: 13px; color: #8a8378; line-height: 1.65;">
+      Indian names work — <em style="color: #57524a;">urad dal</em>, <em style="color: #57524a;">besan</em>,
+      <em style="color: #57524a;">rava</em> — even where USDA files the food under another name.
+    </p>
+
+    <!-- Was an underlined link. -->
+    <button style="display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 48px; margin-top: 16px; padding: 0 16px; background: #f4f2ee; border-radius: 14px; color: #3c6449; font-size: 13px; font-weight: 600;">
+      <span>Transcribe a pack instead</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+    </button>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

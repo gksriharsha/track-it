@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num { font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .tnum { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; font-size: 15px; line-height: 1.55; overflow: hidden; display: flex; flex-direction: column;">
+
+  <div style="padding: 20px 20px 4px;">
+    <h1 style="margin: 0; font-size: 19px; font-weight: 600;">Trends</h1>
+  </div>
+
+  <div style="display: flex; gap: 6px; padding: 10px 20px 4px; overflow-x: auto;">
+    <sc-for list="{{ranges}}" as="r" hint-placeholder-count="3">
+      <button onClick="{{r.pick}}" style="flex: none; min-height: 44px; padding: 0 16px; border: 1px solid {{r.border}}; border-radius: 999px; background: {{r.bg}}; color: {{r.fg}}; font: inherit; font-size: 13px; font-weight: {{r.weight}};">{{r.label}}</button>
+    </sc-for>
+  </div>
+
+  <div style="flex: 1; overflow-y: auto; padding: 14px 20px 24px;">
+
+    <!-- Same data as the desktop's 392-cell grid, answered as a RANKED LIST.
+         A phone cannot show a matrix, and it does not need to: the useful
+         output is "these four, in this order", not the whole surface. -->
+    <p style="color: #57524a; font-size: 14px; margin: 0 0 18px; text-wrap: pretty;">
+      Across the <strong style="color: #1c1a17;">19 days</strong> you logged, four
+      things came up short more often than not.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+        <div style="padding: 14px 16px; border-radius: 12px; background: #ffffff; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10);">
+          <div style="display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px;">
+            <span style="font-weight: 600;">{{it.name}}</span>
+            <span class="num" style="font-size: 21px; line-height: 1; color: {{it.color}};">{{it.pct}}</span>
+          </div>
+
+          <!-- A sparkline, not a grid row. One nutrient over time is a shape
+               a thumb-width strip can carry; fourteen of them is not. -->
+          <div style="display: flex; align-items: flex-end; gap: 2px; height: 34px; margin-top: 12px;">
+            <sc-for list="{{it.bars}}" as="b" hint-placeholder-count="19">
+              <span style="flex: 1; height: {{b.h}}; min-height: 2px; border-radius: 1px; background: {{b.bg}}; display: block;"></span>
+            </sc-for>
+          </div>
+
+          <div style="color: #8a8378; font-size: 12px; margin-top: 9px;">{{it.note}}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top: 20px; padding: 15px 16px; border: 1px dashed #e8e4dd; border-radius: 12px;">
+      <p style="margin: 0; color: #57524a; font-size: 13px; text-wrap: pretty;">
+        Averaged over logged days only. Nine days in this window are blank, and
+        counting them as zeros would understate everything by about a third.
+      </p>
+    </div>
+
+    <p style="color: #8a8378; font-size: 12px; margin: 18px 0 0; text-wrap: pretty;">
+      The full day-by-day grid across every nutrient lives on the desktop app —
+      it needs more room than a phone has.
+    </p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 8px 12px 26px; background: #ffffff; border-top: 1px solid #e8e4dd;">
+    <button style="min-height: 52px; border: none; border-radius: 10px; background: transparent; color: #57524a; font: inherit; font-size: 13px; font-weight: 500;">Log</button>
+    <button style="min-height: 52px; border: none; border-radius: 10px; background: transparent; color: #57524a; font: inherit; font-size: 13px; font-weight: 500;">Day</button>
+    <button style="min-height: 52px; border: none; border-radius: 10px; background: #1c1a17; color: #fbfaf8; font: inherit; font-size: 13px; font-weight: 600;">Trends</button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { range: '28' };
+  }
+
+  renderVals() {
+    const ink = '#1c1a17', ink2 = '#57524a', ink3 = '#8a8378', over = '#b4553a', line = '#e8e4dd';
+    const ramp = '#9dbfa8', strong = '#4a7c59';
+
+    // Illustrative values, not measured data. `null` = a day with nothing
+    // logged, drawn as a hairline rather than a zero-height bar.
+    const gaps = new Set([3, 4, 11, 12, 18, 22, 23, 26, 27]);
+    const series = (base, spread) =>
+      Array.from({ length: 28 }, (_, i) => {
+        if (gaps.has(i)) return null;
+        const wobble = ((i * 37) % 23) / 23;
+        return Math.max(4, Math.min(140, base + (wobble - 0.5) * spread * 2));
+      });
+
+    const mk = (name, base, spread, pct, note, isOver) => ({
+      name,
+      pct,
+      color: isOver ? over : ink,
+      note,
+      bars: series(base, spread).map((v) => ({
+        h: v === null ? '2px' : Math.max(4, (v / 140) * 34) + 'px',
+        bg: v === null ? line : isOver && v > 100 ? over : v < 50 ? ramp : strong,
+      })),
+    });
+
+    return {
+      ranges: [['7', 'Last week'], ['28', 'Last 4 weeks'], ['90', 'Last 3 months']].map(([id, label]) => {
+        const on = this.state.range === id;
+        return { label, pick: () => this.setState({ range: id }),
+                 bg: on ? ink : '#ffffff', border: on ? ink : line,
+                 fg: on ? '#fbfaf8' : ink2, weight: on ? '600' : '400' };
+      }),
+
+      items: [
+        mk('Vitamin D', 13, 8, '13%', 'Below a fifth of target on every logged day.', false),
+        mk('Vitamin B12', 34, 14, '34%', 'Dairy is the only source in your log.', false),
+        mk('Iron', 36, 16, '36%', 'Steady, and steadily low.', false),
+        mk('Sodium', 92, 40, '104%', 'Over the limit on 6 of 19 days.', true),
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

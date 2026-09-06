@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .card { background: #ffffff; border-radius: 20px; padding: 18px; box-shadow: 0 1px 2px rgba(28,26,23,0.04), 0 8px 24px -12px rgba(28,26,23,0.10); }
+    .field { background: #f7f5f1; border-radius: 12px; min-height: 48px; display: flex; align-items: center; padding: 0 14px; font-size: 15px; }
+    .note { font-size: 12px; color: #8a8378; line-height: 1.6; margin: 10px 0 0; }
+    .chip { border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 500; background: #ffffff; border: 1px solid #e3ded5; color: #57524a; }
+    .chipOn { border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 600; background: #edf3ee; border: 1px solid #cfe0d4; color: #3c6449; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 1180px; background: #fbfaf8; color: #1c1a17;">
+  <div style="height: 44px;"></div>
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 8px 20px 0;">
+    <button style="width: 40px; height: 40px; border-radius: 999px; background: #f4f2ee; display: grid; place-items: center; color: #57524a; flex: none;">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+    </button>
+    <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.015em;">Profile</span>
+  </div>
+
+  <div style="padding: 0 20px 40px;">
+
+    <div class="card" style="margin-top: 20px;">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Age and sex</h2>
+      <p class="note" style="margin-top: 6px;">
+        These two do the most work. Without them every target is the FDA Daily Value — one adult
+        column that puts iron at 18 mg for everyone, where the actual recommendation is 8 mg for an
+        adult man and 18 mg for a woman under 50.
+      </p>
+
+      <div class="cap" style="margin-top: 18px;">Birth year</div>
+      <div class="field" style="margin-top: 6px;"><span class="num">1990</span></div>
+
+      <div class="cap" style="margin-top: 16px;">Reference column</div>
+      <div style="display: flex; gap: 8px; margin-top: 6px;">
+        <button class="chip" style="flex: 1;">Female</button>
+        <button class="chipOn" style="flex: 1;">Male</button>
+      </div>
+      <p class="note">
+        The tables have exactly two columns, so this is a lookup key rather than a description of
+        you. Leaving it blank is fine — the app falls back to the Daily Values and says so.
+      </p>
+
+      <div class="cap" style="margin-top: 18px;">Pregnant or breastfeeding</div>
+      <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+        <button class="chipOn">Neither</button>
+        <button class="chip">Pregnant</button>
+        <button class="chip">Breastfeeding</button>
+      </div>
+      <p class="note">
+        Not a small adjustment: folate goes from 400 to 600 µg, iron from 18 to 27 mg.
+      </p>
+    </div>
+
+    <div class="card" style="margin-top: 18px;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Body and activity</h2>
+        <span style="font-size: 11.5px; color: #8a8378;">for the energy estimate</span>
+      </div>
+      <p class="note" style="margin-top: 6px;">
+        All three, or none. An estimate built on a guessed weight is a fiction with a plausible
+        number attached, so the app would rather show no energy target than one it made up.
+      </p>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px;">
+        <span>
+          <span class="cap">Height (cm)</span>
+          <span class="field" style="margin-top: 6px;"><span class="num">175</span></span>
+        </span>
+        <span>
+          <span class="cap">Weight (kg)</span>
+          <span class="field" style="margin-top: 6px;"><span class="num">70</span></span>
+        </span>
+      </div>
+
+      <div class="cap" style="margin-top: 18px;">How active a day is</div>
+      <div style="display: flex; flex-direction: column; margin-top: 4px;">
+        <button style="display: flex; align-items: center; gap: 12px; min-height: 56px; text-align: left; border-bottom: 1px solid #f1eee8;">
+          <span style="flex: 1;"><span style="display: block; font-size: 14.5px;">Sedentary</span><span style="display: block; font-size: 12px; color: #8a8378;">desk work, little deliberate exercise</span></span>
+        </button>
+        <button style="display: flex; align-items: center; gap: 12px; min-height: 56px; text-align: left; border-bottom: 1px solid #f1eee8; background: #f5f9f6; border-radius: 12px; padding: 0 12px; margin: 0 -12px;">
+          <span style="flex: 1;"><span style="display: block; font-size: 14.5px; font-weight: 600;">Lightly active</span><span style="display: block; font-size: 12px; color: #8a8378;">light exercise 1–3 days a week</span></span>
+          <span style="color: #3c6449; font-weight: 700;">✓</span>
+        </button>
+        <button style="display: flex; align-items: center; gap: 12px; min-height: 56px; text-align: left; border-bottom: 1px solid #f1eee8;">
+          <span style="flex: 1;"><span style="display: block; font-size: 14.5px;">Moderately active</span><span style="display: block; font-size: 12px; color: #8a8378;">moderate exercise 3–5 days a week</span></span>
+        </button>
+        <button style="display: flex; align-items: center; gap: 12px; min-height: 56px; text-align: left;">
+          <span style="flex: 1;"><span style="display: block; font-size: 14.5px;">Very active</span><span style="display: block; font-size: 12px; color: #8a8378;">hard exercise 6–7 days a week</span></span>
+        </button>
+      </div>
+
+      <!-- The estimate shows its working rather than asking to be taken on faith. -->
+      <div style="background: #f7f5f1; border-radius: 14px; padding: 14px; margin-top: 14px;">
+        <div style="display: flex; align-items: baseline; gap: 8px;">
+          <span class="num" style="font-size: 24px; font-weight: 500;">2,267</span>
+          <span style="font-size: 13px; color: #8a8378;">kcal a day, estimated</span>
+        </div>
+        <p class="note" style="margin-top: 6px;">
+          1,649 kcal at rest × 1.375 for activity, by the Mifflin–St Jeor equation — which predicts
+          resting expenditure to roughly ±10% at best. A starting point, not a measurement of you.
+        </p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 18px;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Your own energy target</h2>
+        <span style="font-size: 11.5px; color: #8a8378;">optional</span>
+      </div>
+      <p class="note" style="margin-top: 6px;">
+        If you have a figure you trust, it wins over the estimate. Leave it blank to use the estimate.
+      </p>
+      <div class="field" style="margin-top: 12px; color: #a89f92;"><span>2,267</span></div>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-top: 22px;">
+      <button style="flex: none; min-height: 50px; padding: 0 20px; border-radius: 14px; border: 1px solid #e3ded5; background: #ffffff; color: #57524a; font-size: 14px; font-weight: 600;">Back</button>
+      <button style="flex: 1; min-height: 50px; border-radius: 14px; background: #4a7c59; color: #ffffff; font-size: 15px; font-weight: 600;">Save profile</button>
+    </div>
+
+    <p class="note" style="text-align: center; margin-top: 18px;">
+      Everything here stays on this device, in the same file as your food log.
+    </p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

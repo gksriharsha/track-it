@@ -1,0 +1,287 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #4a7c59; } a:hover { color: #3c6449; }
+    .num {
+      font-family: Newsreader, Georgia, "Times New Roman", serif;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+    }
+    .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #8a8378; font-weight: 600; }
+    .gross {
+      width: 100%; border: none; background: transparent; text-align: right;
+      font-family: Newsreader, Georgia, serif; font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em; font-size: 30px; font-weight: 500; color: #1c1a17;
+      padding: 0; outline: none; min-width: 0;
+    }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #fbfaf8; color: #1c1a17; display: flex; flex-direction: column; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #e8e4dd; flex: none;">
+    <button aria-label="Back" style="flex: none; width: 44px; height: 44px; margin-left: -12px; border: none; background: transparent; border-radius: 8px; display: grid; place-items: center; cursor: pointer;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="1.8" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+    </button>
+    <div style="min-width: 0; flex: 1;">
+      <div style="font-weight: 600; font-size: 15px;">Rajma masala</div>
+      <div style="color: #8a8378; font-size: 12px;">Cooked · how much did it make?</div>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 14px;">
+
+    <!-- WEIGH THE POT. The tare input is the reusable piece: it appears
+         wherever a weight is entered, not on a screen of its own. -->
+    <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 16px;">
+      <div class="k">Weigh the whole pot</div>
+
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 10px; padding-bottom: 10px; border-bottom: 1px solid #e8e4dd;">
+        <span style="font-size: 13.5px; color: #57524a; flex: none;">On the scale</span>
+        <input class="gross" value="{{gross}}" onInput="{{setGross}}" inputMode="decimal" aria-label="Gross weight in grams">
+        <span style="flex: none; color: #8a8378; font-size: 13px;">g</span>
+      </div>
+
+      <!-- The vessel is what makes a gross reading usable. Its weight was
+           measured once, for THIS pot. -->
+      <!-- A column, not a wrapping chip row: three of these names cannot pair in
+           390px, so they wrapped to three lines and left the word "minus"
+           stranded halfway down the stack. Full-width rows also clear 44px. -->
+      <div style="padding: 12px 0; border-bottom: 1px solid #e8e4dd;">
+        <div style="font-size: 13.5px; color: #57524a; margin-bottom: 8px;">minus what it is in</div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <sc-for list="{{vessels}}" as="v" hint-placeholder-count="3">
+            <button onClick="{{v.pick}}" aria-pressed="{{v.on}}" style="{{v.chipStyle}}">
+              <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{v.name}}</span>
+              <span class="num" style="flex: none; opacity: 0.72;">{{v.gramsTxt}} g</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: flex-end; gap: 10px; padding-top: 12px;">
+        <div style="min-width: 0;">
+          <div class="k" style="font-size: 10px;">Contents</div>
+          <div style="color: #8a8378; font-size: 12px; margin-top: 2px;">cooked yield</div>
+        </div>
+        <div style="margin-left: auto; text-align: right; white-space: nowrap;">
+          <span class="num" style="font-size: 34px; font-weight: 500; line-height: 1;">{{netTxt}}</span>
+          <span style="color: #8a8378; font-size: 13px;"> g</span>
+        </div>
+      </div>
+
+      <!-- The correction that matters most. Dry rajma roughly triples; a cooked
+           katori logged against raw weight overstates nutrients threefold. -->
+      <sc-if value="{{overTare}}" hint-placeholder-val="{{false}}">
+        <div style="margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: #f4f2ee; color: #57524a; font-size: 12.5px; line-height: 1.5;">
+          The vessel weighs as much as the scale reading, so there is no yield to divide yet.
+        </div>
+      </sc-if>
+      <sc-if value="{{settled}}" hint-placeholder-val="{{true}}">
+        <div style="margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: #f4f2ee; color: #57524a; font-size: 12.5px; line-height: 1.5;">
+          Raw ingredients weighed <span class="num" style="font-weight: 500;">{{rawTxt}} g</span>. The measured yield is
+          <span class="num" style="font-weight: 500;">{{diffTxt}} g</span> {{diffWord}} — {{diffWhy}}.
+          <strong style="font-weight: 600; color: #1c1a17;">What you weighed wins.</strong>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- SPLITTING IT. Weight is primary; a count is the convenience. -->
+    <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 16px;">
+      <div class="k">How you'll serve it</div>
+
+      <div style="display: flex; gap: 6px; margin-top: 10px; padding: 3px; background: #f4f2ee; border-radius: 12px;">
+        <button onClick="{{modeWeigh}}" style="{{tabWeigh}}">Weigh each plate</button>
+        <button onClick="{{modeCount}}" style="{{tabCount}}">Cut into equal parts</button>
+      </div>
+
+      <sc-if value="{{isCount}}" hint-placeholder-val="{{true}}">
+        <div>
+          <div style="display: flex; align-items: center; gap: 14px; margin-top: 16px;">
+            <button onClick="{{fewer}}" aria-label="One fewer part" title="One fewer part" style="flex: none; width: 46px; height: 46px; border-radius: 999px; border: 1px solid #e8e4dd; background: #ffffff; display: grid; place-items: center;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="2"><path d="M5 12h14" stroke-linecap="round"></path></svg>
+            </button>
+            <div style="flex: 1; text-align: center;">
+              <div class="num" style="font-size: 30px; font-weight: 500; line-height: 1;">{{n}}</div>
+              <div style="color: #8a8378; font-size: 12px; margin-top: 2px;">{{nWord}}</div>
+            </div>
+            <button onClick="{{more}}" aria-label="One more part" title="One more part" style="flex: none; width: 46px; height: 46px; border-radius: 999px; border: 1px solid #e8e4dd; background: #ffffff; display: grid; place-items: center;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"></path></svg>
+            </button>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e8e4dd;">
+            <span style="font-size: 13.5px; color: #57524a;">Each part</span>
+            <span style="margin-left: auto; white-space: nowrap;"><span class="num" style="font-size: 22px; font-weight: 500;">{{perTxt}}</span><span style="color: #8a8378; font-size: 13px;"> g</span></span>
+          </div>
+          <p style="margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; color: #8a8378;">
+            Equal parts assume everyone ate one. If the servings weren't equal, nothing here can tell — that's the tradeoff for not weighing.
+          </p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isWeigh}}" hint-placeholder-val="{{false}}">
+        <p style="margin: 14px 0 0; font-size: 13px; line-height: 1.55; color: #57524a;">
+          Exact, and no guessing about who ate more. Each time you take a plate, put it on the scale and pick the vessel — the app subtracts it and logs the difference against this pot.
+        </p>
+      </sc-if>
+    </div>
+
+    <!-- Named servings already exist in the recipe schema (label + grams), so
+         this writes back rather than inventing a new concept. -->
+    <div style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,23,0.05), 0 6px 20px -8px rgba(28,26,23,0.10); padding: 16px;">
+      <div style="display: flex; align-items: baseline; gap: 8px;">
+        <span class="k">Save a shortcut</span>
+        <span style="margin-left: auto; color: #8a8378; font-size: 11.5px;">so next time is one tap</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;">
+        <sc-for list="{{savedServings}}" as="s" hint-placeholder-count="2">
+          <span style="display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 6px 14px; border-radius: 999px; background: #edf3ee; color: #3c6449; font-size: 13px; font-weight: 500;">
+            {{s.label}} <span class="num" style="opacity: 0.75;">{{s.gramsTxt}} g</span>
+          </span>
+        </sc-for>
+        <button style="display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 6px 14px; border-radius: 999px; border: 1px dashed #e8e4dd; background: transparent; color: #57524a; font-size: 13px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#57524a" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"></path></svg>
+          Name this portion
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: none; background: #ffffff; border-top: 1px solid #e8e4dd; padding: 12px 16px 22px; display: flex; align-items: center; gap: 14px;">
+    <div style="min-width: 0;">
+      <div class="k" style="font-size: 10px;">Yield</div>
+      <div class="num" style="font-size: 19px; font-weight: 500;">{{netTxt}}<span style="font-size: 12px; color: #8a8378; font-family: ui-sans-serif, system-ui, sans-serif; letter-spacing: 0;"> g cooked</span></div>
+    </div>
+    <button style="margin-left: auto; flex: none; min-height: 48px; padding: 0 22px; border-radius: 12px; border: none; background: #4a7c59; color: #ffffff; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+      Serve a plate
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    // Each vessel was weighed ONCE, empty, as a physical object. Two steel
+    // katoris off the same shelf differ by several grams, so a lookup table of
+    // vessel TYPES would quietly reintroduce the error the tare removes.
+    // The same pot, in the same vessel, as the desktop yield screen. Seeding a
+    // different vessel per screen meant two gross readings reverse-engineered to
+    // land on one yield.
+    this.vessels = [
+      { id: 'cooker', name: 'Pressure cooker',  grams: 1240 },
+      { id: 'kadhai', name: 'Kadhai',           grams: 845 },
+      { id: 'pot',    name: 'Steel pot, 3 L',   grams: 310 },
+    ];
+    this.state = { gross: '2420', vessel: 'cooker', mode: 'count', n: 5 };
+    this.setGross = this.setGross.bind(this);
+  }
+
+  setGross(e) {
+    // Kept as a string: a half-typed "14" must not become 14 g and then fight
+    // the caret. Parsing happens once, at read time. Digits and at most ONE
+    // point: "1.2.3" would otherwise pass and parseFloat would silently read 1.2.
+    var v = e.target.value.replace(/[^0-9.]/g, '');
+    var i = v.indexOf('.');
+    if (i !== -1) v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '');
+    this.setState({ gross: v });
+  }
+
+  fmt(n) {
+    return (Math.abs(n - Math.round(n)) < 0.05) ? String(Math.round(n)) : n.toFixed(1);
+  }
+
+  renderVals() {
+    var self = this;
+    var RAW = 704; // what the pot weighed going in, from the cook screen
+
+    var vessel = this.vessels.filter(function (v) { return v.id === self.state.vessel; })[0];
+    var gross = parseFloat(this.state.gross) || 0;
+    // Clamping to zero used to turn a reading below the tare into a confident
+    // "0 g" instead of saying the reading cannot be right.
+    var overTare = gross > 0 && gross <= vessel.grams;
+    var net = Math.max(0, gross - vessel.grams);
+    var diff = net - RAW;
+
+    var tab = function (on) {
+      return 'flex: 1; min-height: 44px; border: none; border-radius: 9px; font-size: 13px; cursor: pointer; '
+        + 'font-weight: ' + (on ? '600' : '500') + '; '
+        + 'background: ' + (on ? '#ffffff' : 'transparent') + '; '
+        + 'color: ' + (on ? '#1c1a17' : '#57524a') + '; '
+        + 'box-shadow: ' + (on ? '0 1px 2px rgba(28,26,23,0.06)' : 'none') + ';';
+    };
+
+    return {
+      gross: this.state.gross,
+      setGross: this.setGross,
+      netTxt: overTare ? '—' : this.fmt(net),
+      overTare: overTare,
+      settled: !overTare && net > 0,
+      rawTxt: this.fmt(RAW),
+      diffTxt: this.fmt(Math.abs(diff)),
+      diffWord: diff >= 0 ? 'heavier' : 'lighter',
+      // The explanation has to follow the direction: beans taking up water is
+      // the usual case, not the only one the numbers allow.
+      diffWhy: diff >= 0 ? 'the beans took up water' : 'more cooked off than went in',
+
+      vessels: this.vessels.map(function (v) {
+        var on = v.id === self.state.vessel;
+        return {
+          name: v.name,
+          gramsTxt: self.fmt(v.grams),
+          on: on,
+          chipStyle: 'display: flex; align-items: center; justify-content: space-between; gap: 10px; '
+            + 'min-height: 44px; width: 100%; text-align: left; '
+            + 'padding: 6px 14px; border-radius: 999px; font-size: 13.5px; cursor: pointer; '
+            + 'background: ' + (on ? '#1c1a17' : 'transparent') + '; '
+            + 'border: 1px solid ' + (on ? '#1c1a17' : '#e8e4dd') + '; '
+            + 'color: ' + (on ? '#fbfaf8' : '#57524a') + '; '
+            + 'font-weight: ' + (on ? '600' : '400') + ';',
+          pick: function () { self.setState({ vessel: v.id }); },
+        };
+      }),
+
+      isCount: this.state.mode === 'count',
+      isWeigh: this.state.mode === 'weigh',
+      tabCount: tab(this.state.mode === 'count'),
+      tabWeigh: tab(this.state.mode === 'weigh'),
+      modeCount: function () { self.setState({ mode: 'count' }); },
+      modeWeigh: function () { self.setState({ mode: 'weigh' }); },
+
+      n: this.state.n,
+      nWord: this.state.n === 1 ? 'part' : 'parts',
+      perTxt: this.fmt(net / Math.max(1, this.state.n)),
+      more: function () { self.setState({ n: Math.min(20, self.state.n + 1) }); },
+      fewer: function () { self.setState({ n: Math.max(1, self.state.n - 1) }); },
+
+      // The same three portions the desktop screen lists for this recipe.
+      savedServings: [
+        { label: '1 katori', gramsTxt: '220' },
+        { label: 'Half katori', gramsTxt: '110' },
+        { label: 'Bowl (full)', gramsTxt: '340' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

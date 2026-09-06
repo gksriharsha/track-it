@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+  <style>
+    body { margin: 0; font: 14px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3c6449; text-decoration: none; } a:hover { color: #4a7c59; }
+    .num { font-family: Newsreader, Georgia, "Times New Roman", serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8378; font-weight: 600; }
+    .key { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid #e8e4dd; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; margin-top: 5px; flex: none; }
+  </style>
+</helmet>
+
+<div style="width: 820px; height: 660px; background: #fbfaf8; color: #1c1a17; padding: 36px 40px; box-sizing: border-box; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="#4a7c59" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="42 14" />
+    </svg>
+    <span style="font-size: 12px; letter-spacing: 0.04em; color: #8a8378; font-weight: 600;">BIOBALANCE · ANDROID</span>
+  </div>
+
+  <h1 style="margin: 14px 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em;">Why both, and not just the drawer</h1>
+  <p style="margin: 0 0 24px; font-size: 14px; color: #57524a; max-width: 560px;">
+    One right thumb on a 390&nbsp;×&nbsp;844 screen. The zones are what decides which control goes where —
+    not taste, and not what other apps happen to do.
+  </p>
+
+  <div style="display: grid; grid-template-columns: 300px 1fr; gap: 44px; align-items: start;">
+
+    <!-- The phone, with the three reach zones drawn as bands and the four
+         controls placed on top of them. -->
+    <div style="position: relative; width: 300px; height: 468px; border-radius: 26px; border: 1px solid #e8e4dd; background: #ffffff; overflow: hidden;">
+
+      <!-- Hard: the top third, and the far corner most of all. -->
+      <div style="position: absolute; left: 0; right: 0; top: 0; height: 168px; background: #f8ede9;"></div>
+      <!-- Stretch. -->
+      <div style="position: absolute; left: 0; right: 0; top: 168px; height: 130px; background: #faf6ee;"></div>
+      <!-- Natural: where the thumb already is. -->
+      <div style="position: absolute; left: 0; right: 0; top: 298px; bottom: 0; background: #edf3ee;"></div>
+
+      <!-- The arc a thumb actually sweeps, anchored bottom-right. -->
+      <svg width="300" height="468" viewBox="0 0 300 468" style="position: absolute; inset: 0;" aria-hidden="true">
+        <path d="M300 140 A 260 260 0 0 1 40 400" fill="none" stroke="#8a8378" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.55" />
+        <path d="M300 268 A 130 130 0 0 1 170 398" fill="none" stroke="#4a7c59" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.7" />
+      </svg>
+
+      <span class="cap" style="position: absolute; left: 16px; top: 14px; color: #b4553a;">Hard</span>
+      <span class="cap" style="position: absolute; left: 16px; top: 182px; color: #96773f;">Stretch</span>
+      <span class="cap" style="position: absolute; left: 16px; top: 312px; color: #3c6449;">Natural</span>
+
+      <!-- The hamburger, sitting in the worst pixel on the screen. That is
+           acceptable ONLY because what it opens is used weekly. -->
+      <div style="position: absolute; left: 14px; top: 40px; width: 44px; height: 44px; border-radius: 999px; border: 1.5px dashed #b4553a; display: grid; place-items: center; color: #b4553a;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+      </div>
+      <span style="position: absolute; left: 66px; top: 52px; font-size: 12px; color: #b4553a; font-weight: 500;">Menu — weekly</span>
+
+      <!-- Add food, in the corner the thumb rests in. -->
+      <div style="position: absolute; right: 18px; bottom: 88px; width: 52px; height: 52px; border-radius: 999px; background: #4a7c59; color: #ffffff; display: grid; place-items: center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+      </div>
+      <span style="position: absolute; right: 78px; bottom: 104px; font-size: 12px; color: #3c6449; font-weight: 600;">Add food — hourly</span>
+
+      <!-- The three shortcuts. -->
+      <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 66px; background: rgba(255,255,255,0.94); border-top: 1px solid #cfe0d4; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); place-items: center;">
+        <span style="font-size: 11px; font-weight: 600; color: #3c6449;">Today</span>
+        <span style="font-size: 11px; color: #57524a;">Nutrients</span>
+        <span style="font-size: 11px; color: #57524a;">History</span>
+      </div>
+    </div>
+
+    <!-- The reasoning, as three claims that each cash out in a placement. -->
+    <div>
+      <div class="cap">What the zones decide</div>
+      <div style="margin-top: 10px;">
+        <div class="key">
+          <span class="dot" style="background: #4a7c59;"></span>
+          <span style="flex: 1; min-width: 0; font-size: 13.5px; color: #57524a;">
+            <strong style="color: #1c1a17; font-weight: 600;">Hourly goes on the edge.</strong>
+            Today, Nutrients and History are what a food diary is opened for. Behind a hamburger
+            they would each cost a reach to the worst corner plus a tap, every meal.
+          </span>
+        </div>
+        <div class="key">
+          <span class="dot" style="background: #b4553a;"></span>
+          <span style="flex: 1; min-width: 0; font-size: 13.5px; color: #57524a;">
+            <strong style="color: #1c1a17; font-weight: 600;">Weekly can be hard to reach.</strong>
+            Vessel weights and a supplement panel are set up once and edited rarely. Paying a
+            stretch for those is the right trade — and it is what frees the edge.
+          </span>
+        </div>
+        <div class="key" style="border-bottom: none;">
+          <span class="dot" style="background: #8a8378;"></span>
+          <span style="flex: 1; min-width: 0; font-size: 13.5px; color: #57524a;">
+            <strong style="color: #1c1a17; font-weight: 600;">Three beats five.</strong>
+            Dropping from five slots to three widens each target from 78 to 130&nbsp;pt. The bar got
+            more thumb-friendly by holding less, which is the part that is easy to miss.
+          </span>
+        </div>
+      </div>
+
+      <div style="margin-top: 22px; background: #ffffff; border: 1px solid #e8e4dd; border-radius: 16px; padding: 16px 18px;">
+        <div class="cap">The count that settles it</div>
+        <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 8px;">
+          <span class="num" style="font-size: 40px; line-height: 1; font-weight: 500;">11</span>
+          <span style="font-size: 13px; color: #8a8378;">destinations · 5 bar slots</span>
+        </div>
+        <p style="margin: 10px 0 0; font-size: 13px; line-height: 1.6; color: #57524a;">
+          The six that would not fit were behind a Library hub — a screen whose only job was to hold
+          a list. The drawer holds that list instead, so Recipes is one tap from anywhere rather
+          than three, and a screen disappears from the app.
+        </p>
+      </div>
+
+      <p style="margin: 16px 0 0; font-size: 12.5px; line-height: 1.55; color: #8a8378;">
+        The drawer still lists all eleven, the three shortcuts included. A menu that omitted them
+        would be an overflow bin; listing them makes it the map, with the bar as the shortcut.
+      </p>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the bundled app's Info.plist by tauri-bundler. bundle.macOS.infoPlist
+  in tauri.conf.json points here explicitly rather than relying on the convention
+  that Tauri also picks up an Info.plist sitting beside the config: a usage string
+  in the wrong place does not fail loudly, it just makes the camera never open.
+
+  NSCameraUsageDescription is shown verbatim by macOS in the permission prompt, so
+  it says what the camera is for and where the picture goes, not "this app would
+  like to use the camera".
+-->
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>TrackIt uses the camera to read the nutrition panel on a food package. The picture and the reading stay on this device.</string>
+</dict>
+</plist>
