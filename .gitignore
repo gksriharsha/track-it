@@ -51,3 +51,10 @@ dist-ssr
 # Signed APKs produced by `tauri android build`. 35 MB each and rebuilt on
 # every release; the source they come from is already tracked.
 /artifacts/
+
+# Android upload keystore and the properties file CI writes from secrets.
+# A signing key in the repository would let anyone ship an update to the
+# installed app.
+/src-tauri/gen/android/keystore.properties
+*.jks
+*.keystore

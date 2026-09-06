@@ -1,0 +1,12 @@
+# Pinned USDA source archives for tools/build_reference_db.py.
+#
+# The dataset names in build_reference_db.py's DATASETS are dated snapshots, and
+# the reference database's contents are only reproducible against these exact
+# bytes. USDA has re-cut a release under an unchanged filename before, so CI
+# verifies the download rather than trusting the URL.
+#
+# Verify:  cd data/raw && shasum -a 256 -c ../../tools/sources.sha256
+70457ee9d9342f43bda2010318c85f04210c689fdeb9cd2da4c513b0e8dbc655  FoodData_Central_foundation_food_csv_2026-04-30.zip
+b80817294b8850530aaedf2e515c02593b1824f763a0ff356e5c2081643e6fd0  FoodData_Central_sr_legacy_food_csv_2018-04.zip
+5ccc25ec2777a8982fbb61378a42f415316173eb11e48c9a8ba4cb19f5a4f29c  FoodData_Central_survey_food_csv_2024-10-31.zip
+bf8eab1cc7b152f4be035ff9fb53a1741a272182f8fa867eab06067f2177c2eb  IODINE_RELEASE_4.zip

@@ -13,6 +13,18 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Release signing. CI writes gen/android/keystore.properties from repository
+// secrets; on a developer machine the file is absent and `tauri android build`
+// produces an unsigned release APK exactly as it did before. The keystore and
+// this properties file are both gitignored — an upload key in the repository
+// would let anyone publish an update to the installed app.
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "com.kgundu1.trackit"
@@ -23,6 +35,16 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (keystoreProperties.containsKey("storeFile")) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -38,6 +60,9 @@ android {
             }
         }
         getByName("release") {
+            // Absent when no keystore.properties was supplied, leaving the
+            // release APK unsigned rather than failing the build.
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             // R8 removes unreachable bytecode; resource shrinking removes the
             // Android resources that belonged only to that code. The ML Kit

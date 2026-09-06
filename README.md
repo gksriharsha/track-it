@@ -48,7 +48,11 @@ pnpm install
 ```
 
 The bundled reference database is not in the repository — it is 37 MB and fully
-regenerable. Download the USDA bulk CSVs into `data/raw/extracted/`, then:
+regenerable. Two commands produce it, and they are the same two CI runs:
+
+```bash
+./tools/fetch_usda.sh
+```
 
 ```bash
 python3 tools/build_reference_db.py
@@ -71,6 +75,13 @@ A release APK:
 ```bash
 pnpm android:apk
 ```
+
+## Continuous integration
+
+Every pull request against `main` runs the tests and builds all three platforms; every merge to
+`main` does the same and publishes the bundles as a GitHub prerelease. The macOS bundle is
+ad-hoc signed and the Android APK unsigned until signing secrets are configured, and iOS builds
+but is not yet packaged — [`docs/ci.md`](docs/ci.md) explains all three and what each one needs.
 
 ## Status
 

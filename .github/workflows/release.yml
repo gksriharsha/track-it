@@ -1,0 +1,415 @@
+name: Release
+
+# Every branch on its way into main gets the full set of release builds twice:
+# once on the pull request, so a broken bundle is visible before the merge
+# button, and once on the merge itself, where the same jobs also publish a
+# GitHub release. Pull-request runs are cancelled when the branch is pushed
+# again; runs on main are not, because each one produces a release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Matches the host the architecture documents were verified against. The
+  # Rust android targets need r26+ for the libgcc -> libunwind change, so this
+  # is pinned rather than taken from whatever the runner image ships.
+  ANDROID_NDK_VERSION: "29.0.14206865"
+  MACOS_TARGET: aarch64-apple-darwin
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  # ---------------------------------------------------------------- metadata
+  meta:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        # tauri.conf.json is the single source of truth for the version; the
+        # run number keeps every merge to main distinct without asking anyone
+        # to bump a file by hand.
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          echo "version=$version"                          >> "$GITHUB_OUTPUT"
+          echo "tag=v$version-build.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+  # ------------------------------------------------------------------- tests
+  # On macOS because it is the only runner that compiles the cfg(target_os =
+  # "macos") half of vision.rs, which is where the Apple Vision adapter and its
+  # tests live. The pure-Rust core is platform-independent and comes along.
+  test:
+    name: Tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # tsc + vite. Also produces dist/, which tauri-build requires to exist
+      # before the Rust side of src-tauri will compile at all.
+      - run: pnpm build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            crates/core -> target
+      - name: Core crate
+        working-directory: crates/core
+        run: cargo test --locked
+      # From src-tauri so that .cargo/config.toml, and therefore the ad-hoc
+      # re-signing runner, is discovered the same way it is locally.
+      - name: Tauri adapter
+        working-directory: src-tauri
+        run: cargo test --locked
+
+  # ---------------------------------------------------- USDA reference database
+  # Built once and handed to the three platform jobs. It is a bundle resource,
+  # so none of them can package without it, and rebuilding it three times over
+  # would be pure waste. The cache key covers the builder, the fetcher and the
+  # pinned source digests, so any change to how the file is produced makes a
+  # new one.
+  reference-db:
+    name: Reference database
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/resources/usda_core.db
+          key: usda-core-db-${{ hashFiles('tools/build_reference_db.py', 'tools/fetch_usda.sh', 'tools/sources.sha256') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: ./tools/fetch_usda.sh
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: python3 tools/build_reference_db.py
+      - name: Check the database is non-trivial
+        # A truncated or empty file would sail through bundling and only fail
+        # on a user's device, so the size is asserted here instead.
+        run: |
+          bytes=$(wc -c < src-tauri/resources/usda_core.db)
+          echo "usda_core.db is $bytes bytes"
+          test "$bytes" -gt 20000000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usda-core-db
+          path: src-tauri/resources/usda_core.db
+          retention-days: 1
+
+  # ----------------------------------------------------------------- Android
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    needs: [meta, test, reference-db]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: usda-core-db
+          path: src-tauri/resources
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned NDK
+        run: |
+          sdkmanager --install "ndk;$ANDROID_NDK_VERSION"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: android
+      - name: Configure release signing
+        # Absent secrets are not an error: the build then produces an unsigned
+        # release APK, which is still a useful artifact to inspect. Only a
+        # signed one can be installed as an update over an existing install.
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret; the release APK will be unsigned."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/upload.jks
+          cat > src-tauri/gen/android/keystore.properties <<EOF
+          storeFile=upload.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+      - name: Build
+        run: pnpm tauri android build --apk --target aarch64 --split-per-abi --ci
+      - name: Collect
+        run: |
+          mkdir -p out
+          apk=$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk' | head -1)
+          test -n "$apk" || { echo "no release APK produced"; exit 1; }
+          case "$apk" in
+            *unsigned*) echo "::warning::$(basename "$apk") is unsigned and cannot be installed as an update." ;;
+          esac
+          cp "$apk" "out/TrackIt-${{ needs.meta.outputs.version }}-android-arm64.apk"
+          ls -la out
+      - name: Remove signing material
+        if: always()
+        run: rm -f src-tauri/gen/android/upload.jks src-tauri/gen/android/keystore.properties
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: out/*.apk
+
+  # ------------------------------------------------------------------- macOS
+  macos:
+    name: macOS app
+    runs-on: macos-latest
+    needs: [meta, test, reference-db]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: usda-core-db
+          path: src-tauri/resources
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.MACOS_TARGET }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: macos
+      - name: Build
+        # With no Developer ID secrets the bundle keeps tauri.conf.json's
+        # signingIdentity of "-", i.e. ad-hoc: it runs on the machine that built
+        # it and on the author's own Mac after a right-click-Open, but Gatekeeper
+        # will refuse it on someone else's. Supplying the three APPLE_* secrets
+        # switches the same build to a signed, notarised bundle.
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "::warning::No APPLE_SIGNING_IDENTITY secret; the macOS bundle is ad-hoc signed and Gatekeeper will block it on other Macs."
+          fi
+          pnpm tauri build --target "$MACOS_TARGET" --bundles app,dmg
+      - name: Collect
+        run: |
+          mkdir -p out
+          bundle="src-tauri/target/$MACOS_TARGET/release/bundle"
+          # ditto, not zip: a .app is a tree of symlinks and executable bits that
+          # upload-artifact would otherwise flatten into something unlaunchable.
+          ditto -c -k --keepParent "$bundle/macos/TrackIt.app" \
+            "out/TrackIt-${{ needs.meta.outputs.version }}-macos-aarch64.app.zip"
+          dmg=$(find "$bundle/dmg" -name '*.dmg' | head -1)
+          test -n "$dmg" || { echo "no dmg produced"; exit 1; }
+          cp "$dmg" "out/TrackIt-${{ needs.meta.outputs.version }}-macos-aarch64.dmg"
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: out/*
+
+  # --------------------------------------------------------------------- iOS
+  # An installable .ipa cannot be produced without an Apple Developer Program
+  # membership: the export step needs a distribution certificate and a
+  # provisioning profile, and no flag substitutes for them. So this job always
+  # does the part that needs no account — compiling the whole Rust side for a
+  # real device target, which is where an iOS regression would actually show up
+  # — and additionally produces and uploads an .ipa once the secrets exist.
+  ios:
+    name: iOS app
+    runs-on: macos-latest
+    needs: [meta, test, reference-db]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: usda-core-db
+          path: src-tauri/resources
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ios
+      - name: Compile for device
+        working-directory: src-tauri
+        run: cargo build --locked --release --lib --target aarch64-apple-ios
+      - name: Detect signing material
+        id: signing
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CERT: ${{ secrets.IOS_CERTIFICATE }}
+        run: |
+          if [ -n "$TEAM_ID" ] && [ -n "$CERT" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Explain the gap
+        if: steps.signing.outputs.available != 'true'
+        run: |
+          {
+            echo "### iOS: compiled, not packaged"
+            echo
+            echo "\`aarch64-apple-ios\` builds cleanly, so the Rust side is iOS-ready."
+            echo "No \`.ipa\` was produced: that needs an Apple Developer Program"
+            echo "membership and these repository secrets —"
+            echo
+            echo "- \`APPLE_TEAM_ID\`"
+            echo "- \`IOS_CERTIFICATE\` (base64 of a distribution \`.p12\`)"
+            echo "- \`IOS_CERTIFICATE_PASSWORD\`"
+            echo "- \`IOS_MOBILE_PROVISION\` (base64 of the provisioning profile)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Package
+        if: steps.signing.outputs.available == 'true'
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD || 'debugging' }}
+        run: |
+          # A throwaway keychain, unlocked for this run only, so the certificate
+          # never touches the runner's login keychain.
+          keychain="$RUNNER_TEMP/ios-signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$IOS_CERTIFICATE" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$password" "$keychain" >/dev/null
+          security list-keychain -d user -s "$keychain" login.keychain-db
+          profiles="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profiles"
+          echo "$IOS_MOBILE_PROVISION" | base64 -d > "$profiles/trackit.mobileprovision"
+
+          # gen/apple is not committed, so the Xcode project is generated fresh.
+          pnpm tauri ios init
+          pnpm tauri ios build --ci --export-method "$EXPORT_METHOD"
+
+          rm -f "$RUNNER_TEMP/cert.p12"
+      - name: Collect
+        if: steps.signing.outputs.available == 'true'
+        run: |
+          mkdir -p out
+          ipa=$(find src-tauri/gen/apple/build -name '*.ipa' | head -1)
+          test -n "$ipa" || { echo "no ipa produced"; exit 1; }
+          cp "$ipa" "out/TrackIt-${{ needs.meta.outputs.version }}-ios.ipa"
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.available == 'true'
+        with:
+          name: ios-app
+          path: out/*.ipa
+
+  # ----------------------------------------------------------------- release
+  # Only on the merge itself. A pull-request run stops at the artifacts above,
+  # which is the point: the same bundles are proven before the merge and
+  # published after it.
+  #
+  # Android and macOS are hard requirements. iOS is not, deliberately: it has
+  # never been built here, and a platform that has yet to produce a single
+  # bundle should not be able to withhold two that work. A failing ios job
+  # still fails the run and is still visible on the commit; it just does not
+  # take the release with it. Make it a hard requirement too once it has been
+  # green a few times.
+  release:
+    name: Publish
+    runs-on: ubuntu-latest
+    needs: [meta, android, macos, ios]
+    if: >-
+      always()
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && needs.android.result == 'success'
+      && needs.macos.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-app
+          path: assets
+      # Absent until the Apple Developer secrets are configured; the rest of
+      # the release should still publish without it.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ios-app
+          path: assets
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la assets
+          cat > notes.md <<'EOF'
+          Built on merge to main.
+
+          | Bundle | Signing |
+          |---|---|
+          | `.dmg` / `.app.zip` (macOS, Apple Silicon) | Ad-hoc unless Developer ID secrets are set. Right-click → Open the first time. |
+          | `.apk` (Android, arm64-v8a) | Unsigned unless an upload keystore secret is set. |
+          | `.ipa` (iOS) | Present only when the Apple Developer secrets are set. |
+          EOF
+          echo "" >> notes.md
+          echo "Commit: ${{ github.sha }}" >> notes.md
+          gh release create "${{ needs.meta.outputs.tag }}" \
+            --title "TrackIt ${{ needs.meta.outputs.version }} (build ${{ github.run_number }})" \
+            --notes-file notes.md \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            assets/*
