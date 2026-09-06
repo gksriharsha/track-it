@@ -78,8 +78,9 @@ pnpm android:apk
 
 ## Continuous integration
 
-Every pull request against `main` runs the tests and builds all three platforms; every merge to
-`main` does the same and publishes the bundles as a GitHub prerelease. The macOS bundle is
+`main` is protected: direct pushes are rejected, so every change arrives through a pull request.
+Each pull request runs the tests and builds all three platforms; every merge to `main` does the
+same and publishes the bundles as a GitHub prerelease. The macOS bundle is
 ad-hoc signed and the Android APK unsigned until signing secrets are configured, and iOS builds
 but is not yet packaged — [`docs/ci.md`](docs/ci.md) explains all three and what each one needs.
 
