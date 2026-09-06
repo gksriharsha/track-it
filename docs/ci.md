@@ -17,12 +17,16 @@ where it is until there is a reason to change it.
 ## Job graph
 
 ```
-meta ─┐
-test ─┼─→ android ─┐
-      │            │
-reference-db ──────┼─→ macos ─┼─→ release   (only on push to main)
-                   └─→ ios   ─┘
+meta ─────────────────────────┐
+                              │
+reference-db ─→ test ─→ ┌─ android ─┐
+                        ├─ macos   ─┼─→ release   (only on push to main)
+                        └─ ios     ─┘
 ```
+
+Everything waits on `reference-db`, including the tests: `tauri-build` validates every path in
+`tauri.conf.json`'s `bundle.resources` before it will compile `src-tauri` at all, so without the
+database on disk not even `cargo test` gets as far as a test.
 
 `test` runs on macOS because that is the only runner that compiles the `cfg(target_os = "macos")`
 half of `vision.rs`, where the Apple Vision adapter lives. 157 core tests plus 146 adapter tests.

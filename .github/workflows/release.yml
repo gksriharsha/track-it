@@ -54,8 +54,16 @@ jobs:
   test:
     name: Tests
     runs-on: macos-latest
+    # tauri-build validates every path in tauri.conf.json's bundle.resources
+    # before it will compile src-tauri at all, so even the test job needs the
+    # reference database on disk.
+    needs: reference-db
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: usda-core-db
+          path: src-tauri/resources
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
