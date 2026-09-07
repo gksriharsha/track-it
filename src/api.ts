@@ -17,7 +17,11 @@ import type {
   GoalsView,
   NutrientMeta,
   Origin,
+  HouseholdView,
+  PairingOffer,
+  PairingState,
   Profile,
+  SyncOutcome,
   Probe,
   RangeView,
   Cook,
@@ -474,8 +478,13 @@ export const listBottles = () => invoke<Bottle[]>("list_bottles");
  * One entry point for adding a bottle and for re-weighing one: pass an `id` to
  * update that object in place, omit it to record a new one.
  */
-export const saveBottle = (name: string, fullG: number, id: string | null = null) =>
-  invoke<string>("save_bottle", { id, name, fullG });
+export const saveBottle = (
+  name: string,
+  fullG: number,
+  emptyG: number | null,
+  volumeMl: number | null,
+  id: string | null = null,
+) => invoke<string>("save_bottle", { id, name, fullG, emptyG, volumeMl });
 
 /** Soft delete. Days logged with this bottle keep the amount they were logged with. */
 export const deleteBottle = (id: string) => invoke<void>("delete_bottle", { id });
@@ -588,3 +597,50 @@ export const correctEntryValue = (
  * is stored as a correction rather than as what was originally recorded.
  */
 export const refreezeEntry = (entryId: string) => invoke<void>("refreeze_entry", { entryId });
+
+// ---------------------------------------------------------------------------
+// Household
+// ---------------------------------------------------------------------------
+
+/** This device, the ones it is paired with, and how the last sync went. */
+export const getHousehold = () => invoke<HouseholdView>("get_household");
+
+/** Rename this device as the rest of the household sees it. */
+export const renameDevice = (name: string) => invoke<void>("rename_device", { name });
+
+/**
+ * Start listening for a device to pair with, and return the QR code to show it.
+ *
+ * The offer expires on its own. A pairing token that stayed valid would be a
+ * standing invitation lying on a screen.
+ */
+export const beginPairing = () => invoke<PairingOffer>("begin_pairing");
+
+/** Where the current pairing attempt has got to. Polled while the QR is up. */
+export const pairingState = () => invoke<PairingState>("pairing_state");
+
+/**
+ * Answer the six-digit comparison.
+ *
+ * `false` is not a cancel — it is the user saying the device that connected is
+ * not the one they are holding, which is the whole point of the check.
+ */
+export const confirmPairing = (matches: boolean) =>
+  invoke<void>("confirm_pairing", { matches });
+
+/** Stop offering to pair, without having paired. */
+export const cancelPairing = () => invoke<void>("cancel_pairing");
+
+/**
+ * Forget a device.
+ *
+ * Local only, and the screen says so: it stops this device syncing with that
+ * one, and cannot reach back into the copy that device already holds. With no
+ * server there is nothing to propagate it, so a third device has to be told
+ * separately.
+ */
+export const unpairDevice = (deviceId: string) =>
+  invoke<void>("unpair_device", { deviceId });
+
+/** Sync now with every paired device that answers. */
+export const syncNow = () => invoke<SyncOutcome[]>("sync_now");

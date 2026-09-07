@@ -3,7 +3,7 @@ import { getRange, humanDate, shiftIso, todayIso } from "../api";
 import NutrientRow from "../components/NutrientRow";
 import type { DaySummary, NutrientTotal, RangeView, TagBreakdown } from "../types";
 import { ORIGIN_LABEL } from "../types";
-import { read } from "../lib/nutrient";
+import { perDay, read } from "../lib/nutrient";
 import ScreenHead from "../components/ScreenHead";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -244,7 +244,7 @@ export default function History({ onPickDate, onImport }: Props) {
             {worst.length > 0 && (
               <>
                 <div className="group__name" style={{ marginTop: "var(--s4)" }}>
-                  Consistently below target
+                  Furthest from their reference figure
                 </div>
                 <div className="rows">
                   {worst.map(({ t }) => <NutrientRow key={t.id} t={t} />)}
@@ -434,38 +434,6 @@ function TagBars({
 /** How many dishes the period's tagging covers. */
 function countOf(data: RangeView | null): number {
   return (data?.origins ?? []).reduce((a, r) => a + r.entries, 0);
-}
-
-/**
- * Scale a period total down to a per-day figure.
- *
- * Coverage is a fraction and stays as it is; only the bounds divide. An
- * unbounded period stays unbounded — averaging cannot manufacture a ceiling
- * that the underlying data never had.
- */
-function perDay(t: NutrientTotal, days: number): NutrientTotal {
-  const sup = t.total.from_supplements;
-  return {
-    ...t,
-    total: {
-      ...t.total,
-      lower: t.total.lower / days,
-      upper: t.total.upper === null ? null : t.total.upper / days,
-      // The supplement share is part of the same sum and has to be divided by
-      // the same number. Left alone it would report the whole period's
-      // supplemental intake beside a per-day total — so a month of one B12
-      // tablet a day would read "2.4 µg a day, 30,000 µg of it from a
-      // supplement".
-      from_supplements:
-        sup === null
-          ? null
-          : {
-              ...sup,
-              lower: sup.lower / days,
-              upper: sup.upper === null ? null : sup.upper / days,
-            },
-    },
-  };
 }
 
 /* ── date helpers (local calendar, never UTC) ────────────────── */

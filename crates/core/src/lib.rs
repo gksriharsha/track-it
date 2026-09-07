@@ -20,6 +20,7 @@ pub mod panel;
 pub mod supplement;
 pub mod suppanel;
 pub mod targets;
+pub mod water;
 
 /// How a single food's value for a single nutrient is known.
 ///

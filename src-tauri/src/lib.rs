@@ -903,10 +903,12 @@ fn save_bottle(
     id: Option<String>,
     name: String,
     full_g: f64,
+    empty_g: Option<f64>,
+    volume_ml: Option<f64>,
     user: State<'_, store::Store>,
 ) -> Result<String, String> {
     let conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::save_bottle(&conn, id.as_deref(), &name, full_g)
+    store::save_bottle(&conn, id.as_deref(), &name, full_g, empty_g, volume_ml)
 }
 
 #[tauri::command]
@@ -3313,6 +3315,10 @@ pub struct DaySummary {
     pub food_items: i64,
     pub supplement_items: i64,
     pub water_items: i64,
+    /// Water drunk that day in millilitres, or `None` on a day no bottle was
+    /// logged. Water is drunk by volume and weighed by mass; this is the volume
+    /// its bottles say that mass came to.
+    pub water_ml: Option<f64>,
     /// How that day's dishes were tagged, so a calendar cell can show the mix
     /// without a second round trip. Untagged dishes are counted in
     /// `untagged_origin`, never silently dropped.
@@ -3395,9 +3401,12 @@ fn get_range(
     let conn = refdb.0.lock().map_err(|e| e.to_string())?;
     let dim = nutrient_dim(&conn)?;
 
-    let logged = {
+    let (logged, water) = {
         let uc = user.0.lock().map_err(|e| e.to_string())?;
-        store::logged_days_between(&uc, &from, &to)?
+        (
+            store::logged_days_between(&uc, &from, &to)?,
+            store::water_ml_between(&uc, &from, &to)?,
+        )
     };
 
     let mut merged: HashMap<i64, Vec<Contribution>> = HashMap::new();
@@ -3426,6 +3435,7 @@ fn get_range(
             food_items: day.food_items,
             supplement_items: day.supplement_items,
             water_items: day.water_items,
+            water_ml: water.get(&day.date).copied(),
             origins,
             cuisines,
             untagged_origin,
@@ -3515,6 +3525,68 @@ fn tally(
     (counts, untagged)
 }
 
+// ---------------------------------------------------------------------------
+// Household
+//
+// The kitchen is shared between the devices in a house; the diary is not.
+// These read and write the local side of that. The transport that carries it
+// between devices is not built yet, and the commands that would need it say so
+// in a sentence rather than failing with a missing-command error — a nav row
+// that leads to a broken screen is worse than one that leads to an honest one.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn get_household(user: State<'_, store::Store>) -> Result<store::HouseholdView, String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::household(&conn)
+}
+
+#[tauri::command]
+fn rename_device(user: State<'_, store::Store>, name: String) -> Result<(), String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::rename_device(&conn, &name)
+}
+
+#[tauri::command]
+fn unpair_device(user: State<'_, store::Store>, device_id: String) -> Result<(), String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::unpair(&conn, &device_id)
+}
+
+/// What the transport half will do, and does not yet.
+///
+/// One sentence, in the same voice the rest of the app answers in, rather than
+/// a Tauri "command not found". The screen renders it where it renders every
+/// other failure.
+const NOT_BUILT: &str =
+    "Pairing is not built yet. The kitchen is already tracked and ready to \
+     travel — what is missing is the part that carries it to the other device.";
+
+#[tauri::command]
+fn begin_pairing() -> Result<serde_json::Value, String> {
+    Err(NOT_BUILT.into())
+}
+
+#[tauri::command]
+fn pairing_state() -> Result<serde_json::Value, String> {
+    Err(NOT_BUILT.into())
+}
+
+#[tauri::command]
+fn confirm_pairing(_matches: bool) -> Result<(), String> {
+    Err(NOT_BUILT.into())
+}
+
+#[tauri::command]
+fn cancel_pairing() -> Result<(), String> {
+    Ok(())
+}
+
+#[tauri::command]
+fn sync_now() -> Result<Vec<store::SyncOutcome>, String> {
+    Err(NOT_BUILT.into())
+}
+
 fn init_state(app: &AppHandle) -> Result<(), String> {
     let ref_path = db::resolve(app)?;
     let ref_conn = db::open(&ref_path)?;
@@ -3577,6 +3649,14 @@ pub fn run() {
             draft_cook,
             save_cook,
             list_open_cooks,
+            get_household,
+            rename_device,
+            unpair_device,
+            begin_pairing,
+            pairing_state,
+            confirm_pairing,
+            cancel_pairing,
+            sync_now,
             get_cook,
             finish_cook,
             delete_cook,
@@ -3645,10 +3725,20 @@ mod tests {
         db::open(&p).ok()
     }
 
+    /// An empty user database in the shape this build expects.
+    ///
+    /// The last two calls are not decoration. `SCHEMA` alone leaves a database
+    /// with no device identity and no change-tracking triggers, which is a
+    /// state the real app is never in — `open` mints one and installs the
+    /// other — and a test running against it would report a pot that never
+    /// empties and change tracking that never fires. Both would pass while the
+    /// shipped app failed.
     fn user_db() -> Connection {
         let c = Connection::open_in_memory().unwrap();
         c.pragma_update(None, "foreign_keys", "ON").unwrap();
         c.execute_batch(store::SCHEMA).unwrap();
+        store::ensure_device_identity(&c).unwrap();
+        store::install_sync_triggers(&c).unwrap();
         c
     }
 
@@ -4173,7 +4263,7 @@ mod tests {
         let Some(rc) = refdb() else { return };
         let dim = nutrient_dim(&rc).unwrap();
         let uc = user_db();
-        let bid = store::save_bottle(&uc, None, "Steel bottle", 1050.0).unwrap();
+        let bid = store::save_bottle(&uc, None, "Steel bottle", 1050.0, None, None).unwrap();
         store::add(
             &uc, "2026-09-04", None, store::Source::Water(&bid), "Steel bottle",
             store::Quantity::Grams(500.0), None, &store::Tags::default(),
@@ -4333,7 +4423,7 @@ mod tests {
         let Some(rc) = refdb() else { return };
         let dim = nutrient_dim(&rc).unwrap();
         let uc = user_db();
-        let bid = store::save_bottle(&uc, None, "Steel bottle", 1050.0).unwrap();
+        let bid = store::save_bottle(&uc, None, "Steel bottle", 1050.0, None, None).unwrap();
 
         // One day of food, one day of nothing but water.
         store::add(
@@ -5277,6 +5367,35 @@ mod tests {
                 store::get_cook(&uc, &cid).unwrap().remaining_g,
                 900.0,
                 "deleting a helping puts the food back in the pot"
+            );
+        }
+
+        #[test]
+        fn correcting_a_helping_moves_the_pot_by_the_same_amount() {
+            // The third of the three places a helping's projection into
+            // `cook_draws` is maintained, and the easiest to leave out: `add`
+            // and `remove` are obvious, an entry re-weighed afterwards is not.
+            // Miss it and this device's own Available list disagrees with its
+            // own log — and the household's copy disagrees for good, because
+            // nothing later would touch it.
+            let Some(refconn) = refdb() else { return };
+            let fdc_id = a_fatty_food(&refconn);
+            let mut uc = user_db();
+
+            let cid = store::save_cook(&mut uc, None, &pot_of(fdc_id, 1000.0, Some(800.0))).unwrap();
+            let entry = add_frozen(
+                &refconn, &mut uc, DAY, Some("dinner"),
+                store::Source::Cook(&cid), "Rajma",
+                store::Quantity::Grams(200.0), None, &no_tags(),
+            )
+            .unwrap();
+            assert_eq!(store::get_cook(&uc, &cid).unwrap().remaining_g, 600.0);
+
+            store::correct_amount(&mut uc, &entry, store::Quantity::Grams(300.0)).unwrap();
+            assert_eq!(
+                store::get_cook(&uc, &cid).unwrap().remaining_g,
+                500.0,
+                "correcting 200 g to 300 g means 100 g more came out of the pot"
             );
         }
 

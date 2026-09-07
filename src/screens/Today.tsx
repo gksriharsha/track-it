@@ -2,8 +2,8 @@ import { useState } from "react";
 import { deleteLogEntry, setEntryTags } from "../api";
 import CorrectEntry from "../components/CorrectEntry";
 import type { DayView, LogEntry, Origin } from "../types";
-import { MEALS, ORIGIN_LABEL } from "../types";
-import { plural, read, unassessable, worthALook } from "../lib/nutrient";
+import { MEALS, ORIGIN_LABEL, describeVolume } from "../types";
+import { plural, read, unassessable } from "../lib/nutrient";
 import TagPicker from "../components/TagPicker";
 
 interface Props {
@@ -65,7 +65,6 @@ export default function Today(p: Props) {
       lower: t!.total.lower,
     }));
 
-  const watch = worthALook(totals);
   const unknown = unassessable(totals);
   const covered = totals.filter((t) => read(t).state === "measured").length;
 
@@ -148,11 +147,25 @@ export default function Today(p: Props) {
         </div>
       ) : (
         <>
-          {/* Hero. Floats on the page — no card. It is the anchor. */}
+          {/*
+            What today came to — reported, not scored.
+
+            This used to be the anchor of the app: a 52px serif figure with a
+            green bar filling toward a target beneath it, over the words "498
+            left of 2,240". Three separate ways of saying the same thing, which
+            was that a day is an allowance to spend down and there is a line to
+            reach. It is now an ordinary line of text, in the plain sans, the
+            same size as everything else on the screen.
+
+            The number has not been hidden — this is a tracker and a person is
+            entitled to it. It has been put in proportion: one day is a noisy
+            sample, and what it is worth knowing against is the fortnight above
+            it, not a target below it.
+          */}
           <section className="day-hero">
             <div className="hero__value">
-              <span className="num hero__num">{kcal !== null ? kcal.toLocaleString() : "—"}</span>
-              <span className="hero__unit">kcal</span>
+              <span className="tnum hero__num">{kcal !== null ? kcal.toLocaleString() : "—"}</span>
+              <span className="hero__unit">kcal today</span>
             </div>
             <div className="hero__sub">
               {kcal === null ? (
@@ -167,19 +180,21 @@ export default function Today(p: Props) {
                 </>
               ) : (
                 <>
-                  {Math.max(target - kcal, 0).toLocaleString()} left of{" "}
-                  {Math.round(target).toLocaleString()}
-                  <span className="hero__basis">
-                    {energyTarget?.basis === "estimated" ? " · estimated" : " · your target"}
-                  </span>
+                  {/*
+                    The reference figure, named, and NOT as a remainder.
+                    "498 left of 2,240" floored the difference at zero so the
+                    day could only ever count down to a finish line, and called
+                    a published estimate "your target" — a figure the user never
+                    set, presented as a personal commitment.
+                  */}
+                  {energyTarget === null
+                    ? `read against ${Math.round(target).toLocaleString()}`
+                    : energyTarget.basis === "estimated"
+                      ? `an estimate for you is ${Math.round(target).toLocaleString()}`
+                      : `the figure you set is ${Math.round(target).toLocaleString()}`}
                 </>
               )}
             </div>
-            {kcal !== null && target !== null && (
-              <div className="hero__rail">
-                <div className="hero__fill" style={{ width: `${Math.min((kcal / target) * 100, 100)}%` }} />
-              </div>
-            )}
             <div className="macros">
               {macros.map((m) => {
                 // A macronutrient has no single right number, so where a range
@@ -208,50 +223,36 @@ export default function Today(p: Props) {
             </div>
           </section>
 
-          {/* Worth a look. The only place alarm colour appears, and only for
-              a limit actually exceeded. */}
-          <section className="card day-watch">
+          {/*
+            What today held, and what could not be measured in it — no ranking.
+
+            This was "Worth a look": the five nutrients furthest from target,
+            worst first, each with a direction arrow, a percentage and a bar,
+            under a heading that graded the day. It ran `worthALook`, which
+            sorted a ONE-DAY sample by shortfall against an undocumented 60%
+            line and cut it to five — a leaderboard of the day's failures,
+            recomputed every morning, on a sample far too small to mean
+            anything. Its empty state read "Nothing stands out. Every nutrient
+            with enough data to judge is within range", which is a pass mark.
+
+            What has actually been high or low is a question about weeks, and
+            it is asked on Statistics, where there are enough days to answer it.
+            What belongs here is only what this day can honestly say: what was
+            measured in it, and what was not.
+          */}
+          <section className="card">
             <div className="card__head">
-              <h2>Worth a look</h2>
-              <span className="card__note">{covered} of {totals.length} measured</span>
+              <h2>What could be measured</h2>
             </div>
-            {watch.length === 0 ? (
-              <p style={{ color: "var(--ink-3)", fontSize: 14, margin: "var(--s2) 0" }}>
-                Nothing stands out. Every nutrient with enough data to judge is within range.
-              </p>
-            ) : (
-              <div className="rows">
-                {watch.map(({ t, r }) => (
-                  <div key={t.id} className={`row nrow ${r.over ? "is-over" : ""}`}>
-                    <span className="row__main">
-                      <span className="row__title">
-                        <span aria-hidden style={{ color: r.over ? "var(--over)" : "var(--ink-3)", marginRight: 8 }}>
-                          {r.over ? "↑" : "↓"}
-                        </span>
-                        {t.name}
-                      </span>
-                      {r.over && <span className="row__sub">above the daily limit</span>}
-                    </span>
-                    <span className="track">
-                      <span
-                        className={`track__fill${r.over ? " track__fill--over" : ""}`}
-                        style={{ width: `${Math.min(r.pct ?? 0, 100)}%` }}
-                      />
-                    </span>
-                    <span className="nval">
-                      <span className="nval__amt tnum">{r.amount}</span>
-                      <span className="nval__pct tnum">{Math.round(r.pct ?? 0)}%</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="card__foot">
-              {unknown.length > 0
-                ? `${unknown.length} more can't be assessed — some items have no data for them. `
-                : ""}
-              <button className="link" onClick={p.onSeeAll}>See all {totals.length} nutrients</button>
-            </div>
+            <p className="daynote">
+              {covered} of the {totals.length} nutrients this app tracks had data in
+              today&rsquo;s items.
+              {unknown.length > 0 && (
+                <> The other {unknown.length} are not zero — nothing logged today carried a
+                figure for them.</>
+              )}{" "}
+              <button className="link" onClick={p.onSeeAll}>See them all</button>
+            </p>
           </section>
 
           {/* Not "What you ate": a supplement is not eaten and a bottle of
@@ -446,6 +447,10 @@ function quantityText(e: LogEntry): string {
     const rounded = Math.round(n * 100) / 100;
     return `${rounded} ${rounded === 1 ? "dose" : "doses"}`;
   }
+  // Water is drunk by volume and weighed by mass. The scale gave grams; the
+  // bottle says what that comes to, and that is the number to show — nobody
+  // thinks about their day in grams of water.
+  if (e.water) return describeVolume(e.water.ml);
   return e.grams === null ? "weight not recorded" : `${Math.round(e.grams)} g`;
 }
 
