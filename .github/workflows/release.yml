@@ -126,6 +126,11 @@ jobs:
     name: Android APK
     runs-on: ubuntu-latest
     needs: [meta, test, reference-db]
+    outputs:
+      # Whether the APK this run produced can actually be installed. Read by
+      # the release job so the notes state what happened rather than what
+      # might have.
+      signed: ${{ steps.collect.outputs.signed }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -168,7 +173,74 @@ jobs:
             echo "::warning::No ANDROID_KEYSTORE_BASE64 secret; the release APK will be unsigned."
             exit 0
           fi
+
+          # Half a configuration is not a configuration.
+          #
+          # All four secrets are needed together. With only the keystore set,
+          # this wrote a properties file with empty passwords, and the failure
+          # surfaced four and a half minutes later inside gradle as
+          # "keystore password was incorrect" — which points at the password
+          # being WRONG rather than at three secrets never having been added.
+          # Someone who has just pasted a key would reasonably conclude their
+          # key was bad and go and regenerate it.
+          missing=""
+          [ -n "$KEYSTORE_PASSWORD" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD"
+          [ -n "$KEY_ALIAS" ]         || missing="$missing ANDROID_KEY_ALIAS"
+          [ -n "$KEY_PASSWORD" ]      || missing="$missing ANDROID_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is set but these are not:$missing. \
+          Signing needs all four; see docs/ci.md. Remove the keystore secret to go back to \
+          publishing an unsigned build."
+            exit 1
+          fi
+
           echo "$KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/upload.jks
+          ks=src-tauri/gen/android/upload.jks
+
+          # Three separate things can be wrong here and gradle reports them all
+          # as "keystore password was incorrect" several minutes into the build.
+          # Each is checked on its own so the message names the actual cause.
+          #
+          # Alias names are printed on failure. They are not secret — an alias
+          # is readable out of the signature block of any APK signed with the
+          # key — and knowing the keystore calls it `key0` rather than `upload`
+          # is usually the whole answer. Passwords are never printed.
+          if ! keytool -list -keystore "$ks" -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD does not open this keystore. It is the \
+          STORE password you typed first at keytool -genkeypair, which is not necessarily the \
+          key password. If the value has a \$ or a backtick in it, check it survived the paste."
+            exit 1
+          fi
+          if ! keytool -list -keystore "$ks" -storepass "$KEYSTORE_PASSWORD" \
+                 -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::The keystore opened, but it has no alias named '$KEY_ALIAS'. \
+          Aliases it does contain: $(keytool -list -keystore "$ks" \
+            -storepass "$KEYSTORE_PASSWORD" 2>/dev/null \
+            | sed -n 's/^\([^,]*\),.*PrivateKeyEntry.*/\1/p' | paste -sd' ' -)"
+            exit 1
+          fi
+          # The key password, where it is a separate thing at all.
+          #
+          # PKCS12 has been keytool's default store type since JDK 9, and it
+          # cannot hold a per-key password distinct from the store's — keytool
+          # accepts any -keypass against one. So on a PKCS12 keystore this
+          # check can only pass, and ANDROID_KEY_PASSWORD must equal
+          # ANDROID_KEYSTORE_PASSWORD or gradle will disagree with it. Said out
+          # loud rather than left as a silent no-op, because a green check that
+          # cannot fail is worse than no check.
+          if keytool -list -keystore "$ks" -storepass "$KEYSTORE_PASSWORD" 2>/dev/null \
+               | grep -q "Keystore type: PKCS12"; then
+            if [ "$KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]; then
+              echo "::warning::This is a PKCS12 keystore, where the key password is the store \
+          password. ANDROID_KEY_PASSWORD differs from ANDROID_KEYSTORE_PASSWORD and will be \
+          ignored; set them to the same value if the build disagrees."
+            fi
+          elif ! keytool -certreq -keystore "$ks" -storepass "$KEYSTORE_PASSWORD" \
+                 -alias "$KEY_ALIAS" -keypass "$KEY_PASSWORD" >/dev/null 2>&1; then
+            echo "::error::ANDROID_KEY_PASSWORD does not unlock the key '$KEY_ALIAS'. If you \
+          pressed Return at keytool's key-password prompt it is the same as the store password."
+            exit 1
+          fi
           cat > src-tauri/gen/android/keystore.properties <<EOF
           storeFile=upload.jks
           storePassword=$KEYSTORE_PASSWORD
@@ -178,14 +250,56 @@ jobs:
       - name: Build
         run: pnpm tauri android build --apk --target aarch64 --split-per-abi --ci
       - name: Collect
+        id: collect
+        # The signature is CHECKED, not inferred from the filename, and the
+        # published name says which it is.
+        #
+        # Before this, an unsigned APK was copied to
+        # `TrackIt-<version>-android-arm64.apk` and offered on the release page
+        # under a name that gave no hint Android would refuse to install it.
+        # The only notice was a `::warning::` in a job log, which is not where
+        # anyone downloading a build is looking. Builds 3, 5 and 7 all shipped
+        # that way.
+        #
+        # Deliberately does NOT fail the job. `Android APK` is a required check,
+        # so failing here would make `main` unmergeable until the secrets exist
+        # — turning a distribution problem into a development one. An honest
+        # name is enough: it cannot be mistaken for a release build, and it
+        # stays a useful artifact to inspect.
         run: |
           mkdir -p out
           apk=$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk' | head -1)
           test -n "$apk" || { echo "no release APK produced"; exit 1; }
-          case "$apk" in
-            *unsigned*) echo "::warning::$(basename "$apk") is unsigned and cannot be installed as an update." ;;
-          esac
-          cp "$apk" "out/TrackIt-${{ needs.meta.outputs.version }}-android-arm64.apk"
+
+          base="TrackIt-${{ needs.meta.outputs.version }}-android-arm64"
+          hint="Set ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD; see docs/ci.md."
+
+          # Not finding apksigner is its own state, and not a reason to fail a
+          # required check. Fall back to what gradle called the file, and say
+          # that the signature was assumed rather than verified.
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$apksigner" ]; then
+            echo "::warning::apksigner not found; falling back to the filename to judge signing."
+            case "$(basename "$apk")" in
+              *unsigned*) signed=false ;;
+              *)          signed=true  ;;
+            esac
+          elif "$apksigner" verify "$apk" >/dev/null 2>&1; then
+            signed=true
+            "$apksigner" verify --print-certs "$apk" | head -2
+          else
+            signed=false
+          fi
+
+          if [ "$signed" = true ]; then
+            name="$base.apk"
+          else
+            name="$base-UNSIGNED.apk"
+            echo "::warning::This APK is unsigned; Android will refuse to install it. $hint"
+          fi
+          echo "signed=$signed" >> "$GITHUB_OUTPUT"
+
+          cp "$apk" "out/$name"
           ls -la out
       - name: Remove signing material
         if: always()
@@ -420,9 +534,18 @@ jobs:
           | Bundle | Signing |
           |---|---|
           | `.dmg` / `.app.zip` (macOS, Apple Silicon) | Ad-hoc unless Developer ID secrets are set. Right-click → Open the first time. |
-          | `.apk` (Android, arm64-v8a) | Unsigned unless an upload keystore secret is set. |
+          | `.apk` (Android, arm64-v8a) | ANDROID_SIGNING |
           | `.ipa` (iOS) | Present only when the Apple Developer secrets are set. |
           EOF
+          # Substituted rather than written inline so the heredoc can stay
+          # quoted: an unquoted one would expand the backticks around the
+          # bundle names as commands.
+          if [ "${{ needs.android.outputs.signed }}" = "true" ]; then
+            android_note="Signed with the upload key."
+          else
+            android_note="**Unsigned — Android will refuse to install it.** The file is named \`-UNSIGNED\` for that reason. Set the four \`ANDROID_*\` secrets to sign it; see \`docs/ci.md\`."
+          fi
+          sed -i "s|ANDROID_SIGNING|$android_note|" notes.md
           echo "" >> notes.md
           echo "Commit: ${{ github.sha }}" >> notes.md
           gh release create "${{ needs.meta.outputs.tag }}" \

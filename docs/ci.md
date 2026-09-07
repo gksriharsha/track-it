@@ -108,9 +108,14 @@ workflow edit is needed.
 
 ### Android — unsigned today
 
-An unsigned release APK cannot be installed over an existing install, so this is worth doing
-early. Generate an upload key **and keep the file** — losing it means never being able to update
-an installed app:
+An unsigned release APK cannot be installed **at all** — not over an existing install, not onto
+a clean device, not by you. Android refuses it outright (`apksigner verify` reports
+`Missing META-INF/MANIFEST.MF`), so until these secrets exist every published `.apk` is a file
+nobody can use. The release job names such a build `-UNSIGNED` and says so in the notes rather
+than offering it under a name that looks installable.
+
+Generate an upload key **and keep the file** — losing it means never being able to update an
+installed app:
 
 ```bash
 keytool -genkeypair -v -keystore upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
@@ -124,6 +129,13 @@ Then add four repository secrets:
 | `ANDROID_KEYSTORE_PASSWORD` | the store password |
 | `ANDROID_KEY_ALIAS` | `upload` |
 | `ANDROID_KEY_PASSWORD` | the key password |
+
+**All four, or none.** Setting only `ANDROID_KEYSTORE_BASE64` does not get you a partly-signed
+build — it gets a `keystore.properties` with empty passwords, and gradle fails several minutes
+later with `keystore password was incorrect`, which reads like a bad key rather than three
+secrets that were never added. The job now checks for all four up front and opens the keystore
+with `keytool` before building, so a misconfiguration fails in about a second with a message
+that names what is missing.
 
 CI writes them to `gen/android/keystore.properties`, which the guarded `signingConfigs` block in
 `app/build.gradle.kts` picks up, and deletes both afterwards. The block is a no-op locally, where
