@@ -29,6 +29,19 @@ tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# The debug Android APK is the reason this block exists. Cargo's default dev
+# profile is `debug = 2`, which left 133 MB of DWARF in libtrackit_lib.so — 80%
+# of a 188 MB APK — and the generated Gradle file adds
+# `jniLibs.keepDebugSymbols` for arm64, so AGP does not strip it back out. The
+# result filled the emulator's /data partition and `adb install` began failing
+# with INSTALL_FAILED_INSUFFICIENT_STORAGE.
+#
+# `debug = 1` keeps line tables, so a panic still names a file and a line on
+# desktop; what goes is the type and variable information a step debugger uses.
+# That is the right trade for a profile whose main consumer is a phone.
+[profile.dev]
+debug = 1
+
 # Mobile release packages should contain executable code, not the symbol and
 # per-codegen-unit baggage useful to a debugger. LTO also lets the linker drop
 # Rust paths that this particular target never calls (including platform-gated

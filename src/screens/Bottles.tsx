@@ -25,6 +25,8 @@ export default function Bottles(p: Props) {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [fullG, setFullG] = useState("");
+  const [emptyG, setEmptyG] = useState("");
+  const [volumeMl, setVolumeMl] = useState("");
   /** Set while re-weighing or renaming an existing row: the same two fields serve both. */
   const [editing, setEditing] = useState<Bottle | null>(null);
   const [saving, setSaving] = useState(false);
@@ -48,6 +50,8 @@ export default function Bottles(p: Props) {
     setEditing(b);
     setName(b.name);
     setFullG(String(b.full_g));
+    setEmptyG(b.empty_g === null ? "" : String(b.empty_g));
+    setVolumeMl(b.volume_ml === null ? "" : String(b.volume_ml));
     setError(null);
   }
 
@@ -55,6 +59,8 @@ export default function Bottles(p: Props) {
     setEditing(null);
     setName("");
     setFullG("");
+    setEmptyG("");
+    setVolumeMl("");
     setError(null);
   }
 
@@ -65,9 +71,31 @@ export default function Bottles(p: Props) {
     if (!fullG.trim() || !Number.isFinite(g) || g <= 0) {
       return setError("Enter its full weight in grams, greater than zero.");
     }
+    // Both figures or neither: a bottle weighed empty but never told what it is
+    // called converts no better than one never weighed, and half a calibration
+    // would let the app believe it had one.
+    const hasEmpty = emptyG.trim() !== "";
+    const hasVol = volumeMl.trim() !== "";
+    if (hasEmpty !== hasVol) {
+      return setError(
+        "To read this bottle in litres it needs both its empty weight and the volume printed " +
+          "on it. Leave both blank and its water is read at the density of water instead.",
+      );
+    }
+    const empty = hasEmpty ? Number(emptyG) : null;
+    const vol = hasVol ? Number(volumeMl) : null;
+    if (empty !== null && (!Number.isFinite(empty) || empty <= 0)) {
+      return setError("Enter the empty weight in grams, greater than zero.");
+    }
+    if (vol !== null && (!Number.isFinite(vol) || vol <= 0)) {
+      return setError("Enter the volume printed on the bottle, in millilitres.");
+    }
+    if (empty !== null && empty >= g) {
+      return setError("A full bottle weighs more than an empty one — check the two weights.");
+    }
     setSaving(true);
     try {
-      await saveBottle(name.trim(), g, editing?.id ?? null);
+      await saveBottle(name.trim(), g, empty, vol, editing?.id ?? null);
       cancelEdit();
       await load();
     } catch (e) {
@@ -134,13 +162,47 @@ export default function Bottles(p: Props) {
               aria-label="Full weight in grams"
             />
           </label>
+          <label className="vform__cell vform__cell--g">
+            <span className="group__name">Empty weight</span>
+            <input
+              className="field tnum"
+              type="number"
+              min="1"
+              inputMode="decimal"
+              value={emptyG}
+              onChange={(e) => setEmptyG(e.target.value)}
+              placeholder="140"
+              aria-label="Empty weight in grams"
+            />
+          </label>
+          <label className="vform__cell vform__cell--g">
+            <span className="group__name">Volume on the label</span>
+            <input
+              className="field tnum"
+              type="number"
+              min="1"
+              inputMode="decimal"
+              value={volumeMl}
+              onChange={(e) => setVolumeMl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && save()}
+              placeholder="1000"
+              aria-label="Volume in millilitres, as printed on the bottle"
+            />
+          </label>
           <button className="btn vform__go" onClick={save} disabled={saving}>
             {saving ? "Saving…" : editing ? "Update" : "Save bottle"}
           </button>
         </div>
         <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Weigh it once, filled with water the way you normally would. Logging water later just
-          asks what it reads now — full minus that is what you drank.
+          Weigh it empty, weigh it filled the way you normally fill it, and give the volume
+          printed on the label. Those three make the bottle its own measure: what you drink is
+          weighed, and read back in the unit the label puts it in — so a bottle sold as a litre
+          that really takes 940 g to your fill line still reads as a litre.
+        </p>
+        <p className="rangenote">
+          The last two are optional. Without them water is read at the density of water, which
+          is right to about two parts in a thousand — the app marks that as an assumption rather
+          than a measurement.
         </p>
       </section>
 
@@ -154,8 +216,9 @@ export default function Bottles(p: Props) {
         <div className="empty">
           <h3>Nothing weighed yet</h3>
           <p>
-            Fill it, weigh it, save what the scale says. After that, logging water is just
-            reading the bottle again — full minus what is left is what you drank.
+            Weigh it empty, weigh it full, and give the volume on its label. After that,
+            logging water is just reading the bottle again — and what you drank comes back in
+            litres rather than grams.
           </p>
         </div>
       ) : (

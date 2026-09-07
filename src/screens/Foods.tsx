@@ -32,7 +32,7 @@ import type {
   Recipe,
   Vessel,
 } from "../types";
-import { MEALS, SOURCE_LABEL } from "../types";
+import { MEALS, SOURCE_LABEL, describeVolume } from "../types";
 import { fmtAmount, plural } from "../lib/nutrient";
 import WeightField from "../components/WeightField";
 import TagPicker from "../components/TagPicker";
@@ -781,7 +781,17 @@ export default function Foods(p: Props) {
                 Number(currentG) >= 0 &&
                 Number(currentG) < pickedBottle.full_g && (
                   <span className="dose__note">
-                    ≈ {Math.round(pickedBottle.full_g - Number(currentG))} g of water
+                    {/*
+                      The scale gives grams and the bottle turns them into the
+                      volume its label puts them in. Grams go in because that
+                      is what a scale says; litres come out because that is
+                      what a person drank.
+                    */}
+                    ≈{" "}
+                    {describeVolume(
+                      volumeOfDrink(pickedBottle, pickedBottle.full_g - Number(currentG)),
+                    )}{" "}
+                    of water
                   </span>
                 )}
             </div>
@@ -1374,3 +1384,19 @@ function supplementLabel(s: Supplement): string {
 
 const round = (n: number) => Math.round(n * 10) / 10;
 const trim = (n: number) => (Number.isInteger(n) ? String(n) : String(round(n)));
+
+/**
+ * What a weighed amount out of one bottle comes to in millilitres.
+ *
+ * Mirrors `trackit_core::water::volume_of`, which is the definition — this is
+ * the same arithmetic ahead of the round trip, so the preview and the saved
+ * entry cannot disagree. A bottle with no empty weight or no stated volume has
+ * no scale factor of its own and falls back to the density of water.
+ */
+function volumeOfDrink(b: Bottle, grams: number): number {
+  if (b.empty_g !== null && b.volume_ml !== null) {
+    const capacity = b.full_g - b.empty_g;
+    if (capacity > 0) return (grams * b.volume_ml) / capacity;
+  }
+  return grams / 0.9982;
+}

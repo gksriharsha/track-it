@@ -203,3 +203,35 @@ export function pct(fraction: number): string {
   if (p >= 0.1) return `${Math.round(p * 10) / 10}%`;
   return p > 0 ? "<0.1%" : "0%";
 }
+
+/**
+ * Scale a period total down to a per-day figure.
+ *
+ * Coverage is a fraction and stays as it is; only the bounds divide. An
+ * unbounded period stays unbounded — averaging cannot manufacture a ceiling
+ * that the underlying data never had.
+ */
+export function perDay(t: NutrientTotal, days: number): NutrientTotal {
+  const sup = t.total.from_supplements;
+  return {
+    ...t,
+    total: {
+      ...t.total,
+      lower: t.total.lower / days,
+      upper: t.total.upper === null ? null : t.total.upper / days,
+      // The supplement share is part of the same sum and has to be divided by
+      // the same number. Left alone it would report the whole period's
+      // supplemental intake beside a per-day total — so a month of one B12
+      // tablet a day would read "2.4 µg a day, 30,000 µg of it from a
+      // supplement".
+      from_supplements:
+        sup === null
+          ? null
+          : {
+              ...sup,
+              lower: sup.lower / days,
+              upper: sup.upper === null ? null : sup.upper / days,
+            },
+    },
+  };
+}

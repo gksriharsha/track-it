@@ -1,5 +1,5 @@
 import type { NutrientTotal } from "../types";
-import { read } from "../lib/nutrient";
+import { fmtAmount, read } from "../lib/nutrient";
 import { BASIS_LABEL } from "../types";
 
 /**
@@ -40,22 +40,25 @@ export default function NutrientRow({ t }: { t: NutrientTotal }) {
         )}
       </span>
 
-      {r.showTrack && r.pct !== null ? (
-        <span className="track">
-          <span
-            className={`track__fill${r.over ? " track__fill--over" : ""}`}
-            style={{ width: `${Math.min(r.pct, 100)}%` }}
-          />
-        </span>
-      ) : (
-        /* Deliberately invisible, not a zero-width bar: an empty track reads
-           as "0% of target", which is precisely the lie to avoid. */
-        <span className="track track--none" aria-hidden />
-      )}
+      {/*
+        The amount, and what it can be read against — not a bar and not a
+        percentage.
 
+        Both of those were scores. A bar fills toward a target and a percentage
+        is one number to push to 100, and there were forty-seven of them: a
+        surface of gaps to close, refreshed every day. The pair says the same
+        thing without proposing that anything be optimised — 412 mg beside an
+        RDA of 1,000 mg is a fact a person can read, and no arrangement of it
+        counts as a win.
+      */}
       <span className="nval">
         <span className="nval__amt tnum">{r.amount}</span>
-        <span className="nval__pct tnum">{r.pct !== null ? `${Math.round(r.pct)}%` : ""}</span>
+        {t.target !== null && (
+          <span className="nval__ref tnum">
+            {t.is_limit ? "limit " : ""}
+            {fmtAmount(t.target, t.magnitude)}
+          </span>
+        )}
       </span>
     </div>
   );

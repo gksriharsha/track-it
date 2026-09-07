@@ -9,7 +9,7 @@ type Filter = "all" | "measured" | "unknown";
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "measured", label: "Measured" },
-  { id: "unknown", label: "Can't assess" },
+  { id: "unknown", label: "Not measured" },
 ];
 
 /**

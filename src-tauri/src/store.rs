@@ -152,11 +152,27 @@ CREATE TABLE IF NOT EXISTS bottles (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
   full_g       REAL NOT NULL CHECK (full_g > 0),
+  -- Weighed empty, the way a vessel is. With `full_g` it gives what the bottle
+  -- holds in water; on its own it gives nothing, which is why the conversion
+  -- needs `volume_ml` too.
+  empty_g      REAL CHECK (empty_g IS NULL OR empty_g > 0),
+  -- What the maker calls it, in millilitres — a litre bottle is 1000 here even
+  -- when it takes 940 g of water to the line its owner fills to. That is the
+  -- point: the label is the unit its owner thinks in, and the two weighings
+  -- say how many grams of theirs make one of those.
+  volume_ml    REAL CHECK (volume_ml IS NULL OR volume_ml > 0),
   -- Drives picker order: the bottle you used last is the one you reach for.
   last_used_at TEXT,
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL,
-  deleted_at   TEXT
+  deleted_at   TEXT,
+  -- Both halves or neither. A bottle weighed empty but never named a volume
+  -- cannot be converted any better than one that was never weighed, and
+  -- storing half a calibration would let a read path believe it had one.
+  CHECK ((empty_g IS NULL) = (volume_ml IS NULL)),
+  -- A full bottle weighs more than an empty one. Without this the capacity can
+  -- come out zero or negative and the scale factor is a division by nothing.
+  CHECK (empty_g IS NULL OR full_g > empty_g)
 );
 CREATE INDEX IF NOT EXISTS idx_bottles_live ON bottles(name) WHERE deleted_at IS NULL;
 
@@ -600,11 +616,223 @@ CREATE TABLE IF NOT EXISTS entry_nutrients (
   FOREIGN KEY (entry_id, ordinal)
     REFERENCES entry_components(entry_id, ordinal) ON DELETE CASCADE
 );
+
+-- ---------------------------------------------------------------------------
+-- Household sync
+--
+-- One kitchen, several devices. What is shared is the KITCHEN: the pots, the
+-- recipes behind them, the packs on the shelf, the vessels on the scale. What
+-- is never shared is the EATING -- log entries and everything frozen off them,
+-- the profile, the targets. Those are one person's, and merging them would put
+-- someone else's dinner in your day.
+--
+-- The whole arm rests on one rule, stated once here: the unit of replication is
+-- a PARENT ROW AND ALL OF ITS CHILDREN, versioned once on the parent. That is
+-- not an optimisation. `save_cook` deletes and reinserts every
+-- `cook_ingredients` row with fresh ids on each save, so merging children
+-- individually would UNION two edits of one pot rather than choosing between
+-- them: eleven ingredient lines where there were five, a summed yield twice
+-- what the pot holds, and -- because `snapshot_for` divides a portion by that
+-- yield -- every helping logged afterwards frozen at half its real nutrition.
+-- The children have no `updated_at` to merge on in any case, and under this
+-- rule they never need one.
+
+-- Who this installation is. A singleton like `profile`, for the same reason:
+-- there is exactly one of it, and a second row would be a second identity for
+-- one device.
+CREATE TABLE IF NOT EXISTS this_device (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  -- Stamped on every row this device authors. Minted once by the same
+  -- generator every other id uses, and NEVER rewritten: rewriting it would make
+  -- this device's own past writes look like a stranger's, and every merge
+  -- already decided against them would silently become wrong.
+  device_id  TEXT NOT NULL,
+  -- What the pairing screen calls this device, in the user's own words. A
+  -- default is offered from the platform and can be changed; nothing infers it
+  -- from a hostname, which is a fact about a network rather than about a person
+  -- in a kitchen.
+  name       TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- One row per household device this one has been paired with, and the only
+-- per-peer state a sync run reads or writes.
+CREATE TABLE IF NOT EXISTS peers (
+  device_id       TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  -- The peer's 32-byte X25519 static public key. Identity is proved by the
+  -- Noise handshake against this value, never by anything the peer announces
+  -- about itself -- which is what keeps an unpaired device on the same Wi-Fi
+  -- from being able to say anything this app will act on.
+  static_pk       BLOB NOT NULL UNIQUE,
+  paired_at       TEXT NOT NULL,
+  -- The highest `row_version.seq` IN THAT PEER'S OWN NUMBERING whose row this
+  -- device has durably applied. Their numbering, not ours: it is meaningless
+  -- anywhere except inside a request addressed to this peer, which is why it
+  -- lives here rather than in one global counter.
+  --
+  -- 0 means "nothing yet", which is also where a device that has just joined
+  -- the household starts -- so a full first sync needs no separate code path.
+  applied_through INTEGER NOT NULL DEFAULT 0 CHECK (applied_through >= 0),
+  last_synced_at  TEXT,
+  -- Pairing is revocable, and soft-deleted like every other user record: a
+  -- device that comes back after being removed must be recognised as the same
+  -- one rather than re-admitted as a stranger. Revocation is local -- it stops
+  -- future sync, it does not reach back into what that device already holds.
+  deleted_at      TEXT
+);
+
+-- What each shared row's current state is worth in a merge, and where it sits
+-- in this device's outgoing feed. ONE row per shared row, ever -- a register,
+-- not a journal.
+--
+-- Two jobs in one table on purpose. An append-only log would need a compaction
+-- pass to stop growing, and compaction is exactly what moves a row underneath a
+-- peer's watermark; holding one row per tracked row makes the feed
+-- self-compacting and "what changed since N" a single index scan.
+CREATE TABLE IF NOT EXISTS row_version (
+  -- Which table the row lives in. A closed set rather than free text, because
+  -- this list IS the definition of what the household shares, and this is the
+  -- one place the apply path can read it back out of the database instead of
+  -- trusting a constant in Rust to have stayed in step.
+  --
+  -- Absent and staying absent: log_entries, entry_snapshots, entry_components,
+  -- entry_nutrients, profile, nutrient_targets -- those are one person's. Also
+  -- absent: recipe_ingredients, recipe_servings, cook_ingredients,
+  -- custom_food_nutrients, supplement_nutrients -- those travel inside their
+  -- parent and have no identity that survives an edit.
+  table_name TEXT NOT NULL CHECK (table_name IN
+    ('recipes','cooks','custom_foods','supplements','vessels','bottles','cook_draws')),
+  row_id     TEXT NOT NULL,
+  -- How many times this row has been written by anybody, counted forward rather
+  -- than read off a clock. This is why `updated_at` is not the merge input: two
+  -- household clocks disagree, and `now_iso` is accurate only to the second --
+  -- the same limit `recall_tags` already works around -- so a wall-clock
+  -- comparison decides real conflicts by whose phone runs fast, and drops the
+  -- edit made later in real time without saying so.
+  --
+  -- A local write sets this to the old value plus one. Applying a peer's row
+  -- ADOPTS their number unchanged: it is their write, not a new one.
+  version    INTEGER NOT NULL CHECK (version > 0),
+  -- Which device made the write this version counts. Breaks a tie at equal
+  -- version, identically on every device -- which is what makes the merge
+  -- converge rather than merely stop.
+  device_id  TEXT NOT NULL,
+  -- Where this row sits in THIS device's outgoing feed. Moved past every other
+  -- row on every write, so "changed since N" is `seq > N`.
+  --
+  -- Note what it is not. Applying a peer's row moves the row to the head of our
+  -- feed -- so a third device can learn it from us -- while leaving `version`
+  -- alone. The fact travelled; the write did not happen again.
+  seq        INTEGER NOT NULL,
+  -- When the write happened, on the writing device's clock. For the pairing
+  -- screen, and for reading a feed by eye. Nothing in the merge reads it.
+  changed_at TEXT NOT NULL,
+  PRIMARY KEY (table_name, row_id)
+);
+CREATE INDEX IF NOT EXISTS idx_rowver_feed ON row_version(seq);
+
+-- One helping taken out of a pot, by anybody, on any device in the household.
+--
+-- The pot is shared; the eating is not. A peer's helping has to come off
+-- `remaining_g` or the fridge disagrees with itself -- but it must never reach
+-- a day's nutrition, which is that person's business and is frozen against
+-- THEIR reference data, not this device's. Those two requirements together are
+-- what makes this a table of its own rather than a `log_entries` row with a
+-- device column on it: the nutrition arm cannot read a table it does not join
+-- to, and that is a guarantee rather than a filter somebody has to remember.
+--
+-- This is the ONLY input to `Cook::logged_g`, on every device INCLUDING the one
+-- that ate. Summing entries here and draws there would be two definitions of
+-- one quantity: the first restored backup that duplicated a device id -- an
+-- Android restore, a Time Machine restore, a copied app data folder -- would
+-- count every local helping twice and drain every pot at double speed, in
+-- silence.
+--
+-- Keyed by the id of the log entry it projects, the way `entry_snapshots` is,
+-- and for the same reason: the same helping re-sent is the same row, a
+-- corrected helping is one row updated, and a deleted helping is that row's
+-- tombstone. A draw with an id of its own would need a correspondence to the
+-- entry that nothing in the schema could enforce.
+CREATE TABLE IF NOT EXISTS cook_draws (
+  -- The authoring device's `log_entries.id`. Deliberately WITHOUT a REFERENCES
+  -- clause: on every device except the one that ate, the entry this names is
+  -- not here and never will be. The id is borrowed as a stable identity, not
+  -- used as a pointer.
+  entry_id   TEXT PRIMARY KEY,
+  cook_id    TEXT NOT NULL REFERENCES cooks(id),
+  -- Which device took it, so the pot can say why it holds less than you last
+  -- saw. Resolved to a name through `peers`, and never inferred into a person:
+  -- a device is not who was holding it.
+  device_id  TEXT NOT NULL,
+  grams      REAL NOT NULL CHECK (grams > 0),
+  -- The authoring device's own local date and instant, carried verbatim and
+  -- never re-stamped on arrival. When food left the pot is a fact about the
+  -- kitchen; re-stamping it would turn it into a fact about the network.
+  taken_on   TEXT NOT NULL,
+  taken_at   TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_draws_cook ON cook_draws(cook_id)
+  WHERE deleted_at IS NULL;
+
+-- An aggregate that arrived before the row it depends on.
+--
+-- Held whole rather than applied in part. A cook with none of its ingredients
+-- is not a smaller cook: `Cook::seal` falls back to the summed line weights
+-- when a pot was never weighed, an empty sum is zero, and a zero yield is
+-- either a divisor that voids a portion or one that cannot value it at all.
+-- Half a pot is worse than no pot.
+CREATE TABLE IF NOT EXISTS sync_pending (
+  table_name  TEXT NOT NULL,
+  row_id      TEXT NOT NULL,
+  -- The aggregate exactly as received. Kept verbatim so a retry re-decides from
+  -- the peer's own bytes rather than from something already interpreted here.
+  payload     TEXT NOT NULL,
+  -- What is missing, in a sentence, so a stuck pairing can say so on screen
+  -- instead of appearing to have finished.
+  reason      TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  PRIMARY KEY (table_name, row_id)
+);
+
+-- Whether this connection is currently applying a peer's changes.
+--
+-- Read by every change-tracking trigger. When it is 1 the triggers stand down
+-- and the apply path writes `row_version` itself -- because only the applier
+-- knows the version to record, and it is the PEER'S version, not a fresh local
+-- one. Recording a local version there would make an applied row look locally
+-- authored and win itself straight back.
+--
+-- A real table rather than a temp one so the inline tests, which build a
+-- database from SCHEMA alone, have it: a trigger body referencing a temp table
+-- that is not there fails the statement that fired it.
+--
+-- Set to 1 INSIDE the apply transaction and cleared before commit, so a crash
+-- rolls it back rather than leaving change tracking switched off for good.
+-- `open` forces it to 0 as well, which costs nothing and closes the case where
+-- it somehow survived anyway.
+CREATE TABLE IF NOT EXISTS sync_control (
+  id       INTEGER PRIMARY KEY CHECK (id = 1),
+  applying INTEGER NOT NULL DEFAULT 0 CHECK (applying IN (0,1))
+);
+INSERT OR IGNORE INTO sync_control (id, applying) VALUES (1, 0);
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub id: String,
+    /// What this came to in millilitres, for a water entry, with whether the
+    /// bottle it came from was calibrated. `None` for everything else — food is
+    /// a mass and stays one.
+    ///
+    /// Computed here rather than on the screen because the conversion belongs
+    /// to the bottle, and a screen holding a list of entries does not have the
+    /// bottles to hand.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub water: Option<trackit_core::water::Volume>,
     pub logged_on: String,
     /// The sitting this was part of, or `None` for water — which is drunk
     /// across the whole day and belongs to no one meal. See the `meal` column.
@@ -698,6 +926,10 @@ pub struct Bottle {
     pub id: String,
     pub name: String,
     pub full_g: f64,
+    /// Weighed empty. `None` on a bottle nobody has finished describing.
+    pub empty_g: Option<f64>,
+    /// What the maker calls it, in millilitres.
+    pub volume_ml: Option<f64>,
     pub last_used_at: Option<String>,
 }
 
@@ -868,7 +1100,205 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 14;
+
+/// Change tracking for the household-shared tables.
+///
+/// Kept out of [`SCHEMA`] deliberately, and the reason is not the one that
+/// keeps `idx_log_cuisine` out of it. That index is excluded because `SCHEMA`
+/// runs before `migrate`, against whatever shape the table is still in. These
+/// are excluded because of what happens AFTERWARDS: every migration arm here
+/// rebuilds through a temp table and ends in `DROP TABLE`, and a `DROP` takes
+/// the table's triggers with it. A trigger created by `SCHEMA` would be
+/// destroyed by the very next rebuild of `cooks` or `custom_foods`, and the
+/// device would go on running as a silent read-only member of the household —
+/// publishing nothing, reporting no error, for as long as nobody noticed.
+///
+/// So they are installed at the end of `open`, unconditionally, on every
+/// launch, by `DROP` then `CREATE` rather than `CREATE ... IF NOT EXISTS`.
+/// `IF NOT EXISTS` would keep a stale trigger BODY forever once a new one
+/// shipped — the same trap the fixture comment on `CREATE INDEX IF NOT EXISTS`
+/// records further down this file.
+///
+/// Only the six shared parents and `cook_draws` are tracked. No child table has
+/// a trigger, which is what makes the `ON DELETE CASCADE` on
+/// `recipe_ingredients` and `recipe_servings` a non-question here: a cascade
+/// fires nothing, because there is nothing on those tables to fire.
+///
+/// `WHEN (SELECT applying FROM sync_control) = 0` is the echo suppressor. While
+/// a peer's changes are being applied the triggers stand down and the apply
+/// path writes `row_version` itself, because the version to record is the
+/// PEER'S and a trigger cannot know it. See the `sync_control` comment.
+pub const SYNC_TRIGGERS: &str = r#"
+DROP TRIGGER IF EXISTS trg_ver_recipes_ins;
+DROP TRIGGER IF EXISTS trg_ver_recipes_upd;
+DROP TRIGGER IF EXISTS trg_ver_cooks_ins;
+DROP TRIGGER IF EXISTS trg_ver_cooks_upd;
+DROP TRIGGER IF EXISTS trg_ver_custom_foods_ins;
+DROP TRIGGER IF EXISTS trg_ver_custom_foods_upd;
+DROP TRIGGER IF EXISTS trg_ver_supplements_ins;
+DROP TRIGGER IF EXISTS trg_ver_supplements_upd;
+DROP TRIGGER IF EXISTS trg_ver_vessels_ins;
+DROP TRIGGER IF EXISTS trg_ver_vessels_upd;
+DROP TRIGGER IF EXISTS trg_ver_bottles_ins;
+DROP TRIGGER IF EXISTS trg_ver_bottles_upd;
+DROP TRIGGER IF EXISTS trg_ver_cook_draws_ins;
+DROP TRIGGER IF EXISTS trg_ver_cook_draws_upd;
+
+CREATE TRIGGER trg_ver_recipes_ins AFTER INSERT ON recipes
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('recipes', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+CREATE TRIGGER trg_ver_recipes_upd AFTER UPDATE ON recipes
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('recipes', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+
+CREATE TRIGGER trg_ver_cooks_ins AFTER INSERT ON cooks
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('cooks', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+CREATE TRIGGER trg_ver_cooks_upd AFTER UPDATE ON cooks
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('cooks', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+
+CREATE TRIGGER trg_ver_custom_foods_ins AFTER INSERT ON custom_foods
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('custom_foods', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+CREATE TRIGGER trg_ver_custom_foods_upd AFTER UPDATE ON custom_foods
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('custom_foods', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+
+CREATE TRIGGER trg_ver_supplements_ins AFTER INSERT ON supplements
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('supplements', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+CREATE TRIGGER trg_ver_supplements_upd AFTER UPDATE ON supplements
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('supplements', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+
+CREATE TRIGGER trg_ver_vessels_ins AFTER INSERT ON vessels
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('vessels', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+-- `last_used_at` is excluded on purpose, and it is the only field-level
+-- exception in the design. `touch_vessels` runs on every weighed helping --
+-- the hottest write in the app -- and the column exists to order the picker by
+-- "the vessel you reached for last". That is a statement about a PERSON riding
+-- on a shared object: replicated, it would make one household member's katori
+-- reorder the other's picker, and it would put a full vessel round-trip on the
+-- wire for every serving while carrying nothing the household needs to know.
+CREATE TRIGGER trg_ver_vessels_upd AFTER UPDATE OF name, grams, deleted_at ON vessels
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('vessels', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+
+CREATE TRIGGER trg_ver_bottles_ins AFTER INSERT ON bottles
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('bottles', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+CREATE TRIGGER trg_ver_bottles_upd AFTER UPDATE OF name, full_g, deleted_at ON bottles
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('bottles', NEW.id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+
+CREATE TRIGGER trg_ver_cook_draws_ins AFTER INSERT ON cook_draws
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('cook_draws', NEW.entry_id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+CREATE TRIGGER trg_ver_cook_draws_upd AFTER UPDATE ON cook_draws
+WHEN (SELECT applying FROM sync_control) = 0
+BEGIN
+  INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+  VALUES ('cook_draws', NEW.entry_id, 1, (SELECT device_id FROM this_device),
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), NEW.updated_at)
+  ON CONFLICT (table_name, row_id) DO UPDATE SET
+    version = version + 1, device_id = (SELECT device_id FROM this_device),
+    seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
+END;
+"#;
 
 pub fn open(path: &PathBuf) -> Result<Connection, String> {
     let mut conn = Connection::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
@@ -877,11 +1307,64 @@ pub fn open(path: &PathBuf) -> Result<Connection, String> {
         .map_err(|e| e.to_string())?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(|e| e.to_string())?;
+    // Harmless while this process held the only connection — with one writer
+    // there was never anything to wait for — and mandatory the moment the sync
+    // worker opens its own. At the default of 0 a UI write that collides with
+    // a sync write fails INSTANTLY with SQLITE_BUSY, and the user sees a saved
+    // meal refuse to save because a pot arrived from the other phone.
+    //
+    // Note what this does NOT cover: in WAL, a deferred transaction that reads
+    // and then tries to write after another connection has committed returns
+    // SQLITE_BUSY_SNAPSHOT, and the busy handler is not invoked at all. Only
+    // `BEGIN IMMEDIATE` avoids that, which is why the write paths use
+    // `TransactionBehavior::Immediate` rather than relying on this.
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| e.to_string())?;
+    // Keep the write-ahead log from becoming the thing every read has to walk.
+    //
+    // SQLite folds the WAL back into the database every 1,000 pages, which is
+    // about 4 MB — but only ON A COMMIT. A burst of writes followed by nothing
+    // but reads leaves the log sitting at its high-water mark, and every query
+    // then reads through all of it. Measured on an emulator after a month of
+    // entries was imported in one go: a 4 MB log turned a cold launch into
+    // 25-30 seconds of an apparently frozen screen, at nearly zero CPU the
+    // whole time, because the cost was I/O rather than work. Folding it in at
+    // launch took the same launch to 4 seconds.
+    //
+    // `journal_size_limit` is what makes it stay small: without it the file is
+    // reused at its old size after a checkpoint rather than truncated, so the
+    // next launch reads the same distance again.
+    conn.pragma_update(None, "journal_size_limit", 4 * 1024 * 1024)
+        .map_err(|e| e.to_string())?;
     // Creates anything absent. Note this does NOT alter a table that already
     // exists in an older shape — that is what `migrate` is for.
     conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
     migrate(&mut conn)?;
+    // Belt and braces against a sync run that somehow left the flag raised.
+    // Rolling back the apply transaction is what is supposed to clear it; this
+    // costs one UPDATE at launch and closes the case where it did not, which
+    // would otherwise be change tracking silently switched off for good.
+    conn.execute("UPDATE sync_control SET applying = 0", [])
+        .map_err(|e| e.to_string())?;
+    install_sync_triggers(&conn)?;
+    // After `migrate`, because a migration is the largest burst of writes this
+    // app ever makes and is exactly the case that leaves a long log behind.
+    // TRUNCATE rather than PASSIVE: passive folds the pages in but leaves the
+    // file at its old length, which is most of the cost. Nothing else has the
+    // database open at this point, so it cannot block.
+    let _: Result<i64, _> = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0));
     Ok(conn)
+}
+
+/// Install [`SYNC_TRIGGERS`], replacing any already there.
+///
+/// Called from `open` after `migrate`, and separately from the test helper —
+/// which builds a database straight from `SCHEMA` and never calls `open`, so
+/// without an explicit call no inline test would exercise change tracking at
+/// all.
+pub fn install_sync_triggers(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(SYNC_TRIGGERS)
+        .map_err(|e| format!("installing sync triggers: {e}"))
 }
 
 fn columns(conn: &Connection, table: &str) -> Result<Vec<String>, String> {
@@ -1646,6 +2129,185 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
+    // v12 -> v13: the household.
+    //
+    // Additive throughout — not one existing table gains a column, gains a
+    // CHECK, or loses a NOT NULL — so this is the first arm in this function
+    // that needs no temp-table rebuild. That is the payoff of putting the merge
+    // version in a side table rather than on the six shared parents: SQLite
+    // cannot add a CHECK to an existing table, and `row_version.version > 0`
+    // and the closed `table_name` set are worth having.
+    //
+    // Guarded on whether this device has been given an identity yet rather than
+    // on a column, because there is no new column to test for. Same instinct as
+    // `column_is_not_null`: ask the database what shape it is in rather than
+    // infer it from a version number a half-finished upgrade may have written.
+    let unidentified: bool = conn
+        .query_row("SELECT NOT EXISTS (SELECT 1 FROM this_device)", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if unidentified {
+        let device_id = new_id(conn)?;
+        let minted_at = now_iso(conn)?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+
+        // The identity is minted INSIDE this transaction, and that placement is
+        // the whole point. It is also the guard for everything below it, so
+        // committing it separately — as an earlier version of this arm did via
+        // `ensure_device_identity` — meant a backfill that failed rolled back
+        // its own work while leaving the guard satisfied. The next launch would
+        // then skip the arm entirely, stamp user_version 13, and leave the user
+        // with no draws at all: every pot in the fridge silently full, for good,
+        // with no way back. Rolling the identity back with the work makes a
+        // failure a retry instead of a one-way door.
+        tx.execute(
+            "INSERT INTO this_device (id, device_id, name, created_at) VALUES (1, ?1, ?2, ?3)",
+            rusqlite::params![device_id, default_device_name(), minted_at],
+        )
+        .map_err(|e| format!("minting device identity for v13: {e}"))?;
+
+        // Project every cook-sourced entry this device has ever written into
+        // `cook_draws`.
+        //
+        // Skipping this is the worst bug this migration could ship, and it is a
+        // pure omission with nothing to see. `logged_from_cook` now reads draws
+        // and only draws, so a database that arrives here with none reports
+        // every open pot as untouched: every pot in the fridge silently refills
+        // itself, and "All that's left" offers food that was eaten months ago.
+        //
+        // Soft-deleted entries are included so their draws arrive already
+        // tombstoned, which is what makes the `deleted_at IS NULL` filter in
+        // `logged_from_cook` reproduce today's arithmetic exactly rather than
+        // resurrecting helpings the user deleted.
+        //
+        // `grams` cannot be NULL or non-positive on a row that reaches this
+        // SELECT: the source_kind biconditionals make grams mandatory for a
+        // cook entry and `CHECK (grams IS NULL OR grams > 0)` makes it
+        // positive. So `cook_draws`' own CHECK cannot fire here.
+        tx.execute(
+            "INSERT OR IGNORE INTO cook_draws
+               (entry_id, cook_id, device_id, grams, taken_on, taken_at,
+                created_at, updated_at, deleted_at)
+             SELECT e.id, e.cook_id, ?1, e.grams, e.logged_on, e.created_at,
+                    e.created_at, e.updated_at, e.deleted_at
+               FROM log_entries e
+               JOIN cooks c ON c.id = e.cook_id",
+            [&device_id],
+        )
+        .map_err(|e| format!("backfilling cook_draws for v13: {e}"))?;
+
+        // The invariant the backfill exists to preserve, asserted rather than
+        // assumed: for every pot, what the draws now say was taken must equal
+        // what the entries said before this migration existed. A mismatch means
+        // the projection is wrong, and shipping it would quietly restate every
+        // fridge in the household.
+        //
+        // Compared with a tolerance rather than `<>`. Both sides sum the same
+        // REAL values, but over different tables and so in a different order,
+        // and floating-point addition is not associative — two sums that are
+        // the same quantity can differ in the last bit. Exact equality here
+        // would refuse to start the app over an error of 10^-13 g.
+        let drift: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM cooks c
+                  WHERE ABS((SELECT COALESCE(SUM(grams), 0) FROM cook_draws d
+                              WHERE d.cook_id = c.id AND d.deleted_at IS NULL)
+                          - (SELECT COALESCE(SUM(grams), 0) FROM log_entries e
+                              WHERE e.cook_id = c.id AND e.deleted_at IS NULL))
+                        > 0.0001",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if drift != 0 {
+            return Err(format!(
+                "v13 backfill disagrees with the log on {drift} pot(s); refusing to \
+                 continue rather than restate what is in the fridge"
+            ));
+        }
+
+        // Seed the outgoing feed with everything already here.
+        //
+        // Without this a device that has been in use for months has nothing to
+        // publish — `row_version` is empty, so "what changed since 0" is
+        // nothing at all, and a freshly paired phone would receive an empty
+        // kitchen from a Mac full of pots. This is the one deliberate flood.
+        //
+        // Everything is stamped `version = 1` by this device. That is honest:
+        // before today no row had a version, and this device is the only one
+        // that has ever written any of them.
+        let mut seq: i64 = 0;
+        for (table, id_col) in [
+            ("vessels", "id"),
+            ("bottles", "id"),
+            ("recipes", "id"),
+            ("cooks", "id"),
+            ("custom_foods", "id"),
+            ("supplements", "id"),
+            ("cook_draws", "entry_id"),
+        ] {
+            tx.execute(
+                &format!(
+                    "INSERT OR IGNORE INTO row_version
+                       (table_name, row_id, version, device_id, seq, changed_at)
+                     SELECT '{table}', {id_col}, 1, ?1,
+                            ?2 + ROW_NUMBER() OVER (ORDER BY {id_col}), updated_at
+                       FROM {table}"
+                ),
+                rusqlite::params![device_id, seq],
+            )
+            .map_err(|e| format!("seeding row_version from {table} for v13: {e}"))?;
+            seq = tx
+                .query_row("SELECT COALESCE(MAX(seq), 0) FROM row_version", [], |r| r.get(0))
+                .map_err(|e| e.to_string())?;
+        }
+
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    // v13 -> v14: a bottle records what it holds, not just what it weighs.
+    //
+    // Rebuilt rather than ALTERed because the two new columns carry CHECKs and
+    // SQLite cannot add one to an existing table — the same reason every other
+    // arm in this function rebuilds. Existing bottles keep their name and full
+    // weight and come out uncalibrated, which is honest: nobody has weighed
+    // them empty, so their water reads at the density of water and says so
+    // until someone fills the two figures in.
+    if !columns(conn, "bottles")?.iter().any(|c| c == "empty_g") {
+        conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE bottles_migrating (
+               id           TEXT PRIMARY KEY,
+               name         TEXT NOT NULL,
+               full_g       REAL NOT NULL CHECK (full_g > 0),
+               empty_g      REAL CHECK (empty_g IS NULL OR empty_g > 0),
+               volume_ml    REAL CHECK (volume_ml IS NULL OR volume_ml > 0),
+               last_used_at TEXT,
+               created_at   TEXT NOT NULL,
+               updated_at   TEXT NOT NULL,
+               deleted_at   TEXT,
+               CHECK ((empty_g IS NULL) = (volume_ml IS NULL)),
+               CHECK (empty_g IS NULL OR full_g > empty_g)
+             );
+             INSERT INTO bottles_migrating
+               (id,name,full_g,last_used_at,created_at,updated_at,deleted_at)
+             SELECT id,name,full_g,last_used_at,created_at,updated_at,deleted_at FROM bottles;
+             DROP TABLE bottles;
+             ALTER TABLE bottles_migrating RENAME TO bottles;
+             CREATE INDEX IF NOT EXISTS idx_bottles_live ON bottles(name)
+               WHERE deleted_at IS NULL;",
+        )
+        .map_err(|e| format!("migrating bottles to v14: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+    }
+
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
     // column this indexes does not exist yet and the whole batch would fail.
@@ -1832,6 +2494,9 @@ pub fn add(
         ],
     )
     .map_err(|e| e.to_string())?;
+    if let Source::Cook(cid) = source {
+        draw_write(conn, &id, cid, grams, logged_on, &now)?;
+    }
     Ok(id)
 }
 
@@ -1997,6 +2662,8 @@ pub fn save_bottle(
     id: Option<&str>,
     name: &str,
     full_g: f64,
+    empty_g: Option<f64>,
+    volume_ml: Option<f64>,
 ) -> Result<String, String> {
     if name.trim().is_empty() {
         return Err("a bottle needs a name".into());
@@ -2004,14 +2671,34 @@ pub fn save_bottle(
     if !(full_g.is_finite() && full_g > 0.0) {
         return Err("a bottle's full weight must be a positive number".into());
     }
+    // Checked here as well as in SQL, for the reason every other input in this
+    // file is: the table can only answer with a constraint code, and the person
+    // filling in a form deserves a sentence.
+    if empty_g.is_some_and(|g| !(g.is_finite() && g > 0.0)) {
+        return Err("a bottle's empty weight must be a positive number".into());
+    }
+    if volume_ml.is_some_and(|v| !(v.is_finite() && v > 0.0)) {
+        return Err("a bottle's volume must be a positive number".into());
+    }
+    if empty_g.is_some() != volume_ml.is_some() {
+        return Err(
+            "to read a bottle in litres it needs both its empty weight and the volume printed \
+             on it — either both or neither"
+                .into(),
+        );
+    }
+    if empty_g.is_some_and(|e| e >= full_g) {
+        return Err("a full bottle weighs more than an empty one".into());
+    }
     let now = now_iso(conn)?;
     match id {
         Some(existing) => {
             let n = conn
                 .execute(
-                    "UPDATE bottles SET name = ?2, full_g = ?3, updated_at = ?4
+                    "UPDATE bottles SET name = ?2, full_g = ?3, empty_g = ?4, volume_ml = ?5,
+                            updated_at = ?6
                      WHERE id = ?1 AND deleted_at IS NULL",
-                    rusqlite::params![existing, name.trim(), full_g, now],
+                    rusqlite::params![existing, name.trim(), full_g, empty_g, volume_ml, now],
                 )
                 .map_err(|e| e.to_string())?;
             if n == 0 {
@@ -2022,9 +2709,9 @@ pub fn save_bottle(
         None => {
             let new = new_id(conn)?;
             conn.execute(
-                "INSERT INTO bottles (id, name, full_g, created_at, updated_at)
-                 VALUES (?1,?2,?3,?4,?4)",
-                rusqlite::params![new, name.trim(), full_g, now],
+                "INSERT INTO bottles (id, name, full_g, empty_g, volume_ml, created_at, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?6)",
+                rusqlite::params![new, name.trim(), full_g, empty_g, volume_ml, now],
             )
             .map_err(|e| e.to_string())?;
             Ok(new)
@@ -2036,7 +2723,7 @@ pub fn save_bottle(
 pub fn list_bottles(conn: &Connection) -> Result<Vec<Bottle>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, full_g, last_used_at FROM bottles
+            "SELECT id, name, full_g, empty_g, volume_ml, last_used_at FROM bottles
              WHERE deleted_at IS NULL ORDER BY last_used_at DESC, name",
         )
         .map_err(|e| e.to_string())?;
@@ -2046,7 +2733,9 @@ pub fn list_bottles(conn: &Connection) -> Result<Vec<Bottle>, String> {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 full_g: r.get(2)?,
-                last_used_at: r.get(3)?,
+                empty_g: r.get(3)?,
+                volume_ml: r.get(4)?,
+                last_used_at: r.get(5)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -2072,7 +2761,7 @@ pub fn delete_bottle(conn: &Connection, id: &str) -> Result<(), String> {
 /// longer stands behind.
 pub fn get_bottle(conn: &Connection, id: &str) -> Result<Bottle, String> {
     conn.query_row(
-        "SELECT id, name, full_g, last_used_at FROM bottles
+        "SELECT id, name, full_g, empty_g, volume_ml, last_used_at FROM bottles
          WHERE id = ?1 AND deleted_at IS NULL",
         [id],
         |r| {
@@ -2080,7 +2769,9 @@ pub fn get_bottle(conn: &Connection, id: &str) -> Result<Bottle, String> {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 full_g: r.get(2)?,
-                last_used_at: r.get(3)?,
+                empty_g: r.get(3)?,
+                volume_ml: r.get(4)?,
+                last_used_at: r.get(5)?,
             })
         },
     )
@@ -2568,11 +3259,68 @@ fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<
 /// delete and correction, and the first one it missed would leave the fridge
 /// disagreeing with the diary — so the log stays the only record of what left
 /// the pot.
+/// Project one cook-sourced log entry into `cook_draws`.
+///
+/// Written in the same transaction as the entry, keyed by the entry's own id,
+/// the way `entry_snapshots` is and for the same reason: the correspondence
+/// between the helping and its projection has to be structural rather than
+/// maintained by convention. A draw with an id of its own would need a mapping
+/// nothing in the schema could enforce.
+///
+/// `taken_at` is `created_at` rather than a fresh clock reading: when the food
+/// left the pot is a fact about the kitchen, and it must survive being carried
+/// to another device unchanged.
+fn draw_write(
+    conn: &Connection,
+    entry_id: &str,
+    cook_id: &str,
+    grams: Option<f64>,
+    logged_on: &str,
+    now: &str,
+) -> Result<(), String> {
+    // A cook entry always has a weight — the `source_kind`/`grams`
+    // biconditionals on `log_entries` make it mandatory for everything but a
+    // supplement. If that ever stops being true this must be heard about
+    // rather than silently skipped, because a pot that stops shrinking looks
+    // like food nobody ate.
+    let Some(g) = grams else {
+        return Err(format!(
+            "log entry {entry_id} came out of a pot but records no weight"
+        ));
+    };
+    conn.execute(
+        "INSERT INTO cook_draws
+           (entry_id, cook_id, device_id, grams, taken_on, taken_at, created_at, updated_at)
+         VALUES (?1, ?2, (SELECT device_id FROM this_device), ?3, ?4, ?5, ?5, ?5)",
+        rusqlite::params![entry_id, cook_id, g, logged_on, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// How much has come out of one pot, by anybody in the household.
+///
+/// Reads `cook_draws` and nothing else — including for helpings this device
+/// logged itself, which are projected into that table by `add`, `remove` and
+/// `correct_amount` in the same transaction that writes the entry.
+///
+/// It used to sum `log_entries` directly, and the obvious way to add a
+/// household would have been to sum entries here PLUS a table of other
+/// people's helpings there. That is two definitions of one quantity kept in
+/// correspondence by convention, and the convention breaks the first time an
+/// app data directory is duplicated — an Android restore, a Time Machine
+/// restore, a copied folder. Two installs then share a device id, this
+/// device's own helpings come back over the wire as somebody else's, and every
+/// pot drains at twice the rate with nothing on screen to say so.
+///
+/// One table, read the same way everywhere, cannot do that. There is no
+/// `device_id <> me` filter in the arithmetic, so the arithmetic does not
+/// depend on device ids being unique.
 fn logged_from_cook(conn: &Connection, cook_id: &str) -> Result<f64, String> {
     // COALESCE, because SUM over no rows is NULL rather than 0 — the one place
     // a `?? 0` is right, since "nothing logged" really is nothing eaten.
     conn.query_row(
-        "SELECT COALESCE(SUM(grams), 0) FROM log_entries
+        "SELECT COALESCE(SUM(grams), 0) FROM cook_draws
          WHERE cook_id = ?1 AND deleted_at IS NULL",
         [cook_id],
         |r| r.get(0),
@@ -3127,24 +3875,51 @@ pub fn remove(conn: &Connection, id: &str) -> Result<(), String> {
         rusqlite::params![id, now],
     )
     .map_err(|e| e.to_string())?;
+    // Deleting a helping puts the food back, which is the whole reason what is
+    // left in a pot is derived rather than counted. Tombstoning rather than
+    // deleting the draw is what lets the household learn that it went.
+    //
+    // Unconditional: the entry may or may not have come out of a pot, and
+    // asking first would be a second read to save an UPDATE that matches
+    // nothing.
+    conn.execute(
+        "UPDATE cook_draws SET deleted_at = ?2, updated_at = ?2 WHERE entry_id = ?1",
+        rusqlite::params![id, now],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 pub fn day(conn: &Connection, logged_on: &str) -> Result<Vec<LogEntry>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, logged_on, meal, source_kind, fdc_id, recipe_id, custom_food_id,
-                    description, grams, gross_g, tare_g, tare_note,
-                    supplement_id, units, origin, cuisine, bottle_id, cook_id
-             FROM log_entries
-             WHERE logged_on = ?1 AND deleted_at IS NULL
-             ORDER BY created_at",
+            "SELECT e.id, e.logged_on, e.meal, e.source_kind, e.fdc_id, e.recipe_id,
+                    e.custom_food_id, e.description, e.grams, e.gross_g, e.tare_g, e.tare_note,
+                    e.supplement_id, e.units, e.origin, e.cuisine, e.bottle_id, e.cook_id,
+                    b.empty_g, b.full_g, b.volume_ml
+             FROM log_entries e
+             LEFT JOIN bottles b ON b.id = e.bottle_id
+             WHERE e.logged_on = ?1 AND e.deleted_at IS NULL
+             ORDER BY e.created_at",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([logged_on], |r| {
+            let grams: Option<f64> = r.get(8)?;
+            let full_g: Option<f64> = r.get(19)?;
             Ok(LogEntry {
                 id: r.get(0)?,
+                // Only a water entry has a bottle, and only a bottle has a
+                // capacity to scale against.
+                water: match (grams, full_g) {
+                    (Some(g), Some(full)) => Some(trackit_core::water::volume_of(
+                        g,
+                        r.get::<_, Option<f64>>(18)?,
+                        full,
+                        r.get::<_, Option<f64>>(20)?,
+                    )),
+                    _ => None,
+                },
                 logged_on: r.get(1)?,
                 meal: r.get(2)?,
                 source_kind: r.get(3)?,
@@ -3211,6 +3986,48 @@ pub struct LoggedDay {
     pub food_items: i64,
     pub supplement_items: i64,
     pub water_items: i64,
+}
+
+/// Water drunk on each day of a range, in millilitres, keyed by date.
+///
+/// Separate from `logged_days_between` because water is the one thing in this
+/// app measured in a unit it is not stored in: the log holds the mass that came
+/// off the scale, and the bottle holds what turns that into a volume. Days with
+/// no water simply have no entry — absent, not zero, so a caller can tell a day
+/// nobody recorded a bottle on from a day someone drank nothing.
+pub fn water_ml_between(
+    conn: &Connection,
+    from: &str,
+    to: &str,
+) -> Result<HashMap<String, f64>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.logged_on, e.grams, b.empty_g, b.full_g, b.volume_ml
+             FROM log_entries e JOIN bottles b ON b.id = e.bottle_id
+             WHERE e.source_kind = 'water' AND e.deleted_at IS NULL
+               AND e.logged_on BETWEEN ?1 AND ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, f64>(1)?,
+                r.get::<_, Option<f64>>(2)?,
+                r.get::<_, f64>(3)?,
+                r.get::<_, Option<f64>>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut out: HashMap<String, f64> = HashMap::new();
+    for (day, grams, empty_g, full_g, volume_ml) in rows {
+        let v = trackit_core::water::volume_of(grams, empty_g, full_g, volume_ml);
+        *out.entry(day).or_insert(0.0) += v.ml();
+    }
+    Ok(out)
 }
 
 pub fn logged_days_between(
@@ -3891,6 +4708,228 @@ fn new_id(conn: &Connection) -> Result<String, String> {
     .map_err(|e| e.to_string())
 }
 
+/// What to call this device on the pairing screen until the user says otherwise.
+///
+/// The platform, not the hostname. A hostname is a fact about a network — often
+/// a serial number, sometimes the previous owner's name — and the household
+/// screen is a list of things in a house. "Mac" and "Phone" are wrong often
+/// enough to be edited, which is the point: an obviously provisional name gets
+/// corrected, while a plausible wrong one gets kept.
+fn default_device_name() -> &'static str {
+    if cfg!(target_os = "android") {
+        "Phone"
+    } else if cfg!(target_os = "macos") {
+        "Mac"
+    } else {
+        "This device"
+    }
+}
+
+/// This device, as the rest of the household sees it.
+#[derive(Debug, Clone, Serialize)]
+pub struct ThisDevice {
+    pub device_id: String,
+    pub name: String,
+}
+
+/// Another device in the household.
+#[derive(Debug, Clone, Serialize)]
+pub struct Peer {
+    pub device_id: String,
+    pub name: String,
+    pub paired_at: String,
+    /// `None` for a device paired but never yet synced with — which is a
+    /// different state from a long-ago instant, and the screen says which.
+    pub last_seen_at: Option<String>,
+}
+
+/// How one attempt to sync with one device went.
+#[derive(Debug, Clone, Serialize)]
+pub struct SyncOutcome {
+    pub at: String,
+    pub peer_name: String,
+    pub ok: bool,
+    pub detail: String,
+}
+
+/// How much of this device's kitchen the household would see.
+///
+/// Real counts of the user's own rows, not a list of feature names. The claim
+/// "your recipes are shared" is a promise; "12 recipes" is this kitchen, and
+/// the difference is what makes the boundary checkable rather than asserted.
+///
+/// There is deliberately no counterpart for the private side. What was eaten,
+/// the profile and the targets are not counted anywhere in this struct,
+/// because counting them here would be the first step towards publishing them.
+#[derive(Debug, Clone, Serialize)]
+pub struct SharedCounts {
+    pub pots: i64,
+    pub recipes: i64,
+    pub foods: i64,
+    pub supplements: i64,
+    pub vessels_and_bottles: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HouseholdView {
+    pub device: ThisDevice,
+    pub peers: Vec<Peer>,
+    pub last: Vec<SyncOutcome>,
+    pub queued: i64,
+    pub shared: SharedCounts,
+}
+
+/// Count what is live in each shared table.
+///
+/// Open pots only — a pot marked finished has left the Available list and is
+/// not food anyone can take, so counting it would overstate the fridge.
+/// Everything else counts what has not been deleted.
+pub fn shared_counts(conn: &Connection) -> Result<SharedCounts, String> {
+    let one = |sql: &str| -> Result<i64, String> {
+        conn.query_row(sql, [], |r| r.get(0)).map_err(|e| e.to_string())
+    };
+    Ok(SharedCounts {
+        pots: one(
+            "SELECT COUNT(*) FROM cooks WHERE deleted_at IS NULL AND finished_at IS NULL",
+        )?,
+        recipes: one("SELECT COUNT(*) FROM recipes WHERE deleted_at IS NULL")?,
+        foods: one("SELECT COUNT(*) FROM custom_foods WHERE deleted_at IS NULL")?,
+        supplements: one("SELECT COUNT(*) FROM supplements WHERE deleted_at IS NULL")?,
+        vessels_and_bottles: one(
+            "SELECT (SELECT COUNT(*) FROM vessels WHERE deleted_at IS NULL)
+                  + (SELECT COUNT(*) FROM bottles WHERE deleted_at IS NULL)",
+        )?,
+    })
+}
+
+pub fn this_device(conn: &Connection) -> Result<ThisDevice, String> {
+    conn.query_row(
+        "SELECT device_id, name FROM this_device WHERE id = 1",
+        [],
+        |r| Ok(ThisDevice { device_id: r.get(0)?, name: r.get(1)? }),
+    )
+    .map_err(|e| format!("this device has no identity yet: {e}"))
+}
+
+pub fn rename_device(conn: &Connection, name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("give this device a name the rest of the house will recognise".into());
+    }
+    let n = conn
+        .execute("UPDATE this_device SET name = ?1 WHERE id = 1", [name])
+        .map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err("this device has no identity to rename".into());
+    }
+    Ok(())
+}
+
+pub fn list_peers(conn: &Connection) -> Result<Vec<Peer>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT device_id, name, paired_at, last_synced_at FROM peers
+              WHERE deleted_at IS NULL ORDER BY paired_at",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(Peer {
+                device_id: r.get(0)?,
+                name: r.get(1)?,
+                paired_at: r.get(2)?,
+                last_seen_at: r.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+/// Unpair a device. Soft, like every other deletion here.
+///
+/// Local only, and the screen says so: it stops this device syncing with that
+/// one and cannot reach back into the copy that device already holds. Soft
+/// rather than hard because a device that comes back has to be recognised as
+/// the same one that was removed rather than re-admitted as a stranger.
+pub fn unpair(conn: &Connection, device_id: &str) -> Result<(), String> {
+    let now = now_iso(conn)?;
+    conn.execute(
+        "UPDATE peers SET deleted_at = ?2 WHERE device_id = ?1 AND deleted_at IS NULL",
+        rusqlite::params![device_id, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// How many shared rows have not yet reached every paired device.
+///
+/// Zero when there is nobody to send to — not the size of the feed. A count of
+/// everything in the kitchen, shown as "waiting to go out" on a device paired
+/// with nothing, would report a backlog that does not exist.
+pub fn queued_for_peers(conn: &Connection) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT CASE
+                  WHEN NOT EXISTS (SELECT 1 FROM peers WHERE deleted_at IS NULL) THEN 0
+                  ELSE (SELECT COUNT(*) FROM row_version
+                         WHERE seq > (SELECT MIN(applied_through) FROM peers
+                                       WHERE deleted_at IS NULL))
+                END",
+        [],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+pub fn household(conn: &Connection) -> Result<HouseholdView, String> {
+    Ok(HouseholdView {
+        device: this_device(conn)?,
+        peers: list_peers(conn)?,
+        // Nothing has run yet: the transport is not built. An empty list is the
+        // honest answer and renders as no card at all, rather than a green tick
+        // over a sync that never happened.
+        last: Vec::new(),
+        queued: queued_for_peers(conn)?,
+        shared: shared_counts(conn)?,
+    })
+}
+
+/// Give this installation an identity if it has none yet.
+///
+/// Returns whether one was minted, which the v13 migration uses as its guard:
+/// there is no new column on any existing table to test for, so "has this
+/// device been introduced to itself" is the structural question that stands in
+/// for one.
+///
+/// Separate from `migrate` because the inline tests build a database from
+/// `SCHEMA` alone and never call `open`. Without an identity every trigger
+/// writes a NULL `device_id` and every cook-sourced helping fails its NOT NULL
+/// — so this is not a test convenience, it is the same bootstrap both paths
+/// genuinely need.
+pub fn ensure_device_identity(conn: &Connection) -> Result<bool, String> {
+    let known: bool = conn
+        .query_row("SELECT EXISTS (SELECT 1 FROM this_device)", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if known {
+        return Ok(false);
+    }
+    let id = new_id(conn)?;
+    let now = now_iso(conn)?;
+    conn.execute(
+        "INSERT INTO this_device (id, device_id, name, created_at) VALUES (1, ?1, ?2, ?3)",
+        rusqlite::params![id, default_device_name(), now],
+    )
+    .map_err(|e| format!("minting device identity: {e}"))?;
+    Ok(true)
+}
+
+/// This device's own id, minted once by the v13 migration and never rewritten.
+pub fn device_id(conn: &Connection) -> Result<String, String> {
+    conn.query_row("SELECT device_id FROM this_device WHERE id = 1", [], |r| r.get(0))
+        .map_err(|e| format!("this device has no identity yet: {e}"))
+}
+
 pub fn now_iso(conn: &Connection) -> Result<String, String> {
     conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| {
         r.get(0)
@@ -4310,6 +5349,10 @@ pub fn entry_by_id(conn: &Connection, id: &str) -> Result<LogEntry, String> {
     stmt.query_row([id], |r| {
         Ok(LogEntry {
             id: r.get(0)?,
+            // This read serves the backfill and corrections, which work in the
+            // mass the entry was logged in. The volume is a presentation of
+            // that mass and is filled in where a day is drawn.
+            water: None,
             logged_on: r.get(1)?,
             meal: r.get(2)?,
             source_kind: r.get(3)?,
@@ -4420,6 +5463,19 @@ pub fn correct_amount(
                 updated_at = ?4
           WHERE id = ?1",
         rusqlite::params![entry_id, grams, units, now],
+    )
+    .map_err(|e| e.to_string())?;
+    // The pot has to hear about it too. Correcting 200 g to 250 g means 50 g
+    // more came out of the dal than the fridge currently believes, and a draw
+    // left at the old figure would leave this device's own Available list
+    // disagreeing with its own log — and the household's copy disagreeing
+    // permanently, since nothing later would touch it.
+    //
+    // Matched on `entry_id`, so this is a no-op for an entry that came from
+    // anywhere but a pot.
+    tx.execute(
+        "UPDATE cook_draws SET grams = ?2, updated_at = ?3 WHERE entry_id = ?1",
+        rusqlite::params![entry_id, grams, now],
     )
     .map_err(|e| e.to_string())?;
     corrected.corrected_at = Some(now);
@@ -4535,6 +5591,12 @@ mod tests {
         // recipe that does not exist.
         c.pragma_update(None, "foreign_keys", "ON").unwrap();
         c.execute_batch(SCHEMA).unwrap();
+        // Also match production: `open` mints an identity and installs the
+        // change-tracking triggers, and `SCHEMA` does neither. Without them a
+        // helping out of a pot fails its NOT NULL and nothing is ever tracked
+        // — so a test would be measuring a database the app is never in.
+        ensure_device_identity(&c).unwrap();
+        install_sync_triggers(&c).unwrap();
         c.pragma_update(None, "user_version", SCHEMA_VERSION).unwrap();
         c
     }
@@ -5214,7 +6276,7 @@ mod tests {
         assert_eq!(e.bottle_id, None);
 
         // The point of the migration: water is now representable.
-        let bid = save_bottle(&c, None, "1L steel bottle", 1050.0).unwrap();
+        let bid = save_bottle(&c, None, "1L steel bottle", 1050.0, None, None).unwrap();
         add(
             &c, "2026-09-04", None, Source::Water(&bid), "1L steel bottle",
             Quantity::Grams(650.0), None, &Tags::default(),
@@ -5323,7 +6385,7 @@ mod tests {
         // a meal through for water would store a fact nobody supplied;
         // letting one be omitted for a dish would lose one that was.
         let c = db();
-        let bid = save_bottle(&c, None, "Steel flask", 1050.0).unwrap();
+        let bid = save_bottle(&c, None, "Steel flask", 1050.0, None, None).unwrap();
 
         let with_meal = add(
             &c, "2026-09-04", Some("breakfast"), Source::Water(&bid), "Steel flask",
@@ -5597,7 +6659,7 @@ mod tests {
     #[test]
     fn a_water_entry_is_not_a_dish_and_never_appears_in_the_cuisine_chart() {
         let c = db();
-        let bid = save_bottle(&c, None, "Steel bottle", 1050.0).unwrap();
+        let bid = save_bottle(&c, None, "Steel bottle", 1050.0, None, None).unwrap();
         add(
             &c, "2026-09-04", None, Source::Water(&bid), "Steel bottle",
             Quantity::Grams(650.0), None, &Tags::default(),
@@ -5614,7 +6676,7 @@ mod tests {
         // was eaten — the same reasoning that excludes a supplement-only day
         // from the divisor a period average uses.
         let c = db();
-        let bid = save_bottle(&c, None, "Steel bottle", 1050.0).unwrap();
+        let bid = save_bottle(&c, None, "Steel bottle", 1050.0, None, None).unwrap();
         add(
             &c, "2026-09-04", None, Source::Water(&bid), "Steel bottle",
             Quantity::Grams(650.0), None, &Tags::default(),
@@ -6004,10 +7066,10 @@ mod tests {
     #[test]
     fn a_bottle_is_saved_then_re_weighed_under_the_same_id() {
         let c = db();
-        let id = save_bottle(&c, None, "1L steel bottle", 1050.0).unwrap();
+        let id = save_bottle(&c, None, "1L steel bottle", 1050.0, None, None).unwrap();
         // Re-weighing is the same entry point, so the object keeps its
         // identity and the days that used it keep pointing at something real.
-        let same = save_bottle(&c, Some(&id), "1L steel bottle (dented)", 1030.0).unwrap();
+        let same = save_bottle(&c, Some(&id), "1L steel bottle (dented)", 1030.0, None, None).unwrap();
         assert_eq!(same, id);
 
         let bs = list_bottles(&c).unwrap();
@@ -6020,20 +7082,20 @@ mod tests {
     #[test]
     fn rejects_a_bottle_that_cannot_be_registered() {
         let c = db();
-        assert!(save_bottle(&c, None, "   ", 1050.0).is_err());
-        assert!(save_bottle(&c, None, "Bottle", 0.0).is_err());
-        assert!(save_bottle(&c, None, "Bottle", -1050.0).is_err());
-        assert!(save_bottle(&c, None, "Bottle", f64::NAN).is_err());
-        assert!(save_bottle(&c, Some("nope"), "Bottle", 1050.0).is_err());
+        assert!(save_bottle(&c, None, "   ", 1050.0, None, None).is_err());
+        assert!(save_bottle(&c, None, "Bottle", 0.0, None, None).is_err());
+        assert!(save_bottle(&c, None, "Bottle", -1050.0, None, None).is_err());
+        assert!(save_bottle(&c, None, "Bottle", f64::NAN, None, None).is_err());
+        assert!(save_bottle(&c, Some("nope"), "Bottle", 1050.0, None, None).is_err());
         assert!(list_bottles(&c).unwrap().is_empty());
     }
 
     #[test]
     fn the_bottle_you_used_last_comes_first_and_a_deleted_one_is_gone() {
         let c = db();
-        save_bottle(&c, None, "Kitchen jug", 2100.0).unwrap();
-        let steel = save_bottle(&c, None, "Steel bottle", 1050.0).unwrap();
-        let sipper = save_bottle(&c, None, "Gym sipper", 750.0).unwrap();
+        save_bottle(&c, None, "Kitchen jug", 2100.0, None, None).unwrap();
+        let steel = save_bottle(&c, None, "Steel bottle", 1050.0, None, None).unwrap();
+        let sipper = save_bottle(&c, None, "Gym sipper", 750.0, None, None).unwrap();
 
         touch_bottle(&c, &steel).unwrap();
         let names: Vec<String> = list_bottles(&c).unwrap().into_iter().map(|b| b.name).collect();
@@ -6052,7 +7114,7 @@ mod tests {
     #[test]
     fn get_bottle_refuses_an_unknown_or_deleted_id() {
         let c = db();
-        let id = save_bottle(&c, None, "Steel bottle", 1050.0).unwrap();
+        let id = save_bottle(&c, None, "Steel bottle", 1050.0, None, None).unwrap();
         assert_eq!(get_bottle(&c, &id).unwrap().full_g, 1050.0);
 
         assert!(get_bottle(&c, "nope").is_err());
@@ -6208,7 +7270,7 @@ mod tests {
     #[test]
     fn a_water_entry_requires_a_real_bottle_and_a_weight() {
         let c = db();
-        let bid = save_bottle(&c, None, "Steel bottle", 1050.0).unwrap();
+        let bid = save_bottle(&c, None, "Steel bottle", 1050.0, None, None).unwrap();
 
         assert!(add(&c, "2026-09-04", None, Source::Water(&bid), "Steel bottle",
             Quantity::Grams(650.0), None, &Tags::default()).is_ok());
@@ -6690,4 +7752,596 @@ mod tests {
             .unwrap();
         assert_eq!(still_there, 1, "the row must survive for sync to see the deletion");
     }
+
+    // -----------------------------------------------------------------------
+    // Household sync
+    // -----------------------------------------------------------------------
+
+    /// A pot with one ingredient line and a known weight, ready to be eaten
+    /// from. Enough to move `remaining_g` and nothing more.
+    fn pot(c: &mut Connection, name: &str, weighed_g: f64) -> String {
+        save_cook(
+            c,
+            None,
+            &CookInput {
+                recipe_id: None,
+                name: name.into(),
+                cooked_on: "2026-09-04".into(),
+                scale: 1.0,
+                gross_g: None,
+                vessel_ids: Vec::new(),
+                weighed_yield_g: Some(weighed_g),
+                notes: None,
+                defaults: Tags::default(),
+                ingredients: vec![CookIngredient {
+                    id: String::new(),
+                    position: 0,
+                    fdc_id: None,
+                    description: "Toor dal".into(),
+                    planned_g: weighed_g,
+                    raw_g: weighed_g,
+                    cooked_g: weighed_g,
+                    substituted_for: None,
+                }],
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_helping_becomes_a_draw_and_deleting_it_puts_the_food_back() {
+        // What is left in a pot is derived from the draws, and this is the
+        // round trip that has to hold on every device: a helping takes food
+        // out, deleting the helping puts it back. Before the household existed
+        // this read `log_entries` directly; the behaviour must be identical
+        // through the projection, or every fridge in the app just changed.
+        let mut c = db();
+        let cid = pot(&mut c, "Dal", 900.0);
+        let eid = add(
+            &c, "2026-09-04", Some("lunch"), Source::Cook(&cid), "Dal",
+            Quantity::Grams(250.0), None, &Tags::default(),
+        )
+        .unwrap();
+
+        assert_eq!(get_cook(&c, &cid).unwrap().remaining_g, 650.0);
+        let drawn: f64 = c
+            .query_row(
+                "SELECT grams FROM cook_draws WHERE entry_id = ?1", [&eid], |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(drawn, 250.0, "the helping is projected at the weight eaten");
+
+        remove(&c, &eid).unwrap();
+        assert_eq!(get_cook(&c, &cid).unwrap().remaining_g, 900.0);
+        let live: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM cook_draws WHERE entry_id = ?1 AND deleted_at IS NULL",
+                [&eid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(live, 0);
+        let kept: i64 = c
+            .query_row("SELECT COUNT(*) FROM cook_draws WHERE entry_id = ?1", [&eid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 1, "the row must survive for the household to see it went");
+    }
+
+    #[test]
+    fn a_days_water_comes_back_as_a_volume_and_its_food_does_not() {
+        // Water is the one thing here measured in a unit it is not stored in.
+        // The log holds the mass off the scale; the bottle turns it into the
+        // volume its label puts it in, and the day carries that so a screen
+        // does not have to hold the bottles to say what someone drank.
+        let c = db();
+        // 290 g empty, 1050 g full, sold as 750 ml: 760 g of water is its litre.
+        let cal = save_bottle(&c, None, "Steel", 1050.0, Some(290.0), Some(750.0)).unwrap();
+        let plain = save_bottle(&c, None, "Old", 1050.0, None, None).unwrap();
+
+        add(&c, "2026-09-04", None, Source::Water(&cal), "Steel",
+            Quantity::Grams(760.0), None, &Tags::default()).unwrap();
+        add(&c, "2026-09-04", None, Source::Water(&plain), "Old",
+            Quantity::Grams(500.0), None, &Tags::default()).unwrap();
+        add(&c, "2026-09-04", Some("lunch"), Source::Food(1000), "Cheddar",
+            Quantity::Grams(30.0), None, &Tags::default()).unwrap();
+
+        let entries = day(&c, "2026-09-04").unwrap();
+        let vols: Vec<_> = entries.iter().map(|e| e.water).collect();
+
+        // The calibrated bottle: a full bottle of water is its stated volume.
+        let m = vols[0].expect("a water entry carries a volume");
+        assert!(m.is_measured());
+        assert!((m.ml() - 750.0).abs() < 0.01);
+
+        // The uncalibrated one converts at the density of water and says so —
+        // 500 g of water is a little OVER 500 ml, not a little under.
+        let a = vols[1].expect("an uncalibrated bottle still converts");
+        assert!(!a.is_measured());
+        assert!(a.ml() > 500.0 && a.ml() < 501.0);
+
+        // Food is a mass and stays one. A volume here would be nonsense.
+        assert!(vols[2].is_none(), "cheese is not drunk");
+
+        // And the period view totals the day in millilitres.
+        let by_day = water_ml_between(&c, "2026-09-01", "2026-09-30").unwrap();
+        let total = by_day.get("2026-09-04").copied().expect("the day drank something");
+        assert!((total - (750.0 + a.ml())).abs() < 0.01);
+        // A day nobody logged a bottle on is absent, not zero: nobody drinks
+        // nothing, so a zero would be a claim about the person.
+        assert!(!by_day.contains_key("2026-09-05"));
+    }
+
+    #[test]
+    fn a_bottle_records_what_it_holds_and_refuses_half_a_calibration() {
+        let c = db();
+        // Both figures, or neither. Half of one would let a read path believe
+        // it could convert when it cannot.
+        assert!(save_bottle(&c, None, "Steel", 1130.0, Some(140.0), None).is_err());
+        assert!(save_bottle(&c, None, "Steel", 1130.0, None, Some(1000.0)).is_err());
+        // A full bottle weighs more than an empty one; the reverse would make
+        // the capacity zero or negative and the scale factor a division by it.
+        assert!(save_bottle(&c, None, "Steel", 1130.0, Some(1130.0), Some(1000.0)).is_err());
+        assert!(save_bottle(&c, None, "Steel", 1130.0, Some(1200.0), Some(1000.0)).is_err());
+
+        let id = save_bottle(&c, None, "Steel", 1130.0, Some(140.0), Some(1000.0)).unwrap();
+        let b = get_bottle(&c, &id).unwrap();
+        assert_eq!((b.empty_g, b.volume_ml), (Some(140.0), Some(1000.0)));
+
+        // A bottle can be left uncalibrated, and clearing it is allowed too —
+        // the app reads it at the density of water and says so.
+        let plain = save_bottle(&c, None, "Old bottle", 1050.0, None, None).unwrap();
+        assert_eq!(get_bottle(&c, &plain).unwrap().empty_g, None);
+    }
+
+    #[test]
+    fn migrating_a_v13_database_keeps_its_bottles_and_leaves_them_uncalibrated() {
+        // The rebuild must carry every bottle across. Nobody has weighed these
+        // empty, so they come out with no calibration — which is the honest
+        // state, not a defaulted one.
+        let mut c = db();
+        let id = save_bottle(&c, None, "Steel bottle", 1050.0, None, None).unwrap();
+        c.execute_batch(
+            "DROP TABLE bottles;
+             CREATE TABLE bottles (
+               id TEXT PRIMARY KEY, name TEXT NOT NULL,
+               full_g REAL NOT NULL CHECK (full_g > 0),
+               last_used_at TEXT, created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL, deleted_at TEXT);",
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO bottles (id,name,full_g,created_at,updated_at)
+             VALUES (?1,'Steel bottle',1050.0,'t','t')",
+            [&id],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 13).unwrap();
+
+        migrate(&mut c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap(),
+            SCHEMA_VERSION
+        );
+        let b = get_bottle(&c, &id).unwrap();
+        assert_eq!(b.name, "Steel bottle");
+        assert_eq!(b.full_g, 1050.0);
+        assert_eq!((b.empty_g, b.volume_ml), (None, None));
+        // And the rebuilt table really carries the new constraints.
+        assert!(c
+            .execute(
+                "INSERT INTO bottles (id,name,full_g,empty_g,created_at,updated_at)
+                 VALUES ('bad','Half',1000.0,200.0,'t','t')",
+                [],
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn a_household_of_one_has_a_name_no_peers_and_nothing_waiting() {
+        let c = db();
+        let h = household(&c).unwrap();
+        assert!(!h.device.device_id.is_empty());
+        assert!(!h.device.name.is_empty(), "a device always has something to be called");
+        assert!(h.peers.is_empty());
+        assert!(h.last.is_empty(), "no sync has run, which is not a successful one");
+
+        // Not the size of the kitchen. A device paired with nothing has no
+        // backlog, and reporting one would invent a queue that cannot drain.
+        save_vessel(&c, None, "Katori", 48.0).unwrap();
+        assert_eq!(household(&c).unwrap().queued, 0);
+    }
+
+    #[test]
+    fn the_shared_side_counts_this_kitchen_and_a_finished_pot_is_not_in_it() {
+        // The counts are the whole argument of the household screen: "your
+        // recipes are shared" is a promise, "12 recipes" is this kitchen. They
+        // have to be the live rows or the promise is decoration.
+        let mut c = db();
+        save_vessel(&c, None, "Katori", 48.0).unwrap();
+        save_bottle(&c, None, "Steel bottle", 1050.0, None, None).unwrap();
+        let open = pot(&mut c, "Dal", 900.0);
+        let eaten = pot(&mut c, "Rajma", 400.0);
+
+        let n = shared_counts(&c).unwrap();
+        assert_eq!(n.pots, 2);
+        assert_eq!(n.vessels_and_bottles, 2, "counted together, as the screen names them");
+
+        // A pot marked empty has left the Available list and is not food
+        // anyone can take. Counting it would overstate the fridge.
+        finish_cook(&c, &eaten, true).unwrap();
+        assert_eq!(shared_counts(&c).unwrap().pots, 1);
+
+        delete_cook(&c, &open).unwrap();
+        assert_eq!(shared_counts(&c).unwrap().pots, 0);
+    }
+
+    #[test]
+    fn renaming_this_device_keeps_its_id() {
+        let c = db();
+        let before = this_device(&c).unwrap();
+        rename_device(&c, "  Kitchen Mac  ").unwrap();
+        let after = this_device(&c).unwrap();
+        assert_eq!(after.name, "Kitchen Mac", "trimmed, as every other name here is");
+        assert_eq!(after.device_id, before.device_id, "renaming is not becoming someone else");
+        assert!(rename_device(&c, "   ").is_err(), "a blank name is not a name");
+    }
+
+    #[test]
+    fn forgetting_a_device_leaves_it_recognisable_rather_than_gone() {
+        let c = db();
+        c.execute(
+            "INSERT INTO peers (device_id, name, static_pk, paired_at)
+             VALUES ('her-phone', 'Pixel', X'00', '2026-09-02T18:20:00Z')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(list_peers(&c).unwrap().len(), 1);
+        assert_eq!(list_peers(&c).unwrap()[0].last_seen_at, None, "paired, never synced");
+
+        unpair(&c, "her-phone").unwrap();
+        assert!(list_peers(&c).unwrap().is_empty());
+        // Soft, so a device that comes back is the one that was removed rather
+        // than a stranger asking to be let in.
+        let kept: i64 = c
+            .query_row("SELECT COUNT(*) FROM peers WHERE device_id = 'her-phone'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 1);
+    }
+
+    #[test]
+    fn opening_a_database_twice_keeps_one_identity_and_working_triggers() {
+        // `open` is the production path and the only one that runs the whole
+        // sequence — SCHEMA, migrate, the applying reset, the triggers. Nothing
+        // else exercises it, and it is now doing enough that "it compiled" is
+        // not evidence it works.
+        //
+        // Re-opening is the case worth pinning. The identity must NOT be
+        // re-minted, because a device that renames itself every launch would
+        // make its own past writes look like a stranger's and lose every merge
+        // already decided in their favour. The triggers must be re-created
+        // regardless, because a later migration's rebuild is exactly what would
+        // have dropped them.
+        let dir = std::env::temp_dir().join(format!("trackit-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("user.db");
+        let _ = std::fs::remove_file(&path);
+
+        let first = {
+            let c = open(&path).unwrap();
+            assert_eq!(
+                c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap(),
+                SCHEMA_VERSION
+            );
+            let vid = save_vessel(&c, None, "Katori", 48.0).unwrap();
+            let tracked: i64 = c
+                .query_row(
+                    "SELECT COUNT(*) FROM row_version WHERE table_name='vessels' AND row_id=?1",
+                    [&vid],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(tracked, 1, "a write through the real open path is tracked");
+            device_id(&c).unwrap()
+        };
+
+        let c = open(&path).unwrap();
+        assert_eq!(device_id(&c).unwrap(), first, "this device stays itself");
+        // The triggers survived the second open, so tracking still works.
+        let bid = save_bottle(&c, None, "Steel bottle", 1050.0, None, None).unwrap();
+        let tracked: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM row_version WHERE table_name='bottles' AND row_id=?1",
+                [&bid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tracked, 1);
+        assert_eq!(
+            c.query_row("SELECT applying FROM sync_control", [], |r| r.get::<_, i64>(0)).unwrap(),
+            0
+        );
+
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_household_helping_empties_the_pot_without_appearing_in_your_day() {
+        // The guarantee the separate table exists for, and it is structural
+        // rather than a filter somebody has to remember: the nutrition arm
+        // never joins to `cook_draws`, so a helping that arrived from another
+        // device cannot reach a day however the day is read.
+        let mut c = db();
+        let cid = pot(&mut c, "Sambar", 1000.0);
+        // What applying a peer's draw writes: a row this device did not author,
+        // naming an entry that is not here and never will be.
+        c.execute(
+            "INSERT INTO cook_draws
+               (entry_id, cook_id, device_id, grams, taken_on, taken_at, created_at, updated_at)
+             VALUES ('her-entry', ?1, 'her-phone', 400.0, '2026-09-04',
+                     '2026-09-04T12:00:00Z', '2026-09-04T12:00:00Z', '2026-09-04T12:00:00Z')",
+            [&cid],
+        )
+        .unwrap();
+
+        assert_eq!(
+            get_cook(&c, &cid).unwrap().remaining_g,
+            600.0,
+            "her helping has to come off the pot or the fridge disagrees with itself"
+        );
+        assert!(
+            day(&c, "2026-09-04").unwrap().is_empty(),
+            "and it must not be in this person's day"
+        );
+    }
+
+    #[test]
+    fn a_local_write_is_versioned_and_queued_for_the_household() {
+        let c = db();
+        let vid = save_vessel(&c, None, "Katori", 48.0).unwrap();
+        let (version, seq): (i64, i64) = c
+            .query_row(
+                "SELECT version, seq FROM row_version WHERE table_name = 'vessels' AND row_id = ?1",
+                [&vid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(version, 1);
+        assert!(seq > 0);
+
+        save_vessel(&c, Some(&vid), "Small katori", 48.0).unwrap();
+        let (version2, seq2): (i64, i64) = c
+            .query_row(
+                "SELECT version, seq FROM row_version WHERE table_name = 'vessels' AND row_id = ?1",
+                [&vid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(version2, 2, "an edit is a second write, not a second row");
+        assert!(seq2 > seq, "and it moves to the head of the outgoing feed");
+        let rows: i64 = c
+            .query_row("SELECT COUNT(*) FROM row_version WHERE row_id = ?1", [&vid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1, "a register, not a journal");
+    }
+
+    #[test]
+    fn the_vessel_you_reached_for_last_is_not_the_households_business() {
+        // `touch_vessels` runs on every weighed helping — the hottest write in
+        // the app — and says only which katori this person picked up. Tracking
+        // it would put a vessel on the wire for every serving and let one
+        // person's habits reorder the other's picker.
+        let c = db();
+        let vid = save_vessel(&c, None, "Katori", 48.0).unwrap();
+        let before: i64 = c
+            .query_row(
+                "SELECT seq FROM row_version WHERE table_name = 'vessels' AND row_id = ?1",
+                [&vid],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        touch_vessels(&c, &[vid.clone()]).unwrap();
+
+        let after: i64 = c
+            .query_row(
+                "SELECT seq FROM row_version WHERE table_name = 'vessels' AND row_id = ?1",
+                [&vid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(after, before, "using a vessel is not a change to the vessel");
+    }
+
+    #[test]
+    fn a_change_being_applied_from_a_peer_is_not_republished_as_ours() {
+        // Without this the two devices hand the same row back and forth for
+        // ever, each seeing the other's echo as news. The flag is what lets the
+        // apply path record the PEER'S version instead of minting a local one
+        // that would win the row straight back.
+        let c = db();
+        let vid = save_vessel(&c, None, "Katori", 48.0).unwrap();
+        let (v0, seq0): (i64, i64) = c
+            .query_row(
+                "SELECT version, seq FROM row_version WHERE table_name = 'vessels' AND row_id = ?1",
+                [&vid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+
+        c.execute("UPDATE sync_control SET applying = 1", []).unwrap();
+        save_vessel(&c, Some(&vid), "Her katori", 52.0).unwrap();
+        c.execute("UPDATE sync_control SET applying = 0", []).unwrap();
+
+        let (v1, seq1): (i64, i64) = c
+            .query_row(
+                "SELECT version, seq FROM row_version WHERE table_name = 'vessels' AND row_id = ?1",
+                [&vid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((v1, seq1), (v0, seq0), "the trigger must have stood down");
+        // The row itself still changed — only its authorship did not.
+        let name: String = c
+            .query_row("SELECT name FROM vessels WHERE id = ?1", [&vid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "Her katori");
+    }
+
+    #[test]
+    fn a_helping_whose_pot_is_gone_does_not_stop_the_app_starting() {
+        // `INSERT OR IGNORE` suppresses a uniqueness clash and does NOT suppress
+        // a foreign-key violation, so one log entry naming a `cooks` row that is
+        // not there would abort the whole v13 migration — and an aborted
+        // migration means the app refuses to start. Ordinary deletion here is
+        // soft, but an imported database, or one written before the FK existed,
+        // can carry an orphan.
+        let mut c = db();
+        let cid = pot(&mut c, "Dal", 900.0);
+        add(
+            &c, "2026-09-04", Some("lunch"), Source::Cook(&cid), "Dal",
+            Quantity::Grams(250.0), None, &Tags::default(),
+        )
+        .unwrap();
+
+        // Orphan the entry the way a real database could have acquired one.
+        c.pragma_update(None, "foreign_keys", "OFF").unwrap();
+        c.execute("DELETE FROM cooks WHERE id = ?1", [&cid]).unwrap();
+        c.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        c.execute_batch("DELETE FROM cook_draws; DELETE FROM row_version; DELETE FROM this_device;")
+            .unwrap();
+        c.pragma_update(None, "user_version", 12).unwrap();
+
+        migrate(&mut c).expect("an orphaned helping must not stop the app starting");
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap(),
+            SCHEMA_VERSION
+        );
+        // The helping has no pot to come out of, so it is not a draw. Dropping
+        // it is correct: there is no fridge for it to be missing from.
+        let draws: i64 = c
+            .query_row("SELECT COUNT(*) FROM cook_draws", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(draws, 0);
+    }
+
+    #[test]
+    fn a_failed_v13_migration_is_a_retry_and_not_a_one_way_door() {
+        // The identity is the guard for the whole arm AND is written by it, so
+        // it has to roll back with it. Committed separately, a backfill that
+        // failed would leave the guard satisfied: the next launch would skip the
+        // arm, stamp v13, and leave every pot reading full for ever.
+        //
+        // Forced here by making the backfill's target unwritable partway.
+        let mut c = db();
+        let cid = pot(&mut c, "Dal", 900.0);
+        add(
+            &c, "2026-09-04", Some("lunch"), Source::Cook(&cid), "Dal",
+            Quantity::Grams(250.0), None, &Tags::default(),
+        )
+        .unwrap();
+        c.execute_batch("DELETE FROM cook_draws; DELETE FROM row_version; DELETE FROM this_device;")
+            .unwrap();
+        c.pragma_update(None, "user_version", 12).unwrap();
+
+        // A CHECK that no real row can satisfy, standing in for any failure in
+        // the middle of the arm.
+        c.execute_batch(
+            "ALTER TABLE cook_draws RENAME TO cook_draws_ok;
+             CREATE TABLE cook_draws (
+               entry_id TEXT PRIMARY KEY, cook_id TEXT NOT NULL REFERENCES cooks(id),
+               device_id TEXT NOT NULL, grams REAL NOT NULL CHECK (grams < 0),
+               taken_on TEXT NOT NULL, taken_at TEXT NOT NULL,
+               created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT);",
+        )
+        .unwrap();
+
+        assert!(migrate(&mut c).is_err(), "the arm must fail here");
+        let identified: i64 = c
+            .query_row("SELECT COUNT(*) FROM this_device", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            identified, 0,
+            "the identity must roll back with the work, so the next launch retries"
+        );
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, 12, "and the version must not have been stamped");
+    }
+
+    #[test]
+    fn migrating_a_v12_database_leaves_every_pot_at_the_level_it_was_left_at() {
+        // The worst bug this migration could ship, pinned. `logged_from_cook`
+        // now reads draws and only draws, so a database that arrives with none
+        // reports every open pot as untouched: every pot in the fridge silently
+        // refills itself and "All that's left" offers food eaten months ago.
+        //
+        // v13 is purely additive, so a v12 database is this one with the new
+        // tables emptied and the version wound back — which is exactly the
+        // state `open` hands to `migrate`, since `execute_batch(SCHEMA)` has
+        // already created them by then.
+        let mut c = db();
+        let cid = pot(&mut c, "Dal", 900.0);
+        let eaten = add(
+            &c, "2026-09-04", Some("lunch"), Source::Cook(&cid), "Dal",
+            Quantity::Grams(250.0), None, &Tags::default(),
+        )
+        .unwrap();
+        let thrown_out = add(
+            &c, "2026-09-04", Some("dinner"), Source::Cook(&cid), "Dal",
+            Quantity::Grams(100.0), None, &Tags::default(),
+        )
+        .unwrap();
+        remove(&c, &thrown_out).unwrap();
+        assert_eq!(get_cook(&c, &cid).unwrap().remaining_g, 650.0);
+
+        c.execute_batch(
+            "DELETE FROM cook_draws;
+             DELETE FROM row_version;
+             DELETE FROM this_device;",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 12).unwrap();
+        assert_eq!(
+            get_cook(&c, &cid).unwrap().remaining_g,
+            900.0,
+            "with no draws the pot reads full — this is the bug being guarded"
+        );
+
+        migrate(&mut c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap(),
+            SCHEMA_VERSION
+        );
+        assert_eq!(
+            get_cook(&c, &cid).unwrap().remaining_g,
+            650.0,
+            "the pot must come back at the level the log left it at"
+        );
+        // The deleted helping is projected too, already tombstoned — that is
+        // what makes the filter reproduce the old arithmetic rather than
+        // resurrecting food the user threw out.
+        let (live, total): (i64, i64) = c
+            .query_row(
+                "SELECT COUNT(*) FILTER (WHERE deleted_at IS NULL), COUNT(*) FROM cook_draws",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((live, total), (1, 2));
+        let owner: String = c
+            .query_row("SELECT device_id FROM cook_draws WHERE entry_id = ?1", [&eaten], |r| r.get(0))
+            .unwrap();
+        assert_eq!(owner, device_id(&c).unwrap(), "this device ate it");
+
+        // And the kitchen it already had is publishable, or a device that has
+        // been in use for months would hand a newly paired phone an empty one.
+        let queued: i64 = c
+            .query_row("SELECT COUNT(*) FROM row_version WHERE table_name = 'cooks'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(queued, 1);
+    }
+
 }

@@ -14,6 +14,8 @@ import CustomFoods from "./screens/CustomFoods";
 import CustomFoodEditor from "./screens/CustomFoodEditor";
 import Supplements from "./screens/Supplements";
 import Profile from "./screens/Profile";
+import Household from "./screens/Household";
+import Statistics from "./screens/Statistics";
 import Settings from "./screens/Settings";
 import SupplementEditor from "./screens/SupplementEditor";
 import ImportData from "./screens/ImportData";
@@ -79,6 +81,25 @@ const NAV_ICON: Record<string, ReactNode> = {
   ),
   /* The drawer's own rows. Same 24×24 grid and stroke discipline as the five
      above, because on mobile they sit in one list together. */
+  /* A box plot, because that is literally what the screen draws: an axis, the
+     middle half of the days as a box, and the median through it. A bar chart
+     glyph would promise a different screen — and would be the generic choice
+     for anything called "statistics". */
+  statistics: (
+    <>
+      <path d="M3.5 12h17" strokeLinecap="round" />
+      <rect x="8" y="7.5" width="8" height="9" rx="1.5" strokeLinejoin="round" />
+      <path d="M12 6v12" strokeLinecap="round" />
+    </>
+  ),
+  /* Two devices of different sizes, which is what a household is here — not a
+     house. The screen is about what crosses between them. */
+  household: (
+    <>
+      <rect x="3.5" y="5.5" width="7.5" height="13" rx="1.6" strokeLinejoin="round" />
+      <rect x="14" y="9" width="6.5" height="9.5" rx="1.5" strokeLinejoin="round" />
+    </>
+  ),
   /* A book with a visible spine. The first draft put the spine line on the
      cover's own right edge, where it coincided with the border and the whole
      glyph read as an empty square at 20px. */
@@ -149,9 +170,10 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
   {
     heading: null,
     items: [
+      { id: "statistics", label: "Statistics" },
       { id: "today", label: "Today" },
-      { id: "nutrients", label: "Nutrients" },
       { id: "history", label: "History" },
+      { id: "nutrients", label: "Nutrients" },
     ],
   },
   {
@@ -167,7 +189,8 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
   {
     heading: "You",
     items: [
-      { id: "profile", label: "Profile & targets" },
+      { id: "profile", label: "Profile & reference figures" },
+      { id: "household", label: "Household" },
       { id: "import", label: "Import a spreadsheet" },
       { id: "settings", label: "Settings" },
     ],
@@ -194,6 +217,8 @@ const ASIDES = [
   "supplement",
   "import",
   "profile",
+  "household",
+  "statistics",
   "settings",
 ] as const;
 
@@ -201,9 +226,10 @@ type Tab = (typeof TABS)[number]["id"] | (typeof ASIDES)[number];
 
 /** What each destination is for, in the command palette's own second column. */
 const TAB_HINT: Record<string, string> = {
-  today: "the day at a glance",
-  nutrients: "all 47, and what is unmeasured",
-  history: "the calendar, and a range",
+  statistics: "how the last few weeks have gone",
+  today: "what you have eaten today",
+  nutrients: "every nutrient, and what was not measured",
+  history: "a day, or a period",
   library: "recipes, your foods, vessels",
   you: "profile, targets, import",
 };
@@ -225,6 +251,8 @@ const ASIDE_HOME: Record<string, Tab> = {
   supplement: "supplements",
   import: "history",
   profile: "you",
+  household: "you",
+  statistics: "statistics",
   settings: "you",
 };
 
@@ -293,7 +321,19 @@ function readRoute(): Route {
   const params = new URLSearchParams(cut === -1 ? "" : raw.slice(cut + 1));
   const from = params.get("from");
   return {
-    tab: (ROUTES.includes(path) ? path : "today") as Tab,
+    /*
+      The front door is the aggregate, not the day.
+
+      Every cold start used to land on a single day with the largest number in
+      the app at the top of it. A day is a noisy sample — a festival, a travel
+      day, an ordinary Tuesday — and opening on it every time is what turns a
+      record into a thing to check. Statistics answers the question a person
+      actually has between meals, which is how the last few weeks have gone.
+
+      Logging is not made harder by this: the add-food button floats over every
+      screen, and Today is one row away in the drawer.
+    */
+    tab: (ROUTES.includes(path) ? path : "statistics") as Tab,
     id: params.get("id"),
     from: from !== null && ROUTES.includes(from) ? (from as Tab) : null,
     q: params.get("q"),
@@ -537,8 +577,10 @@ export default function App() {
     { id: "bottles", label: "Bottles", hint: "weighed full once", group: "Library", run: () => go("bottles", { from: "library" }) },
     { id: "new-own", label: "Transcribe a new food", hint: "from the pack in front of you", group: "Library", run: () => go("custom-food", { from: "custom-foods" }) },
     { id: "profile", label: "Profile", hint: "who the targets are for", group: "Settings", run: () => go("profile", { from: "you" }) },
-    { id: "targets", label: "Targets & goals", hint: "what every percentage is against", group: "Settings", run: () => go("settings", { from: "you" }) },
+    { id: "targets", label: "Reference figures", hint: "what every figure is read against", group: "Settings", run: () => go("settings", { from: "you" }) },
     { id: "import", label: "Import a spreadsheet", hint: "a log you kept elsewhere", group: "Settings", run: () => go("import", { from: "you" }) },
+    { id: "household", label: "Household", hint: "the other devices in this kitchen", group: "Settings", run: () => go("household", { from: "you" }) },
+    { id: "statistics", label: "Statistics", hint: "how you have been eating", group: "Settings", run: () => go("statistics", { from: "history" }) },
   ];
 
   /**
@@ -957,6 +999,11 @@ export default function App() {
             onChanged={() => refresh(date)}
           />
         )}
+
+        {tab === "household" && <Household onBack={() => go(route.from ?? "you")} />}
+
+        {/* No way back: this is where the app opens. */}
+        {tab === "statistics" && <Statistics />}
 
         {/*
           No nav tab leads here, so the screen carries its own way out; it goes

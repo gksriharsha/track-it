@@ -77,6 +77,11 @@ export interface NutrientTotal {
 
 export interface LogEntry {
   id: string;
+  /**
+   * What a water entry came to in millilitres. Absent on everything else —
+   * food is a mass and stays one.
+   */
+  water?: Volume;
   logged_on: string;
   /**
    * The sitting this was part of, or null for water.
@@ -187,8 +192,30 @@ export interface Bottle {
   id: string;
   name: string;
   full_g: number;
+  /**
+   * Weighed empty, and what the maker calls it in millilitres.
+   *
+   * Both together or neither. With them a bottle converts its own weighings
+   * into the volume its owner thinks in — a bottle sold as a litre that takes
+   * 940 g of water to the line they fill to is still a litre TO THEM, and that
+   * is the number the app should say. Without them water reads at the density
+   * of water, which is right to about two parts in a thousand and is marked as
+   * an assumption rather than a measurement.
+   */
+  empty_g: number | null;
+  volume_ml: number | null;
   /** ISO timestamp of the last log entry that used it, or null if never used. */
   last_used_at: string | null;
+}
+
+/** A volume of water, and where the conversion from mass came from. */
+export type Volume =
+  | { kind: "measured"; ml: number }
+  | { kind: "assumed"; ml: number };
+
+/** Litres past a litre, millilitres below — how people actually say it. */
+export function describeVolume(ml: number): string {
+  return ml >= 1000 ? `${(ml / 1000).toFixed(1)} L` : `${Math.round(ml)} ml`;
 }
 
 /** One resolved component of an entry: the food, or one recipe ingredient. */
@@ -651,6 +678,12 @@ export interface DaySummary {
   food_items: number;
   supplement_items: number;
   water_items: number;
+  /**
+   * Water drunk that day in millilitres, or null on a day no bottle was
+   * logged. Distinct from the nutrient called Water, which counts the water in
+   * food as well — these are two different facts and the app keeps them apart.
+   */
+  water_ml: number | null;
   origins: DayTag[];
   cuisines: DayTag[];
   untagged_origin: number;
@@ -1170,3 +1203,105 @@ export interface EntrySnapshotView {
  * statement from zero, and one the day reports differently.
  */
 export type CorrectableKind = "measured" | "label_zero" | "below_loq" | "trace" | "unknown";
+
+// ---------------------------------------------------------------------------
+// Household
+// ---------------------------------------------------------------------------
+
+/** This installation, as the rest of the household sees it. */
+export interface ThisDevice {
+  device_id: string;
+  /** The user's own word for it. Offered as "Mac" or "Phone" and meant to be changed. */
+  name: string;
+}
+
+/** Another device in the household, and when it was last heard from. */
+export interface Peer {
+  device_id: string;
+  name: string;
+  paired_at: string;
+  /**
+   * `null` for a device paired but never yet synced with. Distinct from a
+   * long-ago instant, which says the pairing works and the phone has been in a
+   * bag — and the screen says which.
+   */
+  last_seen_at: string | null;
+}
+
+/**
+ * How the last sync with one device went, in words.
+ *
+ * `ok: false` is as much a result as `ok: true` and is rendered as plainly.
+ * A sync that could not reach the other phone has to say so: a silent tick
+ * over a stale fridge is the same failure as a nutrient bar drawn at zero
+ * because nobody measured it.
+ */
+export interface SyncOutcome {
+  at: string;
+  peer_name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * How much of this device's kitchen the household would see.
+ *
+ * Real counts of your own rows, not a list of feature names: "your recipes are
+ * shared" is a promise, "12 recipes" is this kitchen. There is deliberately no
+ * counterpart for the private side — counting what you ate here would be the
+ * first step towards publishing it.
+ */
+export interface SharedCounts {
+  pots: number;
+  recipes: number;
+  foods: number;
+  supplements: number;
+  vessels_and_bottles: number;
+}
+
+export interface HouseholdView {
+  device: ThisDevice;
+  peers: Peer[];
+  shared: SharedCounts;
+  /**
+   * How the most recent run went, one entry per device it tried — not one
+   * entry for the run.
+   *
+   * A single summary line would let a success with one device stand in for a
+   * failure with another, and the failure is the half worth showing: it is the
+   * one that leaves this fridge disagreeing with that one. Empty until a sync
+   * has been attempted.
+   */
+  last: SyncOutcome[];
+  /** Kitchen and library rows this device has not yet handed to every peer. */
+  queued: number;
+}
+
+/**
+ * An offer to pair, shown as a QR code on the device that is listening.
+ *
+ * The payload carries this device's address and public key, so the phone that
+ * scans it needs no discovery to find the Mac — which is why the first release
+ * ships no mDNS at all.
+ */
+export interface PairingOffer {
+  payload: string;
+  expires_at: string;
+}
+
+/**
+ * Where a pairing attempt has got to.
+ *
+ * `confirming` is the one that matters. Six digits derived from the completed
+ * handshake are shown on BOTH screens, and the user says whether they match
+ * before either device writes the other down. Someone who photographed the QR
+ * from across the room gets a different handshake, so their digits differ —
+ * which is the only thing standing between a shoulder-surfer and a place in
+ * the household.
+ */
+export type PairingState =
+  | { stage: "waiting" }
+  | { stage: "confirming"; peer_name: string; digits: string }
+  | { stage: "paired"; peer_name: string }
+  | { stage: "expired" }
+  | { stage: "failed"; detail: string };

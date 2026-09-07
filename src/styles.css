@@ -299,11 +299,14 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
    Hero. Floats on the page: no card, no border. It is the anchor.
    ───────────────────────────────────────────────────────────── */
 .hero__value { display: flex; align-items: baseline; gap: var(--s2); }
-.hero__num { font-size: clamp(52px, 9vw, 76px); line-height: 0.92; font-weight: 500; }
-.hero__unit { color: var(--ink-3); font-size: 16px; }
-.hero__sub { color: var(--ink-2); font-size: 14px; margin-top: var(--s2); }
-.hero__rail { height: 3px; background: var(--sunken); border-radius: var(--r-pill); margin-top: var(--s4); overflow: hidden; }
-.hero__fill { height: 100%; background: var(--accent); border-radius: var(--r-pill); transition: width 260ms ease-out; }
+/* 24px sans, where this was 52-76px serif.
+   The old size was the loudest thing in the app and it belonged to one day —
+   1.5x the type given to the thirty-day figure on Statistics. The typeface now
+   carries the hierarchy: Newsreader marks what is worth dwelling on, and a
+   single noisy day is not that. */
+.hero__num { font-size: 24px; line-height: 1.1; font-weight: 550; }
+.hero__unit { color: var(--ink-3); font-size: 14px; }
+.hero__sub { color: var(--ink-3); font-size: 13px; margin-top: var(--s1); }
 
 .macros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s5); margin-top: var(--s5); }
 .macro__v { font-size: 19px; font-weight: 600; }
@@ -343,15 +346,14 @@ button.row:hover { background: var(--sunken); }
    number happens to be non-null. An empty track asserts "0% of
    target", which is the exact lie this app exists to prevent.
    ───────────────────────────────────────────────────────────── */
-.nrow { grid-template-columns: minmax(0, 1.4fr) minmax(56px, 1fr) auto; }
-.track { height: 5px; background: var(--sunken); border-radius: var(--r-pill); overflow: hidden; }
-.track__fill { height: 100%; border-radius: var(--r-pill); background: var(--accent); transition: width 260ms ease-out; }
-.track__fill--over { background: var(--over); }
-.track--none { visibility: hidden; }
-.nval { display: flex; align-items: baseline; gap: var(--s2); justify-content: flex-end; white-space: nowrap; }
+.nrow { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s4); }
+/* The amount over the figure it can be read against. Stacked rather than side
+   by side so the reference is plainly subordinate — it is context for the
+   number, not a second number competing with it. */
+.nval { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
 .nval__amt { font-weight: 550; }
-.nval__pct { color: var(--ink-3); font-size: 13px; min-width: 38px; text-align: right; }
-.is-over .nval__amt, .is-over .nval__pct { color: var(--over); }
+.nval__ref { color: var(--ink-3); font-size: 12px; margin-top: 1px; }
+.is-over .nval__amt { color: var(--over); }
 .is-unknown .row__title, .is-unknown .nval__amt { color: var(--ink-3); }
 .is-partial .nval__amt { color: var(--ink-2); }
 
@@ -566,7 +568,12 @@ button.row:hover { background: var(--sunken); }
 }
 /* The weight must never wrap between number and unit ("25" / "g"). */
 .breakdown__row > :last-child { white-space: nowrap; flex: none; }
-.breakdown__row .no-data { color: var(--over); }
+/* An ingredient USDA has no composition data for is a gap in a public table,
+   not a health risk and not something the person did. It was painted in the
+   limit-exceeded colour, which is the one colour in this palette that means
+   "this is a problem with your eating". It reads as the grey every other
+   unmeasured thing in the app reads as. */
+.breakdown__row .no-data { color: var(--ink-3); }
 .breakdown__flag { font-size: 11px; }
 .breakdown__note { margin: var(--s2) 0 0; font-size: 12px; color: var(--ink-3); max-width: var(--measure); }
 
@@ -1916,4 +1923,379 @@ button.row:hover { background: var(--sunken); }
     transition: color 140ms ease-out, background-color 140ms ease-out;
   }
   .head__back:hover { color: var(--ink); background: var(--sunken); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Household
+
+   The screen is about a line drawn through this app's own data:
+   the kitchen crosses to the other device, the diary never does.
+   So the rule down the middle of the ledger is the content, and
+   the asymmetry either side of it is the argument — real counts
+   on the left, none at all on the right.
+   ───────────────────────────────────────────────────────────── */
+
+/* Unboxed, on the page ground, the way the day's energy figure is.
+   Putting it in a card would make it the third of three equal panels
+   and it is not one of three things — it is what the screen is for. */
+.ledger {
+  display: grid;
+  /* The counts column takes only the width its numerals and labels need,
+     so the rule sits immediately after them rather than floating in the
+     middle of the page with dead space on both sides of it. */
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0;
+  margin: var(--s5) 0 var(--s6);
+}
+
+.ledger__side { padding-right: var(--s7); }
+
+/* The one border on this screen that is doing real work. */
+.ledger__side--kept {
+  padding-right: 0;
+  padding-left: var(--s6);
+  border-left: 1px solid var(--line);
+}
+
+.ledger__head {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: var(--s4);
+}
+
+.ledger__list { margin: 0; }
+
+/* Numeral right-aligned in its own column so the figures line up as a
+   stack rather than ragging along the left edge of the words. */
+/* --ledger-step is the shared baseline step. Both sides set their row
+   height from it, so the counts and the things that are not counted sit
+   on one grid and the two halves read as a single table split by the
+   rule — rather than two lists that happen to be side by side. */
+.ledger { --ledger-step: 46px; }
+
+.ledger__row {
+  display: grid;
+  /* `max-content` with a floor, NOT a `ch` width: `ch` resolves against this
+     row's 15px sans while the numeral renders at 28px serif, so "12" overflowed
+     its track and collided with the word beside it. The floor keeps single
+     digits aligned with double ones. */
+  grid-template-columns: minmax(2.2rem, max-content) minmax(0, 1fr);
+  /* Baseline between the numeral and its label — a 28px figure and a 14px
+     word sitting on one line, not centred against each other. */
+  align-items: baseline;
+  /* …and the row block centred in the step, which is what puts it on the
+     same rung as the item opposite. */
+  align-content: center;
+  gap: var(--s3);
+  min-height: var(--ledger-step);
+}
+
+.ledger__n {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1;
+  text-align: right;
+  color: var(--ink);
+}
+
+.ledger__of { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+/* No numerals on this side, deliberately, and no bullets either — a
+   marker would imply a list of equivalent items where the point is
+   that these are simply not counted. */
+.ledger__kept { margin: 0; padding: 0; list-style: none; }
+.ledger__kept li {
+  display: flex;
+  align-items: center;
+  min-height: var(--ledger-step);
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.ledger__why {
+  margin: var(--s4) 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-3);
+  max-width: 34ch;
+}
+
+/* Main column and a narrower rail, the shape Today already uses, so
+   this reads as the same app rather than a settings page bolted on. */
+.hh { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s5); align-items: start; }
+.hh__main { display: flex; flex-direction: column; gap: var(--s4); }
+.hh__rail { position: sticky; top: var(--s5); }
+
+.hh__peer { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+
+/* Reached, or not. Filled accent for a device in step; a hollow grey
+   ring for one paired and never heard from. Grey rather than orange
+   on purpose: a phone that has been in a bag all day is information,
+   not a fault, and four warning colours teach you to ignore warnings. */
+.pip {
+  width: 8px; height: 8px; border-radius: var(--r-pill);
+  background: var(--accent); flex: none;
+}
+.pip--cold { background: none; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+
+/* ── Pairing ──────────────────────────────────────────────────
+   The one loud moment in the app. It has the screen to itself
+   while it is happening, because comparing six digits against
+   another device in your hand is not a thing to do in a panel
+   between two other panels. */
+.pair {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--s7) var(--s4) var(--s6);
+}
+
+.pair__ask { font-size: 20px; margin-bottom: var(--s5); }
+
+/* Set at the scale of the day's energy figure, in the same serif the
+   app gives every numeral. Weight 500 because that is the heaviest
+   Newsreader loaded — asking for 600 would have the browser fake it. */
+.pair__digits {
+  margin: 0;
+  font-size: clamp(48px, 11vw, 76px);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The single piece of unprompted motion on this screen, and it earns
+     its place: the digits arriving is the moment something on the other
+     side of the room answered. Nothing else here animates. */
+  .pair__digits { animation: pair-land 420ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+}
+@keyframes pair-land {
+  from { opacity: 0; letter-spacing: 0.22em; }
+  to   { opacity: 1; letter-spacing: 0.06em; }
+}
+
+.pair__say {
+  margin: var(--s5) 0 0;
+  max-width: 46ch;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+.pair__acts { display: flex; gap: var(--s3); margin-top: var(--s6); }
+
+.qrblock { display: flex; flex-direction: column; align-items: center; gap: var(--s4); }
+
+/* Reserved at the size the real code will occupy, so drawing it later
+   does not move the sentence underneath. */
+.qrblock__box {
+  display: grid; place-items: center;
+  width: 220px; height: 220px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* The payload in the clear while there is no code to draw. It wraps
+   rather than scrolls: this is something to read, not a field. */
+.qrblock__payload {
+  max-width: 46ch;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+@media (max-width: 900px) {
+  .hh { grid-template-columns: minmax(0, 1fr); }
+  .hh__rail { position: static; }
+}
+
+@media (max-width: 720px) {
+  /* The rule turns from vertical to horizontal and the two sides stack.
+     The split survives; only its axis changes. */
+  .ledger { grid-template-columns: minmax(0, 1fr); }
+  .ledger__side { padding-right: 0; }
+  .ledger__side--kept {
+    padding-left: 0;
+    margin-top: var(--s5);
+    padding-top: var(--s5);
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+  .pair { padding: var(--s5) 0; }
+  .pair__acts { width: 100%; }
+  .pair__acts .btn { flex: 1; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Statistics
+
+   Spread, not score. One day tells you almost nothing; the shape
+   of thirty tells you a lot. So the measure of a thing here is
+   how wide it is — the band is the middle half of the days and
+   the marks are the days themselves. Nothing on this screen
+   fills up, counts a run, or awards anything.
+   ───────────────────────────────────────────────────────────── */
+
+/* 44px, this project's floor for a tap target on a phone. Bare `.chip` is
+   36px plus its border, which is fine beside a keyboard and not on a thumb. */
+.stats__spans { margin-bottom: var(--s4); }
+.stats__spans .chip { min-height: 44px; }
+
+.stats__basis {
+  margin: 0 0 var(--s2);
+  max-width: var(--measure);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+/* Rules, not cards. A card would make each measure a separate
+   object; they are sections of one report. */
+.stats__block {
+  padding-top: var(--s5);
+  margin-top: var(--s3);
+  border-top: 1px solid var(--line);
+}
+
+.stats__h { font-size: 14px; font-weight: 600; color: var(--ink); }
+.stats__h3 { margin-top: var(--s5); font-size: 13px; font-weight: 600; color: var(--ink-2); }
+
+.stats__note,
+.stats__read {
+  max-width: var(--measure);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+.stats__note { margin: var(--s2) 0 var(--s4); }
+.stats__read { margin: var(--s3) 0 0; }
+.stats__read b { font-weight: 500; color: var(--ink-2); }
+
+/* The middle day, set the way every other metric in this app is. */
+.stats__figure {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s3) 0 var(--s4);
+}
+/* 44px serif, against the day's 24px sans. The ratio is the argument: the
+   figure you are meant to dwell on is the one taken over weeks, and the
+   typeface says so before you have read either number. */
+.stats__n { font-size: 44px; line-height: 1; color: var(--ink); }
+.stats__when { font-size: 13px; color: var(--ink-3); margin-left: var(--s2); }
+
+/* ── the strip ────────────────────────────────────────────────
+   Height is generous because every element in it is thin: a
+   hairline axis, 3px day marks, a 1px reference. Crowding them
+   would turn a distribution into a smear. */
+/* Tall enough to give the reference its own row above the axis. Sharing a
+   row with the day marks had the label sitting on top of the data it is
+   there to be compared against. */
+.spread { position: relative; height: 48px; margin: var(--s2) 0 var(--s3); }
+
+.spread__axis {
+  position: absolute; left: 0; right: 0; top: 30px; height: 1px;
+  background: var(--line);
+}
+
+/* The middle half of the days. Washed accent rather than solid:
+   it is where you usually are, which is information, not an
+   achievement — nothing here is a bar being filled. */
+.spread__band {
+  position: absolute; top: 21px; height: 19px;
+  background: var(--accent-wash);
+  border-radius: 2px;
+}
+
+/* One mark per logged day. They overlap where days cluster, and
+   that thickening IS the reading. */
+.spread__day {
+  position: absolute; top: 24px; width: 2px; height: 13px;
+  margin-left: -1px;
+  background: var(--ink-3);
+  opacity: 0.75;
+  border-radius: 1px;
+}
+
+.spread__mid {
+  position: absolute; top: 19px; width: 2px; height: 23px;
+  margin-left: -1px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+/* A mark to see yourself against, never a finish line — so it is
+   a hairline with a word on it, not a filled edge. */
+.spread__ref { position: absolute; top: 16px; bottom: 2px; width: 1px; background: var(--ink-2); }
+.spread__ref::after {
+  content: ""; position: absolute; left: -2px; top: -3px; width: 5px; height: 5px;
+  border-radius: var(--r-pill); background: var(--ink-2);
+}
+.spread__reflabel {
+  position: absolute; top: -17px; left: var(--s2);
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+/* Past halfway the label runs off the right edge, so it flips to the other
+   side of its own hairline. Which side is decided in the component, from the
+   position as a number — matching on the serialised style string treated
+   "left: 5.1%" and "left: 51%" as the same thing. */
+.spread__ref--flip .spread__reflabel { left: auto; right: var(--s2); }
+
+/* ── the averages and tag lists ──────────────────────────────── */
+.stats__list { margin: 0; }
+
+.stats__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 11ch);
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.stats__row:last-child { border-bottom: none; }
+
+.stats__name { margin: 0; font-size: 14px; color: var(--ink); }
+.stats__amt { margin: 0; font-size: 17px; color: var(--ink); white-space: nowrap; }
+.stats__amt--over { color: var(--over); }
+.stats__ref { margin: 0; font-size: 12px; color: var(--ink-3); text-align: right; }
+
+@media (max-width: 420px) {
+  /* The reference figure drops under the amount rather than
+     squeezing the nutrient's name to two lines. */
+  .stats__row { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--s1); }
+  .stats__ref { grid-column: 2; text-align: right; }
+}
+
+@media (min-width: 900px) {
+  /* On a wide screen the averages run to about 1,500px of single column,
+     which is a phone layout given more room rather than a use of it. Two
+     columns halve the scroll; the rows keep their own internal grid, so the
+     names and figures still line up down each column.
+
+     The strips are deliberately NOT capped — a distribution gets more
+     readable the wider it is drawn, which is the one thing on this screen
+     that genuinely wants the space. */
+  .stats__list { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--s6); }
+  .stats__list > .stats__row { border-bottom: 1px solid var(--line); }
+}
+
+/* A sentence where a leaderboard used to be. Prose measure, not a data row. */
+.daynote {
+  margin: var(--s2) 0 0;
+  max-width: var(--measure);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-2);
 }

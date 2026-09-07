@@ -347,8 +347,8 @@ const VESSELS: Vessel[] = [
 ];
 
 const BOTTLES: Bottle[] = [
-  { id: "b1", name: "Steel flask (1 L)", full_g: 1284, last_used_at: "2026-09-06T09:10:00Z" },
-  { id: "b2", name: "Desk bottle (750 ml)", full_g: 968, last_used_at: null },
+  { id: "b1", name: "Steel flask (1 L)", full_g: 1284, empty_g: 294, volume_ml: 1000, last_used_at: "2026-09-06T09:10:00Z" },
+  { id: "b2", name: "Desk bottle (750 ml)", full_g: 968, empty_g: null, volume_ml: null, last_used_at: null },
 ];
 
 const RECIPES: Recipe[] = [];
@@ -442,6 +442,9 @@ function summary(iso: string, i: number): DaySummary {
     food_items: supplementOnly ? 0 : 6 + (i % 4),
     supplement_items: supplementOnly || i % 3 === 0 ? 1 : 0,
     water_items: i % 4 === 0 ? 1 : 0,
+    // Varies the way a person's drinking does, and absent on days nobody
+    // logged a bottle — null, not zero.
+    water_ml: supplementOnly ? null : 1500 + ((i * 211) % 1400),
     origins: supplementOnly
       ? []
       : [
@@ -474,7 +477,12 @@ function range(from: string, to: string): RangeView {
     // Period sums: the day's figures multiplied by the days that had food.
     totals: SPECS.map((spec) => {
       const n = Math.max(days.filter((d) => d.food_items > 0).length, 1);
-      return total({ ...spec, lower: spec.lower * n, target: spec.target === null ? null : spec.target * n });
+      // The bounds are period sums; the TARGET is not. A reference figure is a
+      // daily amount whatever period it is read over — `targets::resolve` on
+      // the Rust side hands back one figure per nutrient, and nothing scales
+      // it — so multiplying it here made every percentage in the range report
+      // read about a thirtieth of the truth.
+      return total({ ...spec, lower: spec.lower * n });
     }),
     origins: [
       { key: "home", label: "Made at home", entries: 42, days: days.length, grams: 18400 },
@@ -497,7 +505,111 @@ function range(from: string, to: string): RangeView {
  * which is the right behaviour for a design fixture and the wrong behaviour
  * for anything else, so this must never be reachable inside Tauri.
  */
+/**
+ * A household with one other device in it.
+ *
+ * Mutable, so the fixture can be paired with and unpaired from and the screen
+ * behaves as it will against the real backend. `pairStartedAt` drives a
+ * scripted pairing: the QR sits there, a phone "connects" after a couple of
+ * seconds, and the six digits appear to be compared.
+ */
+const HOUSEHOLD = {
+  device: { device_id: "this-mac", name: "Mac" },
+  shared: { pots: 3, recipes: 12, foods: 8, supplements: 2, vessels_and_bottles: 4 },
+  peers: [
+    {
+      device_id: "her-phone",
+      name: "Pixel",
+      paired_at: "2026-09-02T18:20:00Z",
+      last_seen_at: "2026-09-06T08:41:00Z",
+    },
+  ] as { device_id: string; name: string; paired_at: string; last_seen_at: string | null }[],
+  last: [
+    {
+      at: "2026-09-06T08:41:00Z",
+      peer_name: "Pixel",
+      ok: true,
+      detail: "3 pots and 1 recipe went over; 2 helpings came back.",
+    },
+  ] as { at: string; peer_name: string; ok: boolean; detail: string }[],
+  queued: 0,
+};
+
+let pairStartedAt: number | null = null;
+let pairConfirmed = false;
+
+/** Where the scripted pairing has got to, from how long the QR has been up. */
+function pairing() {
+  if (pairStartedAt === null) return { stage: "expired" };
+  if (pairConfirmed) return { stage: "paired", peer_name: "Pixel 9" };
+  const elapsed = Date.now() - pairStartedAt;
+  if (elapsed > 120_000) return { stage: "expired" };
+  if (elapsed > 2_500) {
+    return { stage: "confirming", peer_name: "Pixel 9", digits: "418 207" };
+  }
+  return { stage: "waiting" };
+}
+
 const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
+  // A copy, because the real bridge serialises across IPC and hands back a
+  // fresh object every time. Returning the live one made React see the same
+  // reference after a sync and skip the re-render — a bug that exists only in
+  // the fixture, which is exactly the kind the fixture must not invent.
+  get_household: () => structuredClone(HOUSEHOLD),
+  rename_device: (a) => {
+    HOUSEHOLD.device.name = String(a.name ?? "").trim() || HOUSEHOLD.device.name;
+  },
+  begin_pairing: () => {
+    pairStartedAt = Date.now();
+    pairConfirmed = false;
+    return {
+      // Shaped like the real thing: address, port, static key, one-time token.
+      payload:
+        "trackit-pair:v1?h=192.168.1.24&p=51733" +
+        "&k=8Kx2vQ1mZ0pR7sN4dT9hJ3bW6yL5cF8aG2eU0iO1kM4&t=Qz7RfV2nB9mK4xC1sD6gH0jL5pT8wY3uA7eI2oN9rS6",
+      expires_at: new Date(Date.now() + 120_000).toISOString(),
+    };
+  },
+  pairing_state: () => pairing(),
+  confirm_pairing: (a) => {
+    if (a.matches === true) {
+      pairConfirmed = true;
+      HOUSEHOLD.peers.push({
+        device_id: "new-phone",
+        name: "Pixel 9",
+        paired_at: new Date().toISOString(),
+        last_seen_at: null,
+      });
+    } else {
+      pairStartedAt = null;
+    }
+  },
+  cancel_pairing: () => {
+    pairStartedAt = null;
+  },
+  unpair_device: (a) => {
+    const i = HOUSEHOLD.peers.findIndex((p) => p.device_id === a.deviceId);
+    if (i >= 0) HOUSEHOLD.peers.splice(i, 1);
+  },
+  sync_now: () => {
+    const out = HOUSEHOLD.peers.map((p) => ({
+      at: new Date().toISOString(),
+      peer_name: p.name,
+      // The fixture fails against a device never yet seen, so the screen's
+      // failure path is reachable without unplugging anything.
+      ok: p.last_seen_at !== null,
+      detail:
+        p.last_seen_at !== null
+          ? "Nothing to send; nothing came back."
+          : "No answer on this network. Nothing was changed on either device.",
+    }));
+    HOUSEHOLD.last = out;
+    for (const p of HOUSEHOLD.peers) {
+      if (p.last_seen_at !== null) p.last_seen_at = new Date().toISOString();
+    }
+    return out;
+  },
+
   get_day: (a) => day(String(a.loggedOn ?? today())),
   search_foods: (a) => search(String(a.query ?? ""), Number(a.limit ?? 30)),
   get_food_detail: (a) => detail(Number(a.fdcId)),
