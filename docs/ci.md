@@ -130,6 +130,13 @@ Then add four repository secrets:
 | `ANDROID_KEY_ALIAS` | `upload` |
 | `ANDROID_KEY_PASSWORD` | the key password |
 
+**All four, or none.** Setting only `ANDROID_KEYSTORE_BASE64` does not get you a partly-signed
+build — it gets a `keystore.properties` with empty passwords, and gradle fails several minutes
+later with `keystore password was incorrect`, which reads like a bad key rather than three
+secrets that were never added. The job now checks for all four up front and opens the keystore
+with `keytool` before building, so a misconfiguration fails in about a second with a message
+that names what is missing.
+
 CI writes them to `gen/android/keystore.properties`, which the guarded `signingConfigs` block in
 `app/build.gradle.kts` picks up, and deletes both afterwards. The block is a no-op locally, where
 the file does not exist. The keystore itself must never be committed — `.gitignore` covers

@@ -173,7 +173,37 @@ jobs:
             echo "::warning::No ANDROID_KEYSTORE_BASE64 secret; the release APK will be unsigned."
             exit 0
           fi
+
+          # Half a configuration is not a configuration.
+          #
+          # All four secrets are needed together. With only the keystore set,
+          # this wrote a properties file with empty passwords, and the failure
+          # surfaced four and a half minutes later inside gradle as
+          # "keystore password was incorrect" — which points at the password
+          # being WRONG rather than at three secrets never having been added.
+          # Someone who has just pasted a key would reasonably conclude their
+          # key was bad and go and regenerate it.
+          missing=""
+          [ -n "$KEYSTORE_PASSWORD" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD"
+          [ -n "$KEY_ALIAS" ]         || missing="$missing ANDROID_KEY_ALIAS"
+          [ -n "$KEY_PASSWORD" ]      || missing="$missing ANDROID_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is set but these are not:$missing. \
+          Signing needs all four; see docs/ci.md. Remove the keystore secret to go back to \
+          publishing an unsigned build."
+            exit 1
+          fi
+
           echo "$KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/upload.jks
+          # A key that cannot be opened is worth catching here rather than in a
+          # packaging task several minutes into the build.
+          keytool -list -keystore src-tauri/gen/android/upload.jks \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1 || {
+            echo "::error::The keystore decoded, but it cannot be opened with \
+          ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_ALIAS. Check the password, and that the \
+          alias matches the one used with keytool -genkeypair (docs/ci.md uses 'upload')."
+            exit 1
+          }
           cat > src-tauri/gen/android/keystore.properties <<EOF
           storeFile=upload.jks
           storePassword=$KEYSTORE_PASSWORD
