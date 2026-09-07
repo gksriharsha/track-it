@@ -126,6 +126,11 @@ jobs:
     name: Android APK
     runs-on: ubuntu-latest
     needs: [meta, test, reference-db]
+    outputs:
+      # Whether the APK this run produced can actually be installed. Read by
+      # the release job so the notes state what happened rather than what
+      # might have.
+      signed: ${{ steps.collect.outputs.signed }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -178,14 +183,56 @@ jobs:
       - name: Build
         run: pnpm tauri android build --apk --target aarch64 --split-per-abi --ci
       - name: Collect
+        id: collect
+        # The signature is CHECKED, not inferred from the filename, and the
+        # published name says which it is.
+        #
+        # Before this, an unsigned APK was copied to
+        # `TrackIt-<version>-android-arm64.apk` and offered on the release page
+        # under a name that gave no hint Android would refuse to install it.
+        # The only notice was a `::warning::` in a job log, which is not where
+        # anyone downloading a build is looking. Builds 3, 5 and 7 all shipped
+        # that way.
+        #
+        # Deliberately does NOT fail the job. `Android APK` is a required check,
+        # so failing here would make `main` unmergeable until the secrets exist
+        # — turning a distribution problem into a development one. An honest
+        # name is enough: it cannot be mistaken for a release build, and it
+        # stays a useful artifact to inspect.
         run: |
           mkdir -p out
           apk=$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk' | head -1)
           test -n "$apk" || { echo "no release APK produced"; exit 1; }
-          case "$apk" in
-            *unsigned*) echo "::warning::$(basename "$apk") is unsigned and cannot be installed as an update." ;;
-          esac
-          cp "$apk" "out/TrackIt-${{ needs.meta.outputs.version }}-android-arm64.apk"
+
+          base="TrackIt-${{ needs.meta.outputs.version }}-android-arm64"
+          hint="Set ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD; see docs/ci.md."
+
+          # Not finding apksigner is its own state, and not a reason to fail a
+          # required check. Fall back to what gradle called the file, and say
+          # that the signature was assumed rather than verified.
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$apksigner" ]; then
+            echo "::warning::apksigner not found; falling back to the filename to judge signing."
+            case "$(basename "$apk")" in
+              *unsigned*) signed=false ;;
+              *)          signed=true  ;;
+            esac
+          elif "$apksigner" verify "$apk" >/dev/null 2>&1; then
+            signed=true
+            "$apksigner" verify --print-certs "$apk" | head -2
+          else
+            signed=false
+          fi
+
+          if [ "$signed" = true ]; then
+            name="$base.apk"
+          else
+            name="$base-UNSIGNED.apk"
+            echo "::warning::This APK is unsigned; Android will refuse to install it. $hint"
+          fi
+          echo "signed=$signed" >> "$GITHUB_OUTPUT"
+
+          cp "$apk" "out/$name"
           ls -la out
       - name: Remove signing material
         if: always()
@@ -420,9 +467,18 @@ jobs:
           | Bundle | Signing |
           |---|---|
           | `.dmg` / `.app.zip` (macOS, Apple Silicon) | Ad-hoc unless Developer ID secrets are set. Right-click → Open the first time. |
-          | `.apk` (Android, arm64-v8a) | Unsigned unless an upload keystore secret is set. |
+          | `.apk` (Android, arm64-v8a) | ANDROID_SIGNING |
           | `.ipa` (iOS) | Present only when the Apple Developer secrets are set. |
           EOF
+          # Substituted rather than written inline so the heredoc can stay
+          # quoted: an unquoted one would expand the backticks around the
+          # bundle names as commands.
+          if [ "${{ needs.android.outputs.signed }}" = "true" ]; then
+            android_note="Signed with the upload key."
+          else
+            android_note="**Unsigned — Android will refuse to install it.** The file is named \`-UNSIGNED\` for that reason. Set the four \`ANDROID_*\` secrets to sign it; see \`docs/ci.md\`."
+          fi
+          sed -i "s|ANDROID_SIGNING|$android_note|" notes.md
           echo "" >> notes.md
           echo "Commit: ${{ github.sha }}" >> notes.md
           gh release create "${{ needs.meta.outputs.tag }}" \
