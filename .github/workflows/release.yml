@@ -39,13 +39,31 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: v
-        # tauri.conf.json is the single source of truth for the version; the
-        # run number keeps every merge to main distinct without asking anyone
-        # to bump a file by hand.
+        # tauri.conf.json is the single source of truth and the tag is just the
+        # version, so a release is identified by what shipped rather than by
+        # how many times CI has run. That trades an automatic counter for a
+        # deliberate bump, and the guard below is what keeps the trade safe:
+        # republishing an existing version fails here, on the pull request,
+        # where the fix is to edit one file -- not after the merge button, as a
+        # release job that dies having already merged the change.
+        #
+        # android, macos and ios all need this job, and two of them are
+        # required checks, so a failure here blocks the merge on its own.
         run: |
-          version=$(jq -r .version src-tauri/tauri.conf.json)
-          echo "version=$version"                          >> "$GITHUB_OUTPUT"
-          echo "tag=v$version-build.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          version=$(jq -r '.version // empty' src-tauri/tauri.conf.json)
+          if [ -z "$version" ]; then
+            echo "::error::src-tauri/tauri.conf.json has no .version"
+            exit 1
+          fi
+          tag="v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::$tag is already released. Every merge to main publishes, so \
+          bump .version in src-tauri/tauri.conf.json to something new. It also drives the \
+          Android versionCode, so reusing a version means the APK cannot upgrade an install."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
 
   # ------------------------------------------------------------------- tests
   # On macOS because it is the only runner that compiles the cfg(target_os =
@@ -549,7 +567,7 @@ jobs:
           echo "" >> notes.md
           echo "Commit: ${{ github.sha }}" >> notes.md
           gh release create "${{ needs.meta.outputs.tag }}" \
-            --title "TrackIt ${{ needs.meta.outputs.version }} (build ${{ github.run_number }})" \
+            --title "TrackIt ${{ needs.meta.outputs.version }}" \
             --notes-file notes.md \
             --prerelease \
             --target "${{ github.sha }}" \

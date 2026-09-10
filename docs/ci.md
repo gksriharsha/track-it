@@ -10,9 +10,19 @@ halves of "every branch merged to main gets release builds":
   publishes the results as a GitHub prerelease. Runs on `main` are never cancelled, because each
   one produces a release.
 
-Tag: `v<version>-build.<run number>`, with `<version>` read from `src-tauri/tauri.conf.json`.
-The run number keeps merges distinct without anyone bumping a file by hand, so `0.1.0` can stay
-where it is until there is a reason to change it.
+Tag: `v<version>`, with `<version>` read from `src-tauri/tauri.conf.json`. A release is named
+for what shipped, not for how many times CI has run, so **every merge to `main` needs its own
+version** — bump `.version` in the pull request that you intend to release.
+
+Forgetting is caught before the merge rather than after it. The `Version` job refuses to run when
+`v<version>` is already tagged, and `Android APK`, `macOS app` and `iOS app` all depend on it, so
+two required checks never report and the merge button stays blocked. The error names the file to
+edit.
+
+That version is also the Android `versionCode` — Tauri writes `tauri.properties` from it, mapping
+`0.1.1` to `1001`. Under the old `-build.<run number>` scheme every release carried `versionCode`
+`1000`, so an APK could only ever reinstall over its predecessor, never upgrade it. One version
+per release fixes that as a side effect.
 
 ## `main` is protected
 
