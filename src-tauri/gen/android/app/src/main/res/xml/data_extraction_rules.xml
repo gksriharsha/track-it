@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12 and later. What makes this restrictive is the single <include>: the
+  moment a section contains any include at all, ONLY those paths travel.
+  Everything the old default was carrying — user.db, the photographs of packs,
+  the WebView's own app_webview directory, and the 39 MB copy of usda_core.db
+  that db::resolve puts in the app data directory — is excluded by construction
+  rather than by a list somebody has to remember to extend.
+
+  domain="file" is getFilesDir(). Note that Tauri's app_data_dir() is NOT that:
+  on Android it resolves to activity.dataDir, one level up. That is why the
+  sealed file is written to the path BackupPlugin.backupDir() reports and
+  nowhere else, so the path named here is exact rather than inferred from a
+  relationship between two directories that nothing documents. The key
+  material, which lives under app_data_dir()/keys, is therefore not merely
+  excluded — there is no path in this file that could name it.
+
+  disableIfNoEncryptionCapabilities is deliberately absent from <cloud-backup>.
+  It would silently switch the whole backup off on a phone with no screen lock,
+  which is precisely the kind of quiet nothing-happened this feature exists to
+  avoid. It is also unnecessary: the file is already sealed with the user's own
+  passphrase before Google ever sees it.
+
+  <device-transfer> carries the same one file. Phone-to-phone transfer is local
+  and has no quota, so it could have carried the photographs and the database
+  whole — that is given up so there is exactly one true sentence to tell the
+  user about what leaves this phone.
+-->
+<data-extraction-rules>
+  <cloud-backup>
+    <include domain="file" path="backup/trackit-backup.tkb" />
+  </cloud-backup>
+  <device-transfer>
+    <include domain="file" path="backup/trackit-backup.tkb" />
+  </device-transfer>
+</data-extraction-rules>

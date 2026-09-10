@@ -35,6 +35,29 @@ export function markPlatform(): void {
   if (inTauri()) root.dataset.shell = "native";
 }
 
+/**
+ * Whether this is the Android build.
+ *
+ * The user agent alone, and deliberately NOT `inTauri() && /Android/`. The
+ * tighter test would be false in `pnpm dev`, which would make every fixture
+ * written for an Android-only screen dead code and leave that screen reachable
+ * only on a physical phone — so the one surface most in need of design work
+ * would be the one surface nobody could look at. A plain production browser
+ * never reaches a real command anyway: `bridge.ts` rejects with a sentence when
+ * Tauri is absent and the build is not a dev build.
+ *
+ * The query-string override is dev-only, substituted away by `vite build`, and
+ * exists so a Mac browser can open `?android` and see the screen at all.
+ */
+export const isAndroid = (): boolean => {
+  if (typeof navigator !== "undefined" && /Android/.test(navigator.userAgent)) return true;
+  return (
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("android")
+  );
+};
+
 /* ── keyboard ───────────────────────────────────────────────────────────── */
 
 /** The platform's own command modifier, so hints read right on both. */

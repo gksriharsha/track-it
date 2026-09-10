@@ -909,7 +909,14 @@ button.row:hover { background: var(--sunken); }
 .supline__forms { margin-top: var(--s2); }
 .supline__ok { color: var(--ink-3); font-size: 12px; margin: var(--s2) 0 0; }
 /* A refusal is information, not an error the user caused — it is the app saying
-   what it cannot know from what the pack printed. Coloured accordingly. */
+   what it cannot know from what the pack printed. Coloured accordingly.
+   `.note` is the same treatment generalised, for the sentences on the Backup
+   screen that say what the app does NOT do. Deliberately one rule and not two
+   near-identical ones: the two would drift by a pixel and a token and nobody
+   would ever know which was meant. Neither may take --over — colouring a
+   statement like a failure teaches the reader to skip it, and these are the
+   paragraphs on the page that most need reading. */
+.note,
 .supline__refused {
   color: var(--ink-2); font-size: 12px; margin: var(--s2) 0 0;
   padding: var(--s2) var(--s3); background: var(--sunken); border-radius: var(--r-sm);

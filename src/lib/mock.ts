@@ -20,6 +20,7 @@
  */
 import { LABEL_NUTRIENTS } from "../types";
 import type {
+  BackupStatus,
   Bottle,
   Cook,
   CustomFood,
@@ -713,6 +714,104 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   // off Android anyway — but without an entry here the fixture would throw on
   // every `pnpm dev` session, because `lib/awake.ts` asks as the page boots.
   set_keep_awake: () => undefined,
+
+  backup_status: () => BACKUP,
+  enable_log_encryption: (a) => {
+    // The fixture enforces the same two refusals the backend does, because the
+    // whole reason to have this screen reachable in a browser is to look at
+    // what a refusal does to the layout.
+    const pass = String(a.passphrase ?? "");
+    if (pass.length < 12) {
+      throw new Error(
+        "a recovery passphrase has to be at least 12 characters — it is the only thing that " +
+          "can open the sealed copy, and there is nothing to reset it with",
+      );
+    }
+    if (pass !== String(a.confirm ?? "")) throw new Error("the two passphrases are not the same");
+    BACKUP.encrypted = true;
+    BACKUP.passphrase_set = true;
+    BACKUP.keystore_holds_key = true;
+    return BACKUP;
+  },
+  disable_log_encryption: () => {
+    BACKUP.encrypted = false;
+    BACKUP.passphrase_set = false;
+    BACKUP.keystore_holds_key = false;
+    BACKUP.sealed_at = null;
+    BACKUP.sealed_bytes = null;
+    BACKUP.plain_bytes = null;
+    return BACKUP;
+  },
+  change_backup_passphrase: (a) => {
+    if (String(a.passphrase ?? "") !== String(a.confirm ?? "")) {
+      throw new Error("the two passphrases are not the same");
+    }
+    // Matches the backend: changing the passphrase does not re-seal, so the
+    // copy on the phone reads as out of date until a fresh one is sealed.
+    if (BACKUP.sealed_at !== null) BACKUP.stale = true;
+    return BACKUP;
+  },
+  seal_backup_now: () => {
+    BACKUP.sealed_at = new Date().toISOString();
+    BACKUP.sealed_bytes = 4_312_774;
+    BACKUP.plain_bytes = 19_267_584;
+    BACKUP.over_quota = false;
+    BACKUP.stale = false;
+    return BACKUP;
+  },
+  set_auto_reseal: (a) => {
+    BACKUP.auto_reseal = Boolean(a.on);
+    return BACKUP;
+  },
+  remove_sealed_backup: () => {
+    BACKUP.sealed_at = null;
+    BACKUP.sealed_bytes = null;
+    BACKUP.plain_bytes = null;
+    BACKUP.auto_reseal = false;
+    return BACKUP;
+  },
+  restore_backup: () => ({
+    entries: 1_284,
+    sealed_at: BACKUP.sealed_at ?? new Date().toISOString(),
+    superseded_path: "/data/user/0/com.kgundu1.trackit/user.db.superseded",
+    replaced_earlier_superseded: false,
+  }),
+  unlock_log: () => {
+    BACKUP.locked = false;
+    BACKUP.locked_note = null;
+    return BACKUP;
+  },
+};
+
+/**
+ * A phone partway through setting this up, for looking at the Backup screen in
+ * a browser (`pnpm dev`, then `?android` — see `isAndroid`).
+ *
+ * Deliberately NOT the finished state. `encrypted: false` with no sealed copy
+ * is the state the screen has the most to say in — two consents still to give,
+ * a keystore to describe, and every "what this does not do" paragraph on show
+ * at once. The screen's other states are reached by using the buttons, which is
+ * also how a design question about them gets answered.
+ */
+const BACKUP: BackupStatus = {
+  supported: true,
+  encrypted: false,
+  locked: false,
+  locked_note: null,
+  passphrase_set: false,
+  keystore: { available: true, hardware: "tee", note: null },
+  keystore_holds_key: false,
+  sealed_at: null,
+  sealed_bytes: null,
+  plain_bytes: null,
+  quota_bytes: 25 * 1024 * 1024,
+  over_quota: false,
+  stale: false,
+  auto_reseal: false,
+  restore_available: false,
+  logged_entries: 1_284,
+  sealed_dir: "/data/user/0/com.kgundu1.trackit/files/backup",
+  superseded_path: null,
 };
 
 /**

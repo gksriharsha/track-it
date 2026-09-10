@@ -1,7 +1,10 @@
 mod awake;
+mod backup;
 mod db;
 mod export;
+mod keystore;
 mod store;
+mod vault;
 mod vision;
 
 use std::collections::HashMap;
@@ -3675,13 +3678,184 @@ fn sync_now() -> Result<Vec<store::SyncOutcome>, String> {
     Err(NOT_BUILT.into())
 }
 
+// ---------------------------------------------------------------------------
+// Encryption and the sealed backup — see `vault.rs` and docs/decisions.md D18
+// ---------------------------------------------------------------------------
+
+/// Where `user.db`, the photographs and the key material all live.
+///
+/// On Android this is `activity.dataDir`, which is one level ABOVE
+/// `getFilesDir()` — the directory an Android backup rules file addresses as
+/// `domain="file"`. Nothing here is eligible for backup as a consequence, which
+/// is why the sealed file is written where `keystore::dir` says instead.
+fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("no app data dir: {e}"))
+}
+
+/// What is encrypted, what is sealed, when, how big, and what the phone's own
+/// keystore actually turned out to be.
+///
+/// The one command here that does NOT answer with a sentence off Android. It
+/// comes back with `supported: false` instead, so the screen can explain the
+/// platform in its own words rather than showing an alert where a page should
+/// be.
+#[tauri::command]
+fn backup_status(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+) -> Result<vault::BackupStatus, String> {
+    let dir = data_dir(&app)?;
+    vault::status(&app, &dir, &user, &vault)
+}
+
+/// Encrypt the log, setting the recovery passphrase that is the only thing able
+/// to get it back.
+///
+/// One act, because they are one decision: an encrypted log with no recovery
+/// passphrase is a log the operating system can take away, and this app does not
+/// offer that. Sealing a copy Google may carry is a SEPARATE act — see
+/// `seal_backup_now`.
+#[tauri::command]
+fn enable_log_encryption(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+    passphrase: String,
+    confirm: String,
+) -> Result<vault::BackupStatus, String> {
+    let dir = data_dir(&app)?;
+    vault::enable(&app, &dir, &user, &vault, &passphrase, &confirm)
+}
+
+/// Turn encryption off again, which takes the passphrase.
+#[tauri::command]
+fn disable_log_encryption(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+    passphrase: String,
+) -> Result<vault::BackupStatus, String> {
+    let dir = data_dir(&app)?;
+    vault::disable(&app, &dir, &user, &vault, &passphrase)
+}
+
+/// Change the recovery passphrase, proving knowledge of the current one first.
+#[tauri::command]
+fn change_backup_passphrase(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+    current: String,
+    passphrase: String,
+    confirm: String,
+) -> Result<vault::BackupStatus, String> {
+    let dir = data_dir(&app)?;
+    vault::change_passphrase(&app, &dir, &user, &vault, &current, &passphrase, &confirm)
+}
+
+/// Write a fresh sealed copy now.
+///
+/// This does NOT upload anything. Only Google's backup service does that, on
+/// its own schedule, and the screen says so where the button is.
+#[tauri::command]
+fn seal_backup_now(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+) -> Result<vault::BackupStatus, String> {
+    let dir = data_dir(&app)?;
+    vault::seal_now(&app, &dir, &user, &vault)
+}
+
+/// Whether the app re-seals on its own once the log has moved on.
+#[tauri::command]
+fn set_auto_reseal(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+    on: bool,
+) -> Result<vault::BackupStatus, String> {
+    let dir = data_dir(&app)?;
+    vault::set_auto_reseal(&app, &dir, &user, &vault, on)
+}
+
+/// Delete the sealed copy, which is how the consent to upload is withdrawn.
+#[tauri::command]
+fn remove_sealed_backup(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+) -> Result<vault::BackupStatus, String> {
+    let dir = data_dir(&app)?;
+    vault::remove_sealed(&app, &dir, &user, &vault)
+}
+
+/// Replace this phone's log with the sealed copy.
+#[tauri::command]
+fn restore_backup(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+    passphrase: String,
+) -> Result<vault::RestoreOutcome, String> {
+    let dir = data_dir(&app)?;
+    vault::restore(&app, &dir, &user, &vault, &passphrase)
+}
+
+/// Open an encrypted log this session could not unlock silently.
+#[tauri::command]
+fn unlock_log(
+    app: AppHandle,
+    user: State<'_, store::Store>,
+    vault: State<'_, vault::Vault>,
+    passphrase: String,
+) -> Result<vault::BackupStatus, String> {
+    let dir = data_dir(&app)?;
+    vault::unlock(&app, &dir, &user, &vault, &passphrase)
+}
+
 fn init_state(app: &AppHandle) -> Result<(), String> {
     let ref_path = db::resolve(app)?;
     let ref_conn = db::open(&ref_path)?;
     let ref_db = db::Db(Mutex::new(ref_conn));
 
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let mut user_conn = store::open(&data_dir.join("user.db"))?;
+
+    // BEFORE the database is opened, and that order is the whole point. A
+    // restore or a one-time conversion to SQLCipher renames `user.db` out of the
+    // way and then renames a replacement in, and a process that dies between
+    // those two calls leaves no `user.db` at all — at which point `store::open`
+    // would cheerfully create an empty one and a year of meals would be gone
+    // with no error reported anywhere. See `backup::recover_interrupted`.
+    match backup::recover_interrupted(&data_dir) {
+        Ok(backup::Recovered::Nothing) => {}
+        Ok(backup::Recovered::PutBackPlaintext) => {
+            eprintln!("put the log back: an earlier attempt to encrypt it did not finish")
+        }
+        Ok(backup::Recovered::PutBackSuperseded) => {
+            eprintln!("put the log back: an earlier restore did not finish")
+        }
+        Ok(backup::Recovered::DiscardedStaged) => {
+            eprintln!("discarded a half-written database left by an earlier attempt")
+        }
+        // Never fatal. A recovery pass that cannot read the directory is not a
+        // reason somebody cannot open their log, and the ordinary path below
+        // will say something more useful if the database is genuinely missing.
+        Err(e) => eprintln!("could not check for an interrupted restore: {e}"),
+    }
+
+    // Plaintext or SQLCipher-keyed, decided by asking the file. A phone whose
+    // keystore has lost the key comes back LOCKED rather than failing to start:
+    // the recovery passphrase still opens it, and refusing to launch would put
+    // the way back in behind a door that will not open.
+    let (mut user_conn, session) = vault::open_log(app, &data_dir)?;
+    let locked = session.locked;
+    if let Some(note) = &session.note {
+        eprintln!("the log is locked: {note}");
+    }
 
     // Entries written before history was frozen have no snapshot, and their
     // original values were never recorded. Freezing them now at what the app
@@ -3689,7 +3863,11 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
     // `backfilled` so the difference is never claimed to be more than it is.
     // A failure here must not stop the app: the entries stay unfrozen and are
     // retried next launch, which is exactly the state they are in today.
-    {
+    //
+    // Skipped entirely while the log is locked. There is no log to freeze
+    // anything in — the connection is an empty throwaway — and running it would
+    // report a failure about a database nobody has opened yet.
+    if !locked {
         let refconn = ref_db.0.lock().map_err(|e| e.to_string())?;
         match backfill_snapshots(&refconn, &mut user_conn) {
             Ok(0) => {}
@@ -3700,6 +3878,23 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
 
     app.manage(ref_db);
     app.manage(store::Store(Mutex::new(user_conn)));
+    app.manage(vault::Vault(Mutex::new(session)));
+
+    // Re-seal on its own thread, and only when the user has asked for that.
+    //
+    // A thread rather than the setup path, because a seal copies every page of
+    // the database, compresses it and runs an AEAD over the result — and
+    // `store::open`'s own comment records what this app has already been
+    // punished for once, when a 4 MB write-ahead log turned a cold launch into
+    // 25-30 seconds of an apparently frozen screen. The seal takes the store's
+    // mutex only for a moment; the copy itself goes through a second, read-only
+    // connection. Every failure inside is an `eprintln!`, never a refusal to
+    // start.
+    if !locked {
+        let handle = app.clone();
+        let dir = data_dir.clone();
+        std::thread::spawn(move || vault::reseal_if_stale(&handle, &dir));
+    }
     Ok(())
 }
 
@@ -3747,6 +3942,12 @@ pub fn run() {
     // a desktop bundle either.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(export::init());
+
+    // And the Android Keystore bridge, for the same reason a third time: its
+    // Kotlin lives in the Android source set, so no desktop bundle carries a
+    // second key store it could never reach.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(keystore::init());
 
     builder
         .setup(|app| {
@@ -3825,7 +4026,16 @@ pub fn run() {
             get_goals,
             save_profile,
             set_nutrient_target,
-            set_keep_awake
+            set_keep_awake,
+            backup_status,
+            enable_log_encryption,
+            disable_log_encryption,
+            change_backup_passphrase,
+            seal_backup_now,
+            set_auto_reseal,
+            remove_sealed_backup,
+            restore_backup,
+            unlock_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

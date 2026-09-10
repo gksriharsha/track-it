@@ -1301,7 +1301,41 @@ END;
 "#;
 
 pub fn open(path: &PathBuf) -> Result<Connection, String> {
-    let mut conn = Connection::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    let conn = Connection::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    prepare(conn)
+}
+
+/// Open a SQLCipher-encrypted user database, keying it before anything else.
+///
+/// Separate from [`open`] for one reason, and it is a hard ordering constraint
+/// rather than a preference: `PRAGMA key` has to be the FIRST statement on the
+/// connection. Everything [`prepare`] does — asking for WAL, turning foreign
+/// keys on, running `SCHEMA` — reads or writes a page, and against an encrypted
+/// file an unkeyed read fails with "file is not a database". So the key goes on
+/// here and the shared preparation follows, which is also why `open`'s body
+/// lives in `prepare` and not in `open`.
+///
+/// `key` is the `x'…'` raw-key form. See `backup::Dek::sqlcipher_key`.
+///
+/// Android only, because SQLCipher is only compiled in there — see
+/// `docs/decisions.md` D18. On any other platform a keyed database cannot be
+/// opened at all, which is a fact worth failing on rather than papering over.
+#[cfg(target_os = "android")]
+pub fn open_encrypted(path: &PathBuf, key: &str) -> Result<Connection, String> {
+    let conn = Connection::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    conn.pragma_update(None, "key", key)
+        .map_err(|e| format!("keying {}: {e}", path.display()))?;
+    // Forces the codec to run NOW. Without this the wrong key surfaces later,
+    // mid-query, as a confusing "file is not a database" against a table the
+    // user was reading — rather than here, where the caller can say that the
+    // log could not be unlocked.
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+        .map_err(|_| "that key does not unlock this log".to_string())?;
+    prepare(conn)
+}
+
+/// Everything [`open`] does once a connection exists and is readable.
+fn prepare(mut conn: Connection) -> Result<Connection, String> {
     // WAL is not the sqlite default and must be asked for explicitly.
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|e| e.to_string())?;

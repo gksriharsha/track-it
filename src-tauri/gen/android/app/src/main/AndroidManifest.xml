@@ -10,7 +10,28 @@
          the only way to add a food, so a device without one must still install. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- allowBackup was UNSET here, which is not the same as off: it defaults to
+         true. Every file under this app's data directory was therefore eligible
+         to be uploaded to the user's Google account — and on Android that
+         directory is where the app keeps user.db and photos/ full of pack
+         photographs. The two rules files below replace "everything" with one
+         sealed file that was encrypted with the user's own passphrase before
+         anything could pick it up.
+
+         There is a second, quieter fault in the old default. db::resolve copies
+         the 39 MB usda_core.db into the same directory, and Auto Backup carries
+         25 MB per app — so the backup was over quota by a reference database
+         that is already inside the APK, and Android's answer to being over
+         quota is to stop backing the app up and tell nobody. The app was very
+         likely not being backed up at all.
+
+         Kept as true rather than turned off. Turning it off would fix the leak
+         and lose the feature; naming what may travel fixes the leak and keeps
+         it. -->
     <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.trackit"
