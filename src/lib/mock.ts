@@ -27,6 +27,7 @@ import type {
   EnergyTarget,
   FoodDetail,
   FoodHit,
+  FrequentFood,
   GoalsView,
   LogEntry,
   MacroRange,
@@ -337,6 +338,74 @@ function detail(fdcId: number): FoodDetail {
   };
 }
 
+/**
+ * The quick-add list, and deliberately reference foods ONLY.
+ *
+ * Not an oversight and not a claim that the real list is reference-only — the
+ * backend happily ranks the user's own packs alongside these. It is that this
+ * fixture has no `get_custom_food_detail`, so a custom row here would draw a
+ * shortcut whose only behaviour in a browser is to throw. The same limit
+ * already applies to the one custom search hit in `OWN`; a fixture that
+ * invents a path the fixture cannot walk is worse than a fixture that is
+ * plainly narrower than the app.
+ *
+ * The amounts are uneven and one of them is four figures, because
+ * `last_amount_label` is generated in Rust and the whole reason it exists is
+ * that it must read the same way `fmtAmount` writes it.
+ */
+const FREQUENT: FrequentFood[] = [
+  {
+    source_kind: "food",
+    key: "food:168874",
+    fdc_id: 168874,
+    custom_food_id: null,
+    description: "Rice, white, long-grain, regular, raw",
+    brand: null,
+    last_grams: 85,
+    last_amount_label: "85 g",
+  },
+  {
+    source_kind: "food",
+    key: "food:172421",
+    fdc_id: 172421,
+    custom_food_id: null,
+    description: "Lentils, mature seeds, raw",
+    brand: null,
+    last_grams: 60,
+    last_amount_label: "60 g",
+  },
+  {
+    source_kind: "food",
+    key: "food:171287",
+    fdc_id: 171287,
+    custom_food_id: null,
+    description: "Yogurt, plain, whole milk",
+    brand: null,
+    last_grams: 1200,
+    last_amount_label: "1,200 g",
+  },
+  {
+    source_kind: "food",
+    key: "food:171705",
+    fdc_id: 171705,
+    custom_food_id: null,
+    description: "Ghee, clarified butter",
+    brand: null,
+    last_grams: 12,
+    last_amount_label: "12 g",
+  },
+  {
+    source_kind: "food",
+    key: "food:170554",
+    fdc_id: 170554,
+    custom_food_id: null,
+    description: "Spinach, raw",
+    brand: null,
+    last_grams: 150,
+    last_amount_label: "150 g",
+  },
+];
+
 /* ── the library ────────────────────────────────────────────────────────── */
 
 const VESSELS: Vessel[] = [
@@ -613,6 +682,7 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   get_day: (a) => day(String(a.loggedOn ?? today())),
   search_foods: (a) => search(String(a.query ?? ""), Number(a.limit ?? 30)),
   get_food_detail: (a) => detail(Number(a.fdcId)),
+  frequent_foods: (a) => FREQUENT.slice(0, Number(a.limit ?? 6)),
   logged_dates: () => loggedDates(),
   get_range: (a) => range(String(a.from ?? today()), String(a.to ?? today())),
   list_nutrients: () => meta(),

@@ -4204,6 +4204,237 @@ pub fn recall_tags(conn: &Connection, source: Source<'_>) -> Result<Tags, String
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// Quick add
+// ---------------------------------------------------------------------------
+
+/// How far back the quick-add list looks.
+///
+/// Ninety days, and NOT a caller's parameter. The section prints a sentence
+/// naming this window, so a caller that could pass a different one would make
+/// that sentence a lie. A window rather than a decay curve for the same
+/// reason: a half-life is a tuning constant nobody can see, nobody can audit
+/// and nobody can write down on the screen, whereas "these past three months"
+/// is one sentence — and it answers the food-eaten-forty-times-two-years-ago
+/// case by construction rather than by arithmetic.
+pub const FREQUENT_WINDOW_DAYS: u32 = 90;
+
+/// One row of the quick-add list: something logged often enough lately to be
+/// worth a shortcut, with enough beside it to open the amount step already
+/// filled in.
+///
+/// Note what it is NOT. It carries no count, no rank and no score, and that
+/// absence is the design rather than an omission. A tally beside a food name
+/// is a leaderboard of the user's own habits — a streak under another name —
+/// and the ordering's basis is explained ONCE in the section's own line of
+/// prose instead. What each row prints is the fact that actually helps you
+/// pick: the last amount. That is a fact about the food, not a score for the
+/// person.
+///
+/// Shaped for two readers, not one. The other is the Android home-screen
+/// widget, which is `RemoteViews` and can draw nothing but pre-formatted
+/// strings, so the amount arrives written out rather than as a number the
+/// caller must know how to spell.
+#[derive(Debug, Clone, Serialize)]
+pub struct FrequentFood {
+    /// "food" or "custom", the only two kinds this list carries.
+    pub source_kind: String,
+    /// "food:16033" / "custom:<uuid>". One stable string, because the callers
+    /// that have to name a row — a React key, and the widget's deep link —
+    /// cannot both carry a two-field identity.
+    pub key: String,
+    pub fdc_id: Option<i64>,
+    pub custom_food_id: Option<String>,
+    /// For a custom food, its name AS IT STANDS NOW. The asymmetry with the
+    /// log's own frozen description is deliberate: tapping this row logs the
+    /// CURRENT food, so a pack shown under the name it was logged with and
+    /// written under the name it now has would say one thing and do another.
+    /// That name can also change without this user touching anything —
+    /// `custom_foods` is one of the sync-shared kitchen tables (see the
+    /// `sync_control` comment), so a rename on another household device
+    /// arrives here — which is another reason to read it live.
+    ///
+    /// For a reference food this is what the log denormalised, because this
+    /// module cannot see the reference database. The command layer, which
+    /// holds both locks, replaces it with the reference database's current
+    /// description and drops the row entirely if the dataset no longer has
+    /// one — see `frequent_foods` in lib.rs.
+    pub description: String,
+    /// The pack's brand. Always `None` for a reference food.
+    pub brand: Option<String>,
+    /// The net weight of the most recent entry, to open the amount step on as
+    /// an editable default. Never null, and never to be read as `0`: the
+    /// biconditionals on `log_entries` make a supplement the only kind that
+    /// may omit `grams`, and no supplement reaches this list.
+    pub last_grams: f64,
+    /// `last_grams` already written out — "150 g". Pre-formatted because the
+    /// home-screen widget is Kotlin and has no `fmtAmount`.
+    pub last_amount_label: String,
+}
+
+/// A whole number of grams, written the way the rest of the app writes it.
+///
+/// Grouped in threes rather than printed bare. `fmtAmount` on the TypeScript
+/// side goes through `toLocaleString`, so it prints "1,200 g" where a plain
+/// `{}` prints "1200 g", and this string is drawn beside figures that came
+/// from that function — in the widget, it is drawn INSTEAD of them. Two
+/// spellings of the same weight in one interface reads as two applications.
+/// It is grouping in threes and not a locale: there is no locale data on this
+/// side of the boundary, and a food weight never reaches the digit counts
+/// where the Indian grouping would part company with it.
+fn grams_label(grams: f64) -> String {
+    let whole = grams.round().max(0.0) as u64;
+    let digits = whole.to_string();
+    let mut out = String::with_capacity(digits.len() + 4);
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.push_str(" g");
+    out
+}
+
+/// The foods this person has actually been logging, most days first.
+///
+/// `since` is a date, inclusive, and the caller gets it from [`days_ago_iso`]
+/// rather than this function computing it — passed in so a test can build a
+/// window without freezing a clock.
+///
+/// Ordered by the number of DAYS a food appears on and not by the number of
+/// entries: three helpings of the same dal on one Sunday is one habit, and
+/// counting entries would let a single heavy day outrank a food eaten on a
+/// dozen separate ones. `tag_counts` already keeps those two apart, and for
+/// the same reason.
+///
+/// Ties break on the most recent day, then on `created_at`, then on `rowid`,
+/// and all three are load-bearing rather than belt and braces. For anyone who
+/// has been logging for a fortnight nearly every candidate is tied at one day
+/// each, so the tiebreak is not the rare case — it is the ordinary one, and
+/// with none of it SQLite returns whichever rows the group scan reaches first,
+/// which can change after a VACUUM or a new index. `created_at` is accurate
+/// only to the second, so `rowid` is what actually resolves two foods logged
+/// in the same breath. See the `recall_tags` comment.
+///
+/// Only 'food' and 'custom' are considered, and the exclusions are the point
+/// rather than an oversight. A cook is a pot that gets finished, so its row
+/// would become a link to food that no longer exists. A supplement is taken
+/// every day by construction and would hold every row of a six-row list
+/// forever, and it has no portion step of the kind this list promises — it is
+/// counted in its own unit noun. Water carries no meal at all, and its
+/// "amount" is a bottle reading subtracted from a registered full weight, not
+/// a portion.
+///
+/// A custom food that has been deleted, or that exists only as a container for
+/// a spreadsheet import, is dropped: the first cannot be logged again, and the
+/// second was never a food anybody would look for. A single import writes one
+/// of those per row along with the entry, so without the `import_only` filter
+/// one afternoon's import of three hundred rows would BE the list. Both
+/// filters match the ones `search_custom_foods` already applies.
+///
+/// No index is added for this. `idx_log_day` already covers the window
+/// predicate, and one person's ninety days is not a scan worth an index — and
+/// an index that mentions any newer column would have to be created at the end
+/// of `migrate` rather than in `SCHEMA`, for the reason `idx_log_cuisine` is.
+/// The absence is a decision, not an oversight.
+pub fn frequent_foods(
+    conn: &Connection,
+    since: &str,
+    limit: u32,
+) -> Result<Vec<FrequentFood>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.source_kind, e.fdc_id, e.custom_food_id
+               FROM log_entries e
+              WHERE e.deleted_at IS NULL
+                AND e.source_kind IN ('food','custom')
+                AND e.logged_on >= ?1
+                AND (e.custom_food_id IS NULL
+                     OR EXISTS (SELECT 1 FROM custom_foods f
+                                 WHERE f.id = e.custom_food_id
+                                   AND f.deleted_at IS NULL
+                                   AND f.import_only = 0))
+              GROUP BY e.source_kind, e.fdc_id, e.custom_food_id
+              ORDER BY COUNT(DISTINCT e.logged_on) DESC,
+                       MAX(e.logged_on) DESC,
+                       MAX(e.created_at) DESC,
+                       MAX(e.rowid) DESC
+              LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let groups = stmt
+        .query_map(rusqlite::params![since, limit], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::with_capacity(groups.len());
+    for (source_kind, fdc_id, custom_food_id) in groups {
+        // Deliberately a second query per surviving row rather than a window
+        // function over the whole log. There are at most `limit` of them, and
+        // this way the "most recent entry" rule is written once, in the same
+        // order clause `recall_tags` uses, instead of being reconstructed
+        // inside a grouped SELECT where SQLite would be free to hand back a
+        // bare column from some other row of the group.
+        let (description, last_grams) = conn
+            .query_row(
+                "SELECT description, grams FROM log_entries
+                  WHERE deleted_at IS NULL AND source_kind = ?1
+                    AND (?2 IS NULL OR fdc_id = ?2)
+                    AND (?3 IS NULL OR custom_food_id = ?3)
+                  ORDER BY logged_on DESC, created_at DESC, rowid DESC
+                  LIMIT 1",
+                rusqlite::params![source_kind, fdc_id, custom_food_id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
+            )
+            .map_err(|e| e.to_string())?;
+
+        // The live name for one of the user's own foods. The group query has
+        // already established the row is there and undeleted, so a missing one
+        // here is a database that changed underneath us rather than an
+        // ordinary case, and the plumbing breadcrumb is the honest answer.
+        let (description, brand) = match custom_food_id.as_deref() {
+            Some(id) => conn
+                .query_row(
+                    "SELECT name, brand FROM custom_foods WHERE id = ?1",
+                    [id],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
+                )
+                .map_err(|e| format!("reading the name of a quick-add food: {e}"))?,
+            None => (description, None),
+        };
+
+        let key = match (fdc_id, custom_food_id.as_deref()) {
+            (Some(id), _) => format!("food:{id}"),
+            (None, Some(id)) => format!("custom:{id}"),
+            // Unreachable through the biconditionals on `log_entries`, which
+            // make each source_kind name exactly one id. Answered rather than
+            // panicked on, because a row with no identity is a row nothing can
+            // open and dropping the whole list for it would be worse.
+            (None, None) => continue,
+        };
+
+        out.push(FrequentFood {
+            source_kind,
+            key,
+            fdc_id,
+            custom_food_id,
+            description,
+            brand,
+            last_grams,
+            last_amount_label: grams_label(last_grams),
+        });
+    }
+    Ok(out)
+}
+
 /// Retag one entry, or clear a tag. Used from the day view, where a dish that
 /// was logged in a hurry gets its origin added afterwards.
 pub fn set_tags(conn: &Connection, id: &str, tags: &Tags) -> Result<(), String> {
@@ -4944,6 +5175,23 @@ pub fn now_iso(conn: &Connection) -> Result<String, String> {
 pub fn today_iso(conn: &Connection) -> Result<String, String> {
     conn.query_row("SELECT date('now','localtime')", [], |r| r.get(0))
         .map_err(|e| e.to_string())
+}
+
+/// The date that many days before today, on the machine's own clock.
+///
+/// `localtime` and SQLite's own clock for the reason [`today_iso`] gives, and
+/// the reason is sharper here than it looks. A window computed from a Rust
+/// clock crate and compared against `logged_on`, which SQLite wrote in local
+/// time, would be off by a day for anyone west of UTC through most of an
+/// evening — so the quick-add list would quietly forget a food on the wrong
+/// day, and the test suite would be measuring a different window from the app.
+pub fn days_ago_iso(conn: &Connection, days: u32) -> Result<String, String> {
+    conn.query_row(
+        "SELECT date('now','localtime',?1)",
+        [format!("-{days} days")],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -8344,4 +8592,275 @@ mod tests {
         assert_eq!(queued, 1);
     }
 
+    // -----------------------------------------------------------------------
+    // Quick add
+    // -----------------------------------------------------------------------
+
+    /// The window's start, written out rather than computed. `frequent_foods`
+    /// takes `since` as an argument for exactly this reason: a test that had to
+    /// freeze a clock to say what "ninety days ago" means would be testing the
+    /// clock. What the ninety itself resolves to is asserted separately, in
+    /// `the_window_is_measured_on_the_machines_own_clock`.
+    const SINCE: &str = "2026-08-01";
+
+    /// One log entry of a reference food, at the weight and on the day given.
+    fn logged(c: &Connection, fdc: i64, on: &str, grams: f64) -> String {
+        add(
+            c, on, Some("lunch"), Source::Food(fdc), "as it was called then",
+            Quantity::Grams(grams), None, &Tags::default(),
+        )
+        .unwrap()
+    }
+
+    /// Flatten `created_at` across the whole log to one instant.
+    ///
+    /// Not a convenience. `now_iso` is accurate to the second, so two entries
+    /// written by a test usually — but not always — share a timestamp, and a
+    /// tiebreak test that only sometimes reaches the tiebreak is a test that
+    /// passes by luck. Levelling the column leaves `rowid` as the only thing
+    /// that can decide, which is the case being asserted.
+    fn level_created_at(c: &Connection) {
+        c.execute("UPDATE log_entries SET created_at = '2026-09-04T10:00:00Z'", [])
+            .unwrap();
+    }
+
+    #[test]
+    fn quick_add_is_empty_before_anything_is_logged() {
+        let c = db();
+        let rows = frequent_foods(&c, SINCE, 6).unwrap();
+        assert!(rows.is_empty(), "a fresh log has nothing to shortcut");
+    }
+
+    #[test]
+    fn quick_add_ranks_by_days_logged_and_not_by_helpings() {
+        let c = db();
+        // One Sunday of three helpings against two ordinary days of one.
+        logged(&c, 111, "2026-09-04", 100.0);
+        logged(&c, 111, "2026-09-04", 100.0);
+        logged(&c, 111, "2026-09-04", 100.0);
+        logged(&c, 222, "2026-09-03", 80.0);
+        logged(&c, 222, "2026-09-04", 80.0);
+
+        let rows = frequent_foods(&c, SINCE, 6).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0].fdc_id,
+            Some(222),
+            "two separate days is a habit; one heavy day is a Sunday"
+        );
+        assert_eq!(rows[1].fdc_id, Some(111));
+    }
+
+    #[test]
+    fn quick_add_forgets_a_food_that_fell_out_of_the_window() {
+        let c = db();
+        // The food eaten forty times two years ago, stated as a test rather
+        // than as a comment.
+        for day in 1..=20 {
+            logged(&c, 111, &format!("2024-03-{day:02}"), 100.0);
+        }
+        logged(&c, 222, "2026-09-03", 80.0);
+        logged(&c, 222, "2026-09-04", 80.0);
+
+        let rows = frequent_foods(&c, SINCE, 6).unwrap();
+        assert_eq!(rows.len(), 1, "the old staple is not in the window at all");
+        assert_eq!(rows[0].fdc_id, Some(222));
+    }
+
+    #[test]
+    fn foods_tied_at_one_day_each_lead_with_the_one_logged_last() {
+        let c = db();
+        // The ordinary case for anyone a fortnight in: everything tied at one
+        // day, on the same day, in the same second. Without the rowid tiebreak
+        // the order here is whatever the group scan happens to produce, and
+        // that can change after a VACUUM or an added index.
+        logged(&c, 111, "2026-09-04", 100.0);
+        logged(&c, 222, "2026-09-04", 100.0);
+        logged(&c, 333, "2026-09-04", 100.0);
+        level_created_at(&c);
+
+        let rows = frequent_foods(&c, SINCE, 6).unwrap();
+        assert_eq!(
+            rows.iter().map(|f| f.fdc_id).collect::<Vec<_>>(),
+            vec![Some(333), Some(222), Some(111)],
+        );
+    }
+
+    #[test]
+    fn two_entries_in_the_same_second_still_resolve_to_the_later_one() {
+        let c = db();
+        logged(&c, 111, "2026-09-04", 40.0);
+        logged(&c, 111, "2026-09-04", 150.0);
+        level_created_at(&c);
+
+        let rows = frequent_foods(&c, SINCE, 6).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].last_grams, 150.0,
+            "the amount offered is the last one weighed, not the first"
+        );
+    }
+
+    #[test]
+    fn quick_add_carries_only_food_and_the_users_own_packs() {
+        let mut c = db();
+        // One entry of every kind the log can hold, all on one day.
+        logged(&c, 111, "2026-09-04", 100.0);
+
+        let food_id = save_custom_food(&mut c, None, &pack("Roasted chana", 30.0, vec![])).unwrap();
+        add(
+            &c, "2026-09-04", Some("snack"), Source::Custom(&food_id), "Roasted chana",
+            Quantity::Grams(30.0), None, &Tags::default(),
+        )
+        .unwrap();
+
+        let rid = save_recipe(
+            &mut c, "Dal tadka", 1000.0, Some(4.0), None,
+            &[ing("Lentils", Some(172421), 300.0, 900.0)], &[], &Tags::default(),
+        )
+        .unwrap();
+        add(
+            &c, "2026-09-04", Some("lunch"), Source::Recipe(&rid), "Dal tadka",
+            Quantity::Grams(250.0), None, &Tags::default(),
+        )
+        .unwrap();
+
+        let cid = save_cook(
+            &mut c,
+            None,
+            &CookInput {
+                recipe_id: Some(rid.clone()),
+                name: "Dal tadka".into(),
+                cooked_on: "2026-09-04".into(),
+                scale: 1.0,
+                gross_g: None,
+                vessel_ids: Vec::new(),
+                weighed_yield_g: Some(900.0),
+                notes: None,
+                defaults: Tags::default(),
+                ingredients: vec![CookIngredient {
+                    id: String::new(),
+                    position: 0,
+                    fdc_id: Some(172421),
+                    description: "Lentils".into(),
+                    planned_g: 900.0,
+                    raw_g: 300.0,
+                    cooked_g: 900.0,
+                    substituted_for: None,
+                }],
+            },
+        )
+        .unwrap();
+        add(
+            &c, "2026-09-04", Some("dinner"), Source::Cook(&cid), "Dal tadka",
+            Quantity::Grams(200.0), None, &Tags::default(),
+        )
+        .unwrap();
+
+        let sid = save_supplement(&mut c, None, &multivit()).unwrap();
+        add(
+            &c, "2026-09-04", Some("breakfast"), Source::Supplement(&sid), "Multivitamin",
+            Quantity::Units(1.0), None, &Tags::default(),
+        )
+        .unwrap();
+
+        let bid = save_bottle(&c, None, "Steel flask", 1050.0, None, None).unwrap();
+        add(
+            &c, "2026-09-04", None, Source::Water(&bid), "Steel flask",
+            Quantity::Grams(600.0), None, &Tags::default(),
+        )
+        .unwrap();
+
+        let rows = frequent_foods(&c, SINCE, 20).unwrap();
+        let kinds: Vec<&str> = rows.iter().map(|f| f.source_kind.as_str()).collect();
+        assert_eq!(kinds.len(), 2, "six kinds went in and two of them are shortcuts");
+        assert!(kinds.contains(&"food"));
+        assert!(kinds.contains(&"custom"));
+    }
+
+    #[test]
+    fn a_deleted_or_import_only_custom_food_leaves_the_quick_add_list() {
+        let mut c = db();
+        let food_id = save_custom_food(&mut c, None, &pack("Roasted chana", 30.0, vec![])).unwrap();
+        add(
+            &c, "2026-09-04", Some("snack"), Source::Custom(&food_id), "Roasted chana",
+            Quantity::Grams(30.0), None, &Tags::default(),
+        )
+        .unwrap();
+
+        // A spreadsheet import writes one of these per row along with the
+        // entry it creates, so three imported days is the shape of the
+        // failure: without the import_only filter one afternoon's import of
+        // three hundred rows IS the list.
+        let mut imported = pack("Row 41 of an import", 100.0, vec![]);
+        imported.import_only = true;
+        let imported_id = save_custom_food(&mut c, None, &imported).unwrap();
+        for day in ["2026-09-02", "2026-09-03", "2026-09-04"] {
+            add(
+                &c, day, Some("lunch"), Source::Custom(&imported_id), "Row 41 of an import",
+                Quantity::Grams(100.0), None, &Tags::default(),
+            )
+            .unwrap();
+        }
+
+        let rows = frequent_foods(&c, SINCE, 6).unwrap();
+        assert_eq!(rows.len(), 1, "a bulk-import container was never a food to look for");
+        assert_eq!(rows[0].custom_food_id.as_deref(), Some(food_id.as_str()));
+
+        // The delete is soft, and it need not even be this person's: custom
+        // foods are shared across a household, so a pack another device threw
+        // out disappears here too. Either way, a row that cannot be logged
+        // again is worse than no row.
+        delete_custom_food(&c, &food_id).unwrap();
+        assert!(frequent_foods(&c, SINCE, 6).unwrap().is_empty());
+    }
+
+    #[test]
+    fn quick_add_prefills_the_most_recent_amount_and_the_current_name() {
+        let mut c = db();
+        let food_id = save_custom_food(&mut c, None, &pack("Chana", 30.0, vec![])).unwrap();
+        add(
+            &c, "2026-09-03", Some("snack"), Source::Custom(&food_id), "Chana",
+            Quantity::Grams(40.0), None, &Tags::default(),
+        )
+        .unwrap();
+        add(
+            &c, "2026-09-04", Some("snack"), Source::Custom(&food_id), "Chana",
+            Quantity::Grams(150.0), None, &Tags::default(),
+        )
+        .unwrap();
+        let mut renamed = pack("Roasted chana, salted", 30.0, vec![]);
+        renamed.id = food_id.clone();
+        save_custom_food(&mut c, Some(&food_id), &renamed).unwrap();
+
+        let rows = frequent_foods(&c, SINCE, 6).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].last_grams, 150.0);
+        assert_eq!(rows[0].last_amount_label, "150 g");
+        assert_eq!(
+            rows[0].description, "Roasted chana, salted",
+            "tapping the row logs the food as it is now, so it has to be named as it is now"
+        );
+        assert_eq!(rows[0].key, format!("custom:{food_id}"));
+    }
+
+    #[test]
+    fn the_window_is_measured_on_the_machines_own_clock() {
+        let c = db();
+        assert_eq!(days_ago_iso(&c, 0).unwrap(), today_iso(&c).unwrap());
+        let back = days_ago_iso(&c, FREQUENT_WINDOW_DAYS).unwrap();
+        assert_eq!(back.len(), 10, "an ISO date, comparable against logged_on");
+        assert!(back < today_iso(&c).unwrap());
+    }
+
+    #[test]
+    fn a_four_figure_weight_is_written_the_way_the_rest_of_the_app_writes_it() {
+        // `fmtAmount` on the TypeScript side prints "1,200 g" through
+        // toLocaleString, and the widget will draw this string instead of
+        // calling it. Two spellings of one weight is two applications.
+        assert_eq!(grams_label(150.0), "150 g");
+        assert_eq!(grams_label(150.4), "150 g");
+        assert_eq!(grams_label(1200.0), "1,200 g");
+        assert_eq!(grams_label(12_345.0), "12,345 g");
+    }
 }
