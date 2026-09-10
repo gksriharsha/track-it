@@ -415,7 +415,7 @@ async fn get_day_dashboard(
 | `get_profile` / `save_profile` | `(…) -> Profile` | birthdate (never a stored age), sex, height, activity, pregnancy/lactation | |
 | `get_targets` | `(profile_id, on: LocalDate) -> Vec<NutrientTarget>` | `{kind: Rda|Ai|Ul|Cdrr, basis, status}` | `status: Established{amount} | NotEstablished` — "no UL" can never render as "unlimited" |
 | `set_fdc_api_key` | `(key: String) -> AppStatus` | | Write-only direction. There is no getter |
-| `export_day_csv` | `(day) -> String` | CSV text | Phase 9; needs `tauri-plugin-dialog` |
+| `export_log` / `save_exported_file` | `(from, to) -> ExportLog`; `(name, kind, base64) -> Option<String>` | frozen rows, doses and bottles; then the bytes | **Built.** Supersedes the planned `export_day_csv`: a period rather than one day, and the file is written so `parseSpreadsheet` reads it back. See `src-tauri/src/export.rs` |
 
 ### 3.1 Response budget
 
@@ -700,7 +700,7 @@ minimal. Crate and npm versions must match exactly; pin without `^`.
 | Open bundled asset (`asset://localhost/…`) | `tauri-plugin-fs` **2.5.2** | *none* | Rust-side only. The webview gets **no** fs permission |
 | Logging (logcat on Android, file on desktop) | `tauri-plugin-log` **2.9.1** | *optional* | How you debug §4.3 on device |
 | Barcode scanning | `tauri-plugin-barcode-scanner` **2.4.6** | `@tauri-apps/plugin-barcode-scanner` **2.4.6** | **mobile-only**, target-gated |
-| CSV export file picker | `tauri-plugin-dialog` **2.7.3** | `@tauri-apps/plugin-dialog` **2.7.3** | Phase 9 only |
+| Desktop save panel for an export | `tauri-plugin-dialog` **2.7.3** | *none* | **Installed**, Rust-side only, and scoped to `cfg(not(any(target_os = "android", target_os = "ios")))`. Android saves through the Storage Access Framework in `ExportPlugin.kt` instead, so the plugin's AAR never enters that target's Cargo graph and no generated Gradle file has to carry it. The webview gets **no** dialog permission |
 
 Deliberately **not** installed, with reasons:
 

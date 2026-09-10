@@ -67,3 +67,20 @@ objc2-core-foundation = { version = "0.3.2", features = ["CFBase", "CFCGTypes", 
 # reads nothing at all from sideways text.
 objc2-image-io = { version = "0.3.2", default-features = false, features = ["std", "CGImageSource", "CGImageProperties", "objc2", "objc2-core-graphics"] }
 objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "VNDefines", "VNError", "VNTypes", "VNObservation", "VNRequest", "VNRequestHandler", "VNRequestRevisionProviding", "VNRecognizeTextRequest", "VNDetectBarcodesRequest", "objc2-core-foundation", "objc2-core-graphics", "objc2-image-io"] }
+
+# The save panel the desktop build puts an export in front of, and nothing
+# else. Deliberately scoped to everything EXCEPT the phones rather than sitting
+# in `[dependencies]`: this plugin ships an Android AAR, and the Tauri CLI
+# discovers those from the Cargo graph and writes them into
+# `gen/android/tauri.settings.gradle`, a generated and gitignored file that
+# nobody should have to hand-maintain. Android does not want it in any case —
+# saving there goes through the Storage Access Framework, which `ExportPlugin.kt`
+# asks for directly and rfd cannot reach.
+#
+# Pinned rather than left as "2". The published 2.7.1 crate declares a
+# `consumerProguardFiles("consumer-rules.pro")` whose file is missing from the
+# package, so a range that ever resolved backwards would fail an Android build
+# that had no business seeing this plugin at all. 2.7.3 is also the version
+# docs/architecture-app.md §5.1 already names.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-dialog = "2.7.3"

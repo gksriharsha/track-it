@@ -1184,6 +1184,75 @@ export interface ImportSummary {
   failed: ImportRowFailure[];
 }
 
+/* ── exporting the log ─────────────────────────────────────────────────── */
+
+/** One nutrient of one exported entry, in that nutrient's own unit and already
+ * rounded by the backend. Never round, scale or convert one here. */
+export interface ExportNutrient {
+  nutrient_id: number;
+  amount: number;
+}
+
+/** One food entry as one row of the sheet the importer reads back.
+ *
+ * `meal` is a plain string and not nullable: only water has no sitting, and
+ * water is not on this sheet. */
+export interface ExportLogRow {
+  logged_on: string;
+  meal: string;
+  description: string;
+  /** Only the nutrients this entry is exactly known for. A nutrient missing
+   * from here becomes a BLANK cell, which the parser reads as "not tracked".
+   * Never write `?? 0` against one of these, and never write a 0 for an
+   * absence — a spreadsheet will sum whatever is in the cell. */
+  nutrients: ExportNutrient[];
+}
+
+/** One dose, on a sheet the importer never looks at. A supplement read back as
+ * a 100 g food would be nonsense: a tablet's contents are not a function of
+ * its weight. */
+export interface ExportDoseRow {
+  logged_on: string;
+  meal: string;
+  description: string;
+  /** Counted in the supplement's own unit noun, never a mass. */
+  units: number;
+  nutrients: ExportNutrient[];
+}
+
+/** One bottle finished, on a sheet the importer never looks at either. */
+export interface ExportWaterRow {
+  logged_on: string;
+  description: string;
+  ml: number;
+  /** False when the millilitres came from the density of water rather than from
+   * this bottle's own two weighings. */
+  measured: boolean;
+}
+
+/** Everything one export covers, decided by the backend out of what each entry
+ * was frozen with. Nothing here was recomputed from today's reference data. */
+export interface ExportLog {
+  from: string;
+  to: string;
+  /** Days in the period that have anything logged at all. */
+  days: number;
+  rows: ExportLogRow[];
+  doses: ExportDoseRow[];
+  water: ExportWaterRow[];
+  /** (entry, nutrient) pairs left blank because the entry's frozen value was
+   * not exactly known. Stated on the screen so the gaps in the file are known
+   * before it is written. */
+  blanks: number;
+  /** Food entries carrying no exactly-known nutrient at all. They are still
+   * written; on the way back in the importer reports each of them and writes
+   * nothing. */
+  rows_without_values: number;
+  /** Live entries with no frozen nutrition, which the export leaves out rather
+   * than valuing against today's data. Normally zero. */
+  unexportable: number;
+}
+
 /* ── correcting what a day recorded ────────────────────────────────────── */
 
 /**

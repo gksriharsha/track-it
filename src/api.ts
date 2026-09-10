@@ -1,11 +1,13 @@
 // Tauri's own `invoke` inside the app; the browser design fixture outside it.
 // See lib/bridge.ts — the real backend is never bypassed in a Tauri window.
 import { invoke } from "./lib/bridge";
+import type { ExportKind } from "./lib/exportSheet";
 import type {
   BarcodeScan,
   CustomFood,
   CustomFoodDetail,
   DayView,
+  ExportLog,
   FoodDetail,
   FoodHit,
   FrequentFood,
@@ -536,6 +538,31 @@ export const importLogRows = (rows: ImportRowInput[]) =>
  */
 export const datesWithExistingImports = (dates: string[]) =>
   invoke<string[]>("dates_with_existing_imports", { dates });
+
+/* ── exporting the log ─────────────────────────────────────────────────── */
+
+/**
+ * Assemble the log for a period out of what each entry was FROZEN with.
+ *
+ * Nothing is recomputed — the command does not even open the reference
+ * database — so an export of March still says what March said after a pack was
+ * reformulated in June. See `src-tauri/src/export.rs`.
+ */
+export const exportLog = (from: string, to: string) =>
+  invoke<ExportLog>("export_log", { from, to });
+
+/**
+ * Hand already-encoded bytes to the platform's own save panel — a native panel
+ * on the Mac, the Storage Access Framework on Android.
+ *
+ * Resolves to the name the file was actually saved under, which is not always
+ * the name that was suggested: the Android picker silently turns a second
+ * export of the same period into "… (1).xlsx". Resolves to null when nothing
+ * was written. Do not report that as an error, and do not report it as a
+ * cancellation either — from here the two are indistinguishable on Android.
+ */
+export const saveExportedFile = (suggestedName: string, kind: ExportKind, dataBase64: string) =>
+  invoke<string | null>("save_exported_file", { suggestedName, kind, dataBase64 });
 
 /** Local calendar date as YYYY-MM-DD. Never use toISOString(), which is UTC. */
 export function todayIso(d = new Date()): string {

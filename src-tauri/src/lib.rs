@@ -1,5 +1,6 @@
 mod awake;
 mod db;
+mod export;
 mod store;
 mod vision;
 
@@ -3722,6 +3723,13 @@ fn set_keep_awake(on: bool, app: AppHandle) -> Result<(), String> {
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_fs::init());
 
+    // The save panel an export is put in front of, on the platforms that have
+    // one. Android is excluded here AND in Cargo.toml: saving there goes
+    // through the Storage Access Framework, which `export::init()` below asks
+    // for directly, so the dialog plugin is not even in that target's graph.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+
     // The bridge is registered only for Android. Its Kotlin class and ML Kit
     // dependencies are likewise in the Android source set, so desktop bundles
     // cannot accidentally carry a second vision stack.
@@ -3733,6 +3741,12 @@ pub fn run() {
     // flag goes to never be found again.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(awake::init());
+
+    // And again for the document picker: `ExportPlugin.kt` sits beside
+    // `VisionPlugin.kt` in the Android source set, so nothing about it reaches
+    // a desktop bundle either.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(export::init());
 
     builder
         .setup(|app| {
@@ -3801,6 +3815,8 @@ pub fn run() {
             list_cuisines,
             list_nutrients,
             import_log_rows,
+            export::export_log,
+            export::save_exported_file,
             get_entry_snapshot,
             correct_entry_amount,
             correct_entry_value,

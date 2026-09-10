@@ -7,6 +7,10 @@ interface Props {
   onOpenProfile: () => void;
   onOpenSettings: () => void;
   onOpenImport: () => void;
+  /** The way out, beside the way in. Both live in this group because the log
+   * belongs to the person, and a screen about who the figures are for is where
+   * "and they are yours to take" belongs too. */
+  onOpenExport: () => void;
 }
 
 /**
@@ -149,11 +153,19 @@ export default function You(p: Props) {
             </span>
             <span className="row__chev" aria-hidden>›</span>
           </button>
+          <button className="row" style={{ gridTemplateColumns: "1fr auto" }} onClick={p.onOpenExport}>
+            <span className="row__main">
+              <span className="row__title">Export your log</span>
+              <span className="row__sub">A spreadsheet of what you logged, to keep</span>
+            </span>
+            <span className="row__chev" aria-hidden>›</span>
+          </button>
         </div>
       </section>
 
       <p style={{ color: "var(--ink-3)", fontSize: 12, textAlign: "center", margin: "var(--s2) 0" }}>
-        Everything stays on this device, in the same file as your food log.
+        Everything stays on this device, in the same file as your food log, until you export it
+        somewhere yourself.
       </p>
     </div>
   );

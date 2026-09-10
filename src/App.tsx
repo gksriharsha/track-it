@@ -19,6 +19,7 @@ import Statistics from "./screens/Statistics";
 import Settings from "./screens/Settings";
 import SupplementEditor from "./screens/SupplementEditor";
 import ImportData from "./screens/ImportData";
+import ExportData from "./screens/ExportData";
 import Logo from "./components/Logo";
 import CommandPalette from "./components/CommandPalette";
 import type { Command } from "./components/CommandPalette";
@@ -145,6 +146,15 @@ const NAV_ICON: Record<string, ReactNode> = {
       <path d="M5 17v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2" strokeLinecap="round" />
     </>
   ),
+  /* The same tray as `import`, with the arrow going the other way. Two glyphs
+     that differ only in the direction of one stroke is the whole point: they
+     are the same door, and nothing else about them should look different. */
+  export: (
+    <>
+      <path d="M12 14V4M8.5 7.5L12 4l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 17v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2" strokeLinecap="round" />
+    </>
+  ),
   /* Sliders, not a cogwheel. A six-spoke gear at 20px reads as a sunburst,
      and two tracks with a knob each say "settings" at any size. */
   settings: (
@@ -192,6 +202,7 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
       { id: "profile", label: "Profile & reference figures" },
       { id: "household", label: "Household" },
       { id: "import", label: "Import a spreadsheet" },
+      { id: "export", label: "Export your log" },
       { id: "settings", label: "Settings" },
     ],
   },
@@ -216,6 +227,7 @@ const ASIDES = [
   "supplements",
   "supplement",
   "import",
+  "export",
   "profile",
   "household",
   "statistics",
@@ -231,7 +243,7 @@ const TAB_HINT: Record<string, string> = {
   nutrients: "every nutrient, and what was not measured",
   history: "a day, or a period",
   library: "recipes, your foods, vessels",
-  you: "profile, targets, import",
+  you: "profile, targets, import and export",
 };
 
 /**
@@ -250,6 +262,7 @@ const ASIDE_HOME: Record<string, Tab> = {
   supplements: "foods",
   supplement: "supplements",
   import: "history",
+  export: "you",
   profile: "you",
   household: "you",
   statistics: "statistics",
@@ -579,6 +592,7 @@ export default function App() {
     { id: "profile", label: "Profile", hint: "who the targets are for", group: "Settings", run: () => go("profile", { from: "you" }) },
     { id: "targets", label: "Reference figures", hint: "what every figure is read against", group: "Settings", run: () => go("settings", { from: "you" }) },
     { id: "import", label: "Import a spreadsheet", hint: "a log you kept elsewhere", group: "Settings", run: () => go("import", { from: "you" }) },
+    { id: "export", label: "Export your log", hint: "a spreadsheet you keep", group: "Settings", run: () => go("export", { from: "you" }) },
     { id: "household", label: "Household", hint: "the other devices in this kitchen", group: "Settings", run: () => go("household", { from: "you" }) },
     { id: "statistics", label: "Statistics", hint: "how you have been eating", group: "Settings", run: () => go("statistics", { from: "history" }) },
   ];
@@ -702,7 +716,11 @@ export default function App() {
         <button
           className="sidebar__link sidebar__link--quiet"
           aria-current={
-            tab === "you" || tab === "profile" || tab === "settings" || tab === "import"
+            tab === "you" ||
+            tab === "profile" ||
+            tab === "settings" ||
+            tab === "import" ||
+            tab === "export"
               ? "page"
               : undefined
           }
@@ -936,6 +954,7 @@ export default function App() {
             onOpenProfile={() => go("profile", { from: "you" })}
             onOpenSettings={() => go("settings", { from: "you" })}
             onOpenImport={() => go("import", { from: "you" })}
+            onOpenExport={() => go("export", { from: "you" })}
           />
         )}
 
@@ -978,6 +997,15 @@ export default function App() {
             onDone={() => go(route.from ?? "history")}
           />
         )}
+
+        {/*
+          Beside the importer, and reached the same way. There is deliberately
+          no second action on History's own header for this: `ScreenHead`'s
+          `action` prop takes ONE primary action and "Import data" is already
+          it, so getting here from a period on History goes through the menu.
+          This screen carries the same four presets, which makes that cheap.
+        */}
+        {tab === "export" && <ExportData onBack={() => go(route.from ?? "you")} />}
 
         {/*
           `onChanged` re-reads the day. Targets are the denominator of every
