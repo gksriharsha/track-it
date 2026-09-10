@@ -1415,3 +1415,82 @@ export type PairingState =
   | { stage: "paired"; peer_name: string }
   | { stage: "expired" }
   | { stage: "failed"; detail: string };
+
+/* ── the encrypted log, and the sealed copy ─────────────────────────────── */
+
+/**
+ * What the phone's own keystore turned out to be.
+ *
+ * Reported rather than assumed, and the Backup screen prints it verbatim: on
+ * one phone the "hardware-backed" key really is in secure hardware and on
+ * another the same call quietly gives you a software key, and the screen must
+ * not claim the first when it got the second.
+ */
+export interface KeystoreState {
+  available: boolean;
+  hardware: "strongbox" | "tee" | "software" | "unknown";
+  /** Why it is not available, when it is not. Shown unchanged. */
+  note: string | null;
+}
+
+/** Everything the Backup screen renders, and nothing it has to work out. */
+export interface BackupStatus {
+  /**
+   * False off Android. Every other field is then meaningless, and the screen
+   * explains the platform rather than reading them.
+   */
+  supported: boolean;
+  /**
+   * Whether the log on this phone is encrypted right now. Asked of the file
+   * itself, never of a setting — see `vault.rs`.
+   */
+  encrypted: boolean;
+  /**
+   * Encrypted, and this session has no key for it. Nothing else on the screen
+   * matters while this is true.
+   */
+  locked: boolean;
+  /** Why, in a sentence. Shown unchanged; it was written to be shown. */
+  locked_note: string | null;
+  passphrase_set: boolean;
+  keystore: KeystoreState;
+  /**
+   * Whether a keystore copy of the key is actually on disk. Distinct from
+   * `keystore.available` — the hardware can be fine and the file absent.
+   */
+  keystore_holds_key: boolean;
+  /** null until a copy has been sealed. Never write `?? ""`. */
+  sealed_at: string | null;
+  sealed_bytes: number | null;
+  plain_bytes: number | null;
+  /** 26,214,400. What Google's backup service will carry for one app, named. */
+  quota_bytes: number;
+  /** Over it, Android stops carrying this app and tells nobody. */
+  over_quota: boolean;
+  /** The log has moved on since the sealed copy was written. */
+  stale: boolean;
+  auto_reseal: boolean;
+  /**
+   * A sealed copy is here and nothing is logged — which is what a fresh install
+   * looks like once Google has delivered the backup.
+   */
+  restore_available: boolean;
+  logged_entries: number;
+  /** Where the one file that may leave this phone lives. */
+  sealed_dir: string | null;
+  /** Where the log a restore replaced went, while its copy is still there. */
+  superseded_path: string | null;
+}
+
+/** What a restore did, in the terms the screen reports it. */
+export interface RestoreOutcome {
+  entries: number;
+  sealed_at: string;
+  /**
+   * The database that was replaced. Renamed, not deleted, and named here so the
+   * screen can say where it went.
+   */
+  superseded_path: string;
+  /** Whether an earlier restore's kept copy had to make room for this one. */
+  replaced_earlier_superseded: boolean;
+}

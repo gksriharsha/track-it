@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and below, where there is no cloud/device-transfer split and one
+  list covers both. minSdk is 24, so this file is not optional: without it every
+  phone below Android 12 falls back to the old default and carries the whole
+  data directory.
+
+  Same single include and the same reasoning as data_extraction_rules.xml. Keep
+  the two files saying the same thing — a phone on Android 11 is exactly the
+  phone least able to survive its whole log being uploaded in the clear.
+
+  Neither file needs a Gradle change. compileSdk is already 36 and
+  android:dataExtractionRules needs 31.
+-->
+<full-backup-content>
+  <include domain="file" path="backup/trackit-backup.tkb" />
+</full-backup-content>

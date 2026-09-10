@@ -564,3 +564,91 @@ many — freezing it on sight would make reading a file a write to history.
 in micrograms and sodium in milligrams, so that is already finer than any pack this app has read.
 Generation one loses sub-milli precision; from generation two the cycle is exact, because
 re-exporting an imported file reproduces the same rounded figures. The FILE is the authority.
+## D18 — The log is encrypted on Android, and exactly one sealed file may leave the phone
+
+*(Added with the Backup screen. Android only.)*
+
+**Defect, and it was live.** `android:allowBackup` was **unset** in the manifest, which is not the
+same as off: it defaults to true. Every file under the app's data directory was therefore eligible
+to be uploaded to the user's Google account — and that directory is where `user.db` sat in plain
+SQLite, next to `photos/` full of pack photographs. There was a second, quieter fault in the same
+default: `db::resolve` copies the 39 MB `usda_core.db` into that directory, Auto Backup carries
+25 MB per app, and Android's answer to being over quota is to stop backing the app up and tell
+nobody. So the app was probably leaking nothing only because it was probably backing up nothing.
+
+**Decision — the live database.** `user.db` is **SQLCipher-encrypted on Android**, through a
+target-scoped `[target.'cfg(target_os = "android")'.dependencies]` block. That block was chosen over
+a single plain dependency after measuring: it builds all four ABIs, leaves the macOS build
+byte-for-byte plain SQLite (zero openssl and zero sqlcipher symbols), and costs about 3.79 MB on the
+one ABI the release workflow ships. `db.rs` needed no change at all, because an **unkeyed** SQLCipher
+connection still opens a plaintext file — so the bundled reference database keeps opening, FTS5
+included, and only the user's own log ever takes a key.
+
+The honest cost, since a decision record that hides one is worthless: vendored OpenSSL 3.6.3 is now
+security-critical C in a build that previously had none, and watching its advisories is a standing
+obligation.
+
+**Decision — encryption is opt-in, and cannot be switched on without a recovery passphrase.** This
+one rule removes every data-loss path from the design, and it is why the earlier plan's rejection of
+SQLCipher does not apply. That plan reasoned that a SQLCipher database keyed from the Android
+Keystore is either carried by the backup and then unopenable after a restore, or excluded and
+therefore pointless — a false dilemma, because Keystore is not the only key source. Here there are
+**two wraps of one data key**: one under an Argon2id key derived from the user's passphrase, which is
+what a fresh phone uses, and one under a Keystore AES-GCM key with
+`setUserAuthenticationRequired(false)`, which is what makes the daily launch silent. A Keystore key
+the operating system throws away therefore costs one passphrase prompt and can never cost history.
+
+`setUserAuthenticationRequired(false)` is the load-bearing line. A key that requires authentication
+is exactly the key Android invalidates when a fingerprint is enrolled or a lock screen is removed,
+and this key opens the user's log — so requiring authentication would let the OS destroy a year of
+meals as a side effect of somebody changing their thumb. The key consequently guards nothing on its
+own, deliberately.
+
+**Decision — whether the log is encrypted is asked of the file, not of a flag.** A plaintext SQLite
+database begins with `SQLite format 3`; a SQLCipher one begins with ciphertext. `backup::is_plain_sqlite`
+reads those sixteen bytes, in the same spirit as every migration arm in `store.rs` asking the
+database what shape it is in rather than trusting a version a half-finished upgrade may have written.
+A settings file claiming "encrypted" over a plaintext database is precisely what a crash mid-conversion
+leaves behind, and trusting it would mean keying a plaintext file and reporting the user's log as
+corrupt.
+
+**Decision — the sealed file is self-describing.** The passphrase-wrapped key, the salt and the exact
+Argon2id cost parameters used are in the file's own 162-byte header, so no interleaving of a crash on
+disk can produce a blob nobody can open, and a build that later lowers the cost for slow phones still
+opens a backup sealed today. Bytes 0..38 authenticate the wrap — it stops there because a wrap cannot
+authenticate a header containing itself — and bytes 0..162 authenticate the payload. The whole header,
+not part of it: a shorter span would leave the sealing date unauthenticated, and the Backup screen
+prints that date.
+
+Every field read out of that header is **bounded before anything allocates**. `m_cost` is in KiB and
+cannot be authenticated before it is used, because deriving the key is what authentication requires —
+so one flipped high bit turns 64 MiB into roughly 2 TiB, and Argon2 would ask for it at the exact
+moment somebody is restoring. The decompressed length is bounded too, on bytes actually read rather
+than on the length the header claims, because a header figure that sizes an allocation is a gzip bomb
+with a polite interface.
+
+**Decision — one directory travels, and it is not the one the key is in.** `android:allowBackup` is
+now explicitly `true`, with `dataExtractionRules` (API 31+) and `fullBackupContent` (24–30) that each
+contain a single `<include>`. One include is what makes a rules file restrictive: the moment a section
+has any, only those paths travel. The sealed file is written to `getFilesDir()/backup/`, which is what
+`domain="file"` addresses — and Tauri's `app_data_dir()` is **not** that directory but its parent, so
+the key material under `app_data_dir()/keys` is not merely excluded; there is no path a rules file
+could name that would reach it.
+
+**Decision — two consents, not one.** Setting a passphrase encrypts the log. Sealing a copy is a
+separate button, because making a file eligible to leave the phone is a separate decision, and
+collapsing them into one act with the consequence explained in a paragraph above the field is implied
+consent. Deleting the sealed file is how the consent is withdrawn; what Google has already taken is
+Google's to expire, and the screen says so rather than implying the button reaches into the cloud.
+
+**Decision — the restore path ships with the feature.** Auto Backup delivers the sealed file to a
+fresh install and says nothing. First launch notices a sealed copy beside an empty log and offers the
+restore, rather than opening an empty log and letting somebody conclude the backup never worked.
+
+**Not done, and stated rather than left to be discovered.** Photographs of packs are neither
+encrypted nor carried: `MAX_PHOTO_BYTES` allows 6 MB each, so four labels would exhaust the 25 MB
+quota and cost the user the backup of the thing that actually matters — and a pack can be
+photographed again where a meal eaten in March cannot be eaten again. Changing the passphrase
+re-wraps the same data key rather than rotating it, so a copy already carried elsewhere still opens
+with the old passphrase; that is a worse secret than a rotation would give, and a better one than a
+rekey that crashes halfway with the new wrap not yet on disk.

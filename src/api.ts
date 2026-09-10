@@ -41,6 +41,8 @@ import type {
   Bottle,
   EntrySnapshotView,
   CorrectableKind,
+  BackupStatus,
+  RestoreOutcome,
 } from "./types";
 
 /**
@@ -700,3 +702,81 @@ export const syncNow = () => invoke<SyncOutcome[]>("sync_now");
  * screen on a kitchen counter all night.
  */
 export const setKeepAwake = (on: boolean) => invoke<void>("set_keep_awake", { on });
+/* ── the encrypted log, and the sealed copy ─────────────────────────────── */
+
+/**
+ * What is encrypted, what is sealed, when, how big, and what this phone's
+ * keystore actually turned out to be.
+ *
+ * The one command in this group that does not refuse off Android. It answers
+ * with `supported: false` instead, so the screen can explain the platform in
+ * its own words rather than showing an alert where a page should be.
+ */
+export const backupStatus = () => invoke<BackupStatus>("backup_status");
+
+/**
+ * Encrypt the log, setting the recovery passphrase that is the only thing able
+ * to get it back.
+ *
+ * One act, because it is one decision: an encrypted log with no recovery
+ * passphrase is a log the operating system can take away. Making a copy that
+ * Google may carry is a SEPARATE act — see `sealBackupNow`.
+ */
+export const enableLogEncryption = (passphrase: string, confirm: string) =>
+  invoke<BackupStatus>("enable_log_encryption", { passphrase, confirm });
+
+/** Turn encryption off again. Takes the passphrase, because it removes a
+ *  protection. */
+export const disableLogEncryption = (passphrase: string) =>
+  invoke<BackupStatus>("disable_log_encryption", { passphrase });
+
+/**
+ * Change the recovery passphrase.
+ *
+ * `current` is required, not optional, and it is checked against the wrap on
+ * disk before anything is written — otherwise anybody holding an unlocked phone
+ * could revoke the passphrase protecting every copy of the log that has ever
+ * left it.
+ *
+ * The copy on this phone is re-sealed under the new passphrase. A copy already
+ * carried elsewhere still opens with the old one, because the passphrase that
+ * wrapped a file's key is recorded inside that file.
+ */
+export const changeBackupPassphrase = (
+  current: string,
+  passphrase: string,
+  confirm: string,
+) => invoke<BackupStatus>("change_backup_passphrase", { current, passphrase, confirm });
+
+/**
+ * Write a fresh sealed copy now.
+ *
+ * This does NOT upload anything. Only Google's backup service does that, on its
+ * own schedule.
+ */
+export const sealBackupNow = () => invoke<BackupStatus>("seal_backup_now");
+
+/** Whether the app re-seals on its own once the log has moved on. */
+export const setAutoReseal = (on: boolean) =>
+  invoke<BackupStatus>("set_auto_reseal", { on });
+
+/**
+ * Delete the sealed copy, which is how the consent to upload is withdrawn.
+ *
+ * Local only. What Google has already taken is Google's to expire; this reaches
+ * the file on the phone and nothing else.
+ */
+export const removeSealedBackup = () => invoke<BackupStatus>("remove_sealed_backup");
+
+/**
+ * Replace this phone's log with the sealed copy.
+ *
+ * The database being replaced is renamed, never deleted, and the outcome says
+ * where it went.
+ */
+export const restoreBackup = (passphrase: string) =>
+  invoke<RestoreOutcome>("restore_backup", { passphrase });
+
+/** Open an encrypted log this session could not unlock silently. */
+export const unlockLog = (passphrase: string) =>
+  invoke<BackupStatus>("unlock_log", { passphrase });

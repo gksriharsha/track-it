@@ -20,10 +20,12 @@ import Settings from "./screens/Settings";
 import SupplementEditor from "./screens/SupplementEditor";
 import ImportData from "./screens/ImportData";
 import ExportData from "./screens/ExportData";
+import Backup from "./screens/Backup";
+import UnlockLog from "./components/UnlockLog";
 import Logo from "./components/Logo";
 import CommandPalette from "./components/CommandPalette";
 import type { Command } from "./components/CommandPalette";
-import { MOD, useHotkeys } from "./lib/desktop";
+import { MOD, isAndroid, useHotkeys } from "./lib/desktop";
 import { getDay, humanDate, shiftIso, todayIso } from "./api";
 import type { DayView, Meal } from "./types";
 import "./styles.css";
@@ -204,6 +206,10 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
       { id: "import", label: "Import a spreadsheet" },
       { id: "export", label: "Export your log" },
       { id: "settings", label: "Settings" },
+      // Android only. SQLCipher is compiled into the Android build alone and
+      // Google's Auto Backup exists nowhere else, so on a desktop this is not
+      // a destination that is merely empty — it is one that does not exist.
+      ...(isAndroid() ? [{ id: "backup", label: "Backup" }] : []),
     ],
   },
 ];
@@ -232,6 +238,7 @@ const ASIDES = [
   "household",
   "statistics",
   "settings",
+  "backup",
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"] | (typeof ASIDES)[number];
@@ -267,6 +274,7 @@ const ASIDE_HOME: Record<string, Tab> = {
   household: "you",
   statistics: "statistics",
   settings: "you",
+  backup: "you",
 };
 
 const ROUTES: readonly string[] = [...TABS.map((t) => t.id), ...ASIDES];
@@ -501,6 +509,15 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Whether the log is open. Only ever false on Android, and only in two
+   * situations — see `UnlockLog`, which decides which and then draws the way
+   * through. Everything else on this page waits: a locked session's database
+   * connection is deliberately empty, so drawing Today over it would show a
+   * missing-table error where a day should be.
+   */
+  const [opened, setOpened] = useState(false);
+
   const refresh = useCallback(async (iso: string) => {
     try {
       setDay(await getDay(iso));
@@ -513,9 +530,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!opened) return;
     setLoading(true);
     refresh(date);
-  }, [date, refresh]);
+  }, [date, refresh, opened]);
 
   const onLogged = useCallback(async () => {
     await refresh(date);
@@ -595,6 +613,12 @@ export default function App() {
     { id: "export", label: "Export your log", hint: "a spreadsheet you keep", group: "Settings", run: () => go("export", { from: "you" }) },
     { id: "household", label: "Household", hint: "the other devices in this kitchen", group: "Settings", run: () => go("household", { from: "you" }) },
     { id: "statistics", label: "Statistics", hint: "how you have been eating", group: "Settings", run: () => go("statistics", { from: "history" }) },
+    // Filtered out rather than disabled off Android, for the same reason the
+    // drawer item is: a palette entry that cannot go anywhere is worse than an
+    // absent one.
+    ...(isAndroid()
+      ? [{ id: "backup", label: "Backup", hint: "one sealed file, carried by Google", group: "Settings", run: () => go("backup", { from: "you" }) }]
+      : []),
   ];
 
   /**
@@ -634,6 +658,31 @@ export default function App() {
       },
     },
   ]);
+
+  /*
+    The launch gate, and it returns EARLY rather than overlaying the shell.
+
+    An overlay would leave every screen underneath it querying a database this
+    session cannot read, so the first thing behind the passphrase field would be
+    a stack of SQLite errors. Placed after every hook above, so the rules of
+    hooks hold: what changes is what is rendered, never how many hooks run.
+
+    `UnlockLog` renders nothing at all when there is nothing to ask, which is
+    every launch on every platform but a locked or freshly restored Android
+    phone — one tick of an empty shell, the same tick the day already spends
+    loading.
+  */
+  if (!opened) {
+    return (
+      <div className="app">
+        <div className="shell">
+          <main className="main">
+            <UnlockLog onOpened={() => setOpened(true)} />
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -1029,6 +1078,11 @@ export default function App() {
         )}
 
         {tab === "household" && <Household onBack={() => go(route.from ?? "you")} />}
+
+        {/* Android only, and gated in the render as well as in the drawer:
+            the route is reachable by typing a hash, and a desktop build has no
+            keystore, no SQLCipher and no Auto Backup to describe. */}
+        {tab === "backup" && isAndroid() && <Backup onBack={() => go(route.from ?? "you")} />}
 
         {/* No way back: this is where the app opens. */}
         {tab === "statistics" && <Statistics />}

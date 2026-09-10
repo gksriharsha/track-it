@@ -22,12 +22,39 @@ tauri = { version = "2", features = [] }
 trackit-core = { path = "../crates/core" }
 # `bundled` compiles SQLite from source, so FTS5 is guaranteed present and the
 # Android build does not depend on whatever libsqlite3 the device happens to ship.
-rusqlite = { version = "0.40", features = ["bundled"] }
+#
+# `backup` and `serialize` are what let a sealed copy be taken without ever
+# writing a plaintext database to disk: the online-backup API copies the live
+# pages into a memory database and `serialize` hands back its bytes. Both are
+# pure feature flags on rusqlite — `backup = []`, `serialize = []` — so nothing
+# new is downloaded for them.
+rusqlite = { version = "0.40", features = ["bundled", "backup", "serialize"] }
 # Needed on Android: resource_dir() is "asset://localhost/", not a filesystem
 # path, so the bundled database must be read through the asset manager.
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# The sealed backup artifact — see `backup.rs` and docs/decisions.md D18.
+#
+# All four are the same code on both platforms, deliberately NOT target-gated:
+# the blob format and its tests have to build and run on the developer's Mac,
+# because a format nobody can exercise without a phone in hand is a format
+# nobody exercises. What IS Android-only is the SQLCipher block below and the
+# Keystore bridge, and the latter is Kotlin.
+#
+# `zeroize` is in argon2's feature list on purpose. It is declared there as an
+# OPTIONAL dependency and neither `default` nor `alloc` turns it on, so without
+# this line the 64 MiB memory-hard block Argon2id fills with material derived
+# from the user's passphrase would be handed back to the allocator unwiped.
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = "0.10"
+# An AEAD ciphertext is incompressible, so Google's own compression of the
+# backup set does nothing for us; compressing BEFORE sealing is what keeps the
+# artifact under the 25 MB Auto Backup quota. `rust_backend` rather than the
+# default zlib C shim, so this adds no C to the Android cross-build.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+zeroize = { version = "1", features = ["alloc"] }
 
 # The debug Android APK is the reason this block exists. Cargo's default dev
 # profile is `debug = 2`, which left 133 MB of DWARF in libtrackit_lib.so — 80%
@@ -52,6 +79,28 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+# SQLCipher, and ONLY on Android. See docs/decisions.md D18.
+#
+# Cargo's v2 feature resolver — implied by edition 2021, so no `resolver` line
+# is needed and src-tauri is a standalone package with no workspace root — does
+# the per-target resolution, and it was confirmed empirically rather than
+# assumed: a macOS build of this manifest compiles zero openssl and zero
+# sqlcipher symbols, an aarch64-linux-android build compiles 87 of the latter,
+# and rebuilding macOS straight afterwards is a no-op rather than a cache
+# ping-pong between the two targets.
+#
+# The one thing that would have made this expensive is not true: an UNKEYED
+# SQLCipher connection still opens a plaintext file, magic bytes and all, so
+# `db.rs` needs no change to keep reading the bundled 39 MB reference database
+# with FTS5 intact. SQLCipher only engages its codec once a key is set, and the
+# only thing that ever takes a key here is the user's own log.
+#
+# The cost is +3.79 MB on the one ABI the release workflow actually ships, and
+# a standing obligation to watch OpenSSL advisories — vendored OpenSSL is
+# security-critical C in a build that otherwise has none.
+[target.'cfg(target_os = "android")'.dependencies]
+rusqlite = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl", "backup", "serialize"] }
 
 # Apple Vision reads the nutrition panel on device — nothing is uploaded. The
 # feature sets are pared to what still-image text recognition actually touches,
