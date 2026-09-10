@@ -9,6 +9,7 @@ import {
   listRecipes,
   listOpenCooks,
   finishCook,
+  frequentFoods,
   humanDate,
   listSupplements,
   listVessels,
@@ -25,6 +26,7 @@ import type {
   CustomNutrientRow,
   FoodDetail,
   FoodHit,
+  FrequentFood,
   Meal,
   NutrientValue,
   Portion,
@@ -84,6 +86,12 @@ interface Props {
 export default function Foods(p: Props) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<FoodHit[]>([]);
+  /**
+   * The quick-add rows, which stand in the place the search results will take.
+   * Empty is an ordinary state and not a failure: a new log has nothing to
+   * shortcut, and the screen then looks exactly as it did before this existed.
+   */
+  const [quick, setQuick] = useState<FrequentFood[]>([]);
   const [busy, setBusy] = useState(false);
   const [picked, setPicked] = useState<FoodDetail | null>(null);
   /** The user's own food, picked. Never set at the same time as `picked`. */
@@ -183,6 +191,25 @@ export default function Foods(p: Props) {
 
   useEffect(() => { loadCooks(); }, [loadCooks]);
 
+  /**
+   * What this person has been logging most days lately, re-read rather than
+   * cached for the reason the pots are: it is derived from the log, so it
+   * changes the moment anything is logged or deleted — including from another
+   * screen, or from another device in the household.
+   *
+   * A failure is swallowed and the list emptied, the way `recall`'s is. There
+   * is nothing here the user can act on and nothing they asked for: an alert
+   * bar over a search field, because a shortcut could not be assembled, would
+   * be the app complaining about its own convenience.
+   */
+  const loadQuick = useCallback(() => {
+    frequentFoods()
+      .then(setQuick)
+      .catch(() => setQuick([]));
+  }, []);
+
+  useEffect(() => { loadQuick(); }, [loadQuick]);
+
   useEffect(() => {
     if (tab === "available") loadCooks();
     if (tab === "recipes") listRecipes().then(setRecipes).catch((e) => setError(String(e)));
@@ -244,6 +271,9 @@ export default function Foods(p: Props) {
     // screens that stays mounted behind the cook sheet, so no remount will do
     // it for us.
     loadCooks();
+    // The trip out may equally have been to the custom-food editor, and a pack
+    // transcribed there is a pack that can now be logged again.
+    loadQuick();
     if (tab === "supplements") {
       listSupplements().then(setSupplements).catch((e) => setError(String(e)));
     }
@@ -287,6 +317,62 @@ export default function Foods(p: Props) {
         await recall({ fdcId: hit.fdc_id });
       }
     } catch (e) { setError(String(e)); }
+  }
+
+  /**
+   * Open a quick-add row.
+   *
+   * The same journey a search hit makes — the same detail fetch, the same
+   * picked panel, the same recalled tags — with one addition: the portion step
+   * opens on the weight this food was last logged at rather than on its
+   * default serving.
+   *
+   * The step itself is not skipped, and that is the design rather than
+   * caution. A row that logged on one tap would be a button that writes to
+   * somebody's history out of a list they never asked to have built; what this
+   * does instead is fill in the part they would otherwise have typed. The
+   * weight lands in an ordinary editable field, under the meal chips and the
+   * tag picker and above an "Add to {meal}" button that still has to be
+   * pressed. There is deliberately no second commit path here at all.
+   *
+   * Going through `setNet` also drops any live scale reading, for the reason
+   * that function gives: a gross weight taken for one plate of one dish must
+   * not follow the user to the next food.
+   */
+  async function pickFrequent(f: FrequentFood) {
+    setError(null);
+    try {
+      if (f.source_kind === "custom") {
+        if (f.custom_food_id === null) {
+          setError("That shortcut is missing its food, so it cannot be opened.");
+          return;
+        }
+        const d = await getCustomFoodDetail(f.custom_food_id);
+        setPicked(null);
+        setPickedCustom(d);
+        setShowPanel(false);
+        setNet(String(round(f.last_grams)));
+        await recall({ customFoodId: f.custom_food_id });
+      } else {
+        if (f.fdc_id === null) {
+          setError("That shortcut has no reference entry behind it.");
+          return;
+        }
+        const d = await getFoodDetail(f.fdc_id);
+        setPickedCustom(null);
+        setPicked(d);
+        setNet(String(round(f.last_grams)));
+        await recall({ fdcId: f.fdc_id });
+      }
+    } catch (e) {
+      // The row goes rather than staying tappable. The backend already drops a
+      // food the current reference dataset no longer carries, so reaching this
+      // means something changed underneath the list that was drawn — and a
+      // shortcut that cannot be opened is worse than one that was never
+      // offered, because it can be pressed again and again.
+      setQuick((rows) => rows.filter((r) => r.key !== f.key));
+      setError(String(e));
+    }
   }
 
   /**
@@ -393,6 +479,10 @@ export default function Foods(p: Props) {
       }
       setPickedCustom(null); setQuery(""); setHits([]); setWeighed(null);
       setOrigin(null); setCuisine(null); setRecalled(false);
+      // The screen stays mounted after a log, and the list it is about to show
+      // again has just changed underneath it — this very entry may be what
+      // puts the food into the window in the first place.
+      loadQuick();
       p.onLogged();
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
@@ -466,6 +556,7 @@ export default function Foods(p: Props) {
       }
       setPicked(null); setQuery(""); setHits([]); setWeighed(null);
       setOrigin(null); setCuisine(null); setRecalled(false);
+      loadQuick();
       p.onLogged();
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
@@ -960,6 +1051,47 @@ export default function Foods(p: Props) {
         </div>
 
         {query.trim().length < 2 ? (
+        <>
+        {/* A shortcut, and it has to read as one. There is no count on a row,
+            no rank number, no "your favourites" and no heading that praises
+            the person for having habits — a tally beside a food name is a
+            leaderboard of your own eating, which is a streak wearing different
+            clothes. The ordering's basis is stated ONCE, in the quiet note
+            beside the heading, and never per row. What each row prints instead
+            is the one fact that actually helps you choose: what you weighed
+            out last time. That is a fact about the food.
+
+            Only while the search is empty. Once two characters are typed the
+            results are the answer, and a fixed list pinned above them would
+            push real matches below the fold. Two rows long is a perfectly good
+            list and gets no apology; nothing pads it, and with nothing in the
+            window this branch renders exactly what it rendered before the
+            section existed. */}
+        {quick.length > 0 && (
+          <section className="card">
+            <div className="card__head">
+              <h2>Quick add</h2>
+              <span className="card__note">most days these past three months</span>
+            </div>
+            <ul className="hits" style={{ marginTop: "var(--s2)" }}>
+              {quick.map((f) => (
+                <li key={f.key}>
+                  <button className="row hit" onClick={() => pickFrequent(f)}>
+                    <span className="row__main">
+                      <span className="row__title">{f.description}</span>
+                      {f.brand && <span className="row__sub">{f.brand}</span>}
+                    </span>
+                    <span className="hit__src">{f.last_amount_label} last time</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="card__foot">
+              A tap opens the amount, filled in with what you weighed last time — nothing is
+              logged until you add it.
+            </div>
+          </section>
+        )}
         <div className="empty">
           <h3>What did you eat?</h3>
           <p>
@@ -971,6 +1103,7 @@ export default function Foods(p: Props) {
             generic entry. Your own foods come first in these results.
           </p>
         </div>
+        </>
       ) : busy && hits.length === 0 ? (
         <div className="card">
           {[0, 1, 2, 3, 4].map((i) => (

@@ -391,6 +391,47 @@ export interface FoodHit {
   matched_alias: boolean;
 }
 
+/**
+ * One row of the quick-add list: something logged often enough lately to be
+ * worth a shortcut, with the last amount to open the portion step on.
+ *
+ * Note what it is not. It is not a scoreboard, and it carries no count, no rank
+ * and no score to render — that absence is the design. A tally beside a food
+ * name is a leaderboard of the user's own habits, which is a streak wearing
+ * different clothes; the ordering's basis is stated ONCE, in the section's own
+ * line of prose, and never per row.
+ *
+ * Shaped for two readers. The other is the Android home-screen widget, which
+ * is `RemoteViews` and can draw nothing but pre-formatted strings, which is why
+ * the amount arrives already written out.
+ */
+export interface FrequentFood {
+  /** Only these two. A cook, a recipe, a supplement and water are all excluded. */
+  source_kind: "food" | "custom";
+  /** "food:16033" / "custom:<uuid>". Stable — use it as the React key. */
+  key: string;
+  /** Null for one of the user's own foods: it has no USDA identity. */
+  fdc_id: number | null;
+  custom_food_id: string | null;
+  /**
+   * A custom food's name AS IT STANDS NOW, and for a reference food the
+   * description the bundled dataset carries now. Both are read live rather
+   * than taken from the log, because tapping this row logs the CURRENT food —
+   * a row showing an old name and writing a new one would say one thing and do
+   * another.
+   */
+  description: string;
+  brand: string | null;
+  /**
+   * The last net weight, to open the portion step on. Never null, and never
+   * write `?? 0` against it — see the Rust doc: a supplement is the only kind
+   * that may omit a weight and no supplement reaches this list.
+   */
+  last_grams: number;
+  /** `last_grams` already written out, e.g. "150 g". */
+  last_amount_label: string;
+}
+
 export interface Portion {
   amount: number;
   unit: string | null;

@@ -930,6 +930,92 @@ fn logged_dates(user: State<'_, store::Store>) -> Result<Vec<String>, String> {
     store::logged_dates(&conn, 60)
 }
 
+/// How much wider the ranking is asked to look than the caller wants.
+///
+/// A multiplier and not a size, because the filter below drops rows: a
+/// reference food the dataset no longer carries disappears after the ranking
+/// has already spent one of its slots on it. Ask for exactly six and a screen
+/// that should show six shows four, silently, and the only symptom is a list
+/// that looks like the user logs less than they do.
+const FREQUENT_POOL_FACTOR: u32 = 3;
+
+/// The quick-add list: what this person has been logging most days lately.
+///
+/// Both databases, reference before user — the order every command holding
+/// both already uses, and the only thing keeping two of them from deadlocking.
+/// The user database is where the ranking lives; the reference database is
+/// consulted for one reason, and it is not decoration.
+///
+/// `usda_core.db` is replaced wholesale by a dataset upgrade
+/// (`docs/architecture-app.md` D3), so an `fdc_id` the log denormalised years
+/// ago may name nothing at all today. Left alone, that food would still be
+/// offered as a row, and tapping it would put "food 16033: Query returned no
+/// rows" in the error bar — a dead link the app itself drew. Rows whose entry
+/// has gone are dropped here instead, and the ones that survive take the
+/// description the reference data carries NOW rather than the one frozen into
+/// the log. That second part closes a quieter version of the same bug: the
+/// commit path logs the freshly fetched description, so a row showing an old
+/// name would have written a new one.
+///
+/// A reference food the user has since REPLACED with their own pack is dropped
+/// for a different reason, and it is the reason the override exists at all.
+/// Once a live custom food declares `overrides_fdc_id`, `search_foods` stops
+/// offering the generic entry (see its rule 2) — but this list is built from
+/// the log, which still remembers every day the generic one was eaten, so
+/// without this the one path that no longer offers a food would sit beside the
+/// one that offers it most prominently. Tapping it would log USDA's figures for
+/// the category while the user has a transcribed pack for the actual product,
+/// and logged history being immutable, that entry would keep them for good.
+///
+/// The frozen description is not lost by this and is not meant to be — every
+/// entry already in the log keeps its own, which is the whole point of
+/// denormalising it. This is a shortcut to logging the food AS IT IS NOW.
+///
+/// The window is not a parameter — see [`store::FREQUENT_WINDOW_DAYS`].
+#[tauri::command]
+fn frequent_foods(
+    limit: Option<u32>,
+    refdb: State<'_, db::Db>,
+    user: State<'_, store::Store>,
+) -> Result<Vec<store::FrequentFood>, String> {
+    let want = limit.unwrap_or(6);
+    let refconn = refdb.0.lock().map_err(|e| e.to_string())?;
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+
+    let since = store::days_ago_iso(&conn, store::FREQUENT_WINDOW_DAYS)?;
+    let candidates = store::frequent_foods(&conn, &since, want.saturating_mul(FREQUENT_POOL_FACTOR))?;
+    let overridden = store::overridden_fdc_ids(&conn)?;
+    Ok(resolve_frequent(&refconn, candidates, &overridden, want))
+}
+
+/// The reference-database half of [`frequent_foods`], with both databases
+/// already read — split out for the reason [`merge_hits`] is: a `State` cannot
+/// be built in a test, and this is the half worth testing.
+fn resolve_frequent(
+    refconn: &rusqlite::Connection,
+    candidates: Vec<store::FrequentFood>,
+    overridden: &[i64],
+    want: u32,
+) -> Vec<store::FrequentFood> {
+    let mut out: Vec<store::FrequentFood> = Vec::with_capacity(want as usize);
+    for mut f in candidates {
+        if let Some(id) = f.fdc_id {
+            if overridden.contains(&id) {
+                continue;
+            }
+            match base_description(refconn, id) {
+                Some(d) => f.description = d,
+                None => continue,
+            }
+        }
+        out.push(f);
+        if out.len() >= want as usize {
+            break;
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // The user's own foods
 // ---------------------------------------------------------------------------
@@ -3690,6 +3776,7 @@ pub fn run() {
             save_bottle,
             delete_bottle,
             log_water,
+            frequent_foods,
             list_custom_foods,
             get_custom_food,
             save_custom_food,
@@ -5833,5 +5920,138 @@ mod tests {
             );
             assert_eq!(total.items_covered, 0, "and it is not counted as covered");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Quick add
+    // -----------------------------------------------------------------------
+
+    /// One log entry of a reference food, on the day given.
+    fn logged_food(c: &Connection, fdc: i64, on: &str, description: &str) {
+        store::add(
+            c,
+            on,
+            Some("lunch"),
+            store::Source::Food(fdc),
+            description,
+            store::Quantity::Grams(100.0),
+            None,
+            &store::Tags::default(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn the_quick_add_window_is_ninety_days_from_today() {
+        // The only test that exercises the arithmetic the command actually
+        // performs: everything else hands `frequent_foods` a date literal.
+        let uc = user_db();
+        let today = store::today_iso(&uc).unwrap();
+        let long_ago = store::days_ago_iso(&uc, 200).unwrap();
+        logged_food(&uc, 111, &today, "this week's rice");
+        logged_food(&uc, 222, &long_ago, "last spring's rice");
+
+        let since = store::days_ago_iso(&uc, store::FREQUENT_WINDOW_DAYS).unwrap();
+        let rows = store::frequent_foods(&uc, &since, 6).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].fdc_id, Some(111));
+    }
+
+    #[test]
+    fn a_reference_food_the_dataset_no_longer_has_is_not_offered_as_a_row() {
+        let Some(rc) = refdb() else { return };
+        let live = db::search(&rc, "cheddar", 1)
+            .unwrap()
+            .first()
+            .and_then(|h| h.fdc_id)
+            .expect("a reference food to log");
+        let uc = user_db();
+        // A dataset upgrade replaces `usda_core.db` wholesale, so an fdc_id the
+        // log froze years ago can name nothing at all today. Offering it would
+        // draw a row whose only behaviour is to put a rusqlite sentence in the
+        // error bar.
+        logged_food(&uc, 999_999_999, "2026-09-04", "a food that has since gone");
+        logged_food(&uc, live, "2026-09-04", "Cheddar");
+
+        let candidates = store::frequent_foods(&uc, "2026-08-01", 6).unwrap();
+        assert_eq!(candidates.len(), 2, "the log itself still holds both");
+        let rows = resolve_frequent(&rc, candidates, &[], 6);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].fdc_id, Some(live));
+    }
+
+    #[test]
+    fn a_reference_row_is_named_by_the_dataset_and_not_by_the_old_entry() {
+        let Some(rc) = refdb() else { return };
+        let live = db::search(&rc, "cheddar", 1)
+            .unwrap()
+            .first()
+            .and_then(|h| h.fdc_id)
+            .expect("a reference food to log");
+        let current = base_description(&rc, live).unwrap();
+        let uc = user_db();
+        logged_food(&uc, live, "2026-09-04", "whatever this row used to be called");
+
+        let candidates = store::frequent_foods(&uc, "2026-08-01", 6).unwrap();
+        assert_eq!(candidates[0].description, "whatever this row used to be called");
+        let rows = resolve_frequent(&rc, candidates, &[], 6);
+        assert_eq!(
+            rows[0].description, current,
+            "the commit path logs the description it fetches, so the row has to \
+             show the one it will write"
+        );
+    }
+
+    #[test]
+    fn a_reference_food_the_user_has_replaced_with_their_own_pack_is_not_offered() {
+        let Some(rc) = refdb() else { return };
+        let live = db::search(&rc, "cheddar", 1)
+            .unwrap()
+            .first()
+            .and_then(|h| h.fdc_id)
+            .expect("a reference food to log");
+        let mut uc = user_db();
+        // Eaten as the generic entry on several days, and only later
+        // transcribed off the pack. The log keeps every one of those days, so
+        // the ranking still knows the fdc_id perfectly well — which is exactly
+        // how quick add ends up being the one screen still offering a food that
+        // `search_foods` has stopped offering.
+        logged_food(&uc, live, "2026-09-04", "Cheddar");
+        logged_food(&uc, live, "2026-09-05", "Cheddar");
+        store::save_custom_food(&mut uc, None, &bar(Some(live))).unwrap();
+
+        let candidates = store::frequent_foods(&uc, "2026-08-01", 6).unwrap();
+        assert_eq!(candidates.len(), 1, "the log itself still holds the days");
+        let overridden = store::overridden_fdc_ids(&uc).unwrap();
+        assert_eq!(overridden, vec![live]);
+        assert!(
+            resolve_frequent(&rc, candidates, &overridden, 6).is_empty(),
+            "tapping it would log USDA's figures for the category while the \
+             user has a pack for the product, and the entry would keep them"
+        );
+    }
+
+    #[test]
+    fn quick_add_never_hands_back_more_rows_than_were_asked_for() {
+        // The ranking is asked for a pool several times the size, because the
+        // filter above can drop rows and a list that quietly comes back short
+        // is the failure that pool exists to avoid. What the caller gets is
+        // still exactly what the caller asked for, and a screen that asked for
+        // six must not be handed eighteen.
+        let Some(rc) = refdb() else { return };
+        let live: Vec<i64> = db::search(&rc, "cheese", 4)
+            .unwrap()
+            .iter()
+            .filter_map(|h| h.fdc_id)
+            .collect();
+        assert!(live.len() >= 2, "two reference foods to log");
+        let uc = user_db();
+        for (n, fdc) in live.iter().enumerate() {
+            logged_food(&uc, *fdc, &format!("2026-09-0{}", n + 1), "Cheese");
+        }
+
+        let candidates = store::frequent_foods(&uc, "2026-08-01", 18).unwrap();
+        assert!(candidates.len() >= 2, "the pool holds all of them");
+        assert_eq!(resolve_frequent(&rc, candidates, &[], 1).len(), 1);
     }
 }

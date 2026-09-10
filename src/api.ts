@@ -8,6 +8,7 @@ import type {
   DayView,
   FoodDetail,
   FoodHit,
+  FrequentFood,
   ImportRowInput,
   ImportSummary,
   IngredientsScan,
@@ -90,6 +91,21 @@ export const searchFoods = (query: string, limit = 40, includeOverridden = false
 
 export const getFoodDetail = (fdcId: number) =>
   invoke<FoodDetail>("get_food_detail", { fdcId });
+
+/**
+ * What this person has been logging most days over the past three months —
+ * reference foods and their own transcribed packs, never a pot, a supplement or
+ * water.
+ *
+ * A shortcut into the portion step and not a summary of anything. The caller
+ * must land the user on the amount panel and let them press Add; nothing here
+ * logs, and the list carries no figure that may be drawn on a row.
+ *
+ * The three months is fixed in the backend rather than passed from here, so
+ * that the sentence the screen prints beside the list cannot become a lie.
+ */
+export const frequentFoods = (limit = 6) =>
+  invoke<FrequentFood[]>("frequent_foods", { limit });
 
 export const getDay = (loggedOn: string) =>
   invoke<DayView>("get_day", { loggedOn });
