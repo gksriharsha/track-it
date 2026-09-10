@@ -1238,6 +1238,33 @@ button.row:hover { background: var(--sunken); }
 }
 
 /* ─────────────────────────────────────────────────────────────
+   Export the log.
+
+   Reads as the mirror of the importer above and shares most of
+   its furniture, which is the point: the file being written here
+   is the file that screen reads. Everything specific to this one
+   is prose — sentences saying what will be in the file and what
+   will not — so there is almost nothing to style, and nothing
+   here fills, sweeps or counts up. An export has two outcomes,
+   and the button's own label carries both of them.
+   ───────────────────────────────────────────────────────────── */
+.exp-dates { display: flex; flex-wrap: wrap; gap: var(--s4); margin-top: var(--s4); }
+.exp-date { display: flex; flex-direction: column; gap: var(--s1); }
+
+.exp-what { display: grid; gap: var(--s3); margin-top: var(--s2); }
+.exp-what__line { color: var(--ink-2); font-size: 13px; max-width: var(--measure); margin: 0; }
+.exp-note { color: var(--ink-3); font-size: 13px; max-width: var(--measure); margin: var(--s3) 0 0; }
+
+/* Styled as information, the way `.supline__refused` is — not as the user's
+   mistake and not as a celebration. Half of what this line says is "nothing
+   was written", which is an ordinary outcome of closing a save panel, so it
+   must not arrive in --accent-wash any more than in --over-wash. */
+.exp-done {
+  padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--sunken); color: var(--ink-2); font-size: 13px;
+}
+
+/* ─────────────────────────────────────────────────────────────
    What the camera read, on the supplement editor.
 
    One treatment for all of it — a panel figure, a serving, an

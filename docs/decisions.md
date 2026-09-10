@@ -524,3 +524,43 @@ precisely is one it should not be using; Mifflin–St Jeor can be written down, 
 pinned by a test against a worked example. The UI carries both caveats: the equation predicts
 resting expenditure to roughly ±10% at best, and the activity factors are round numbers standing in
 for something that genuinely varies day to day.
+
+---
+
+## D17 — An exported cell holds a number the entry was frozen with, or it holds nothing
+
+*(Added with the log export.)*
+
+**Defect it prevents.** A day's total for a nutrient is an interval, and the app shows it as one:
+`412 mg` where every contributor said something, `≥ 340 mg` where one of them did not. A
+spreadsheet cell cannot hold that. Faced with an entry whose added sugars are known for fourteen
+ingredients and unknown for the fifteenth, the obvious export writes the fourteen-ingredient
+subtotal — a figure that is *smaller than the truth*, in a file that will be summed, averaged and
+charted by whatever opens it. That is the same failure `NutrientValue` exists to prevent (D2), one
+level up and outside this app's reach.
+
+**Decision.** A cell is written only when the entry's frozen value for that nutrient is exactly
+known: `trackit_core::aggregate::sum` over the entry's own components must return an upper bound
+equal to its lower bound. Anything else — a trace, a label-rounded zero, a below-LOQ figure, a
+missing row, one silent ingredient among many — is a BLANK cell. `parseSpreadsheet` and
+`import_log_rows` already read a blank as "not tracked that day" and never as a zero, so a gap
+survives the whole round trip as a gap.
+
+A lab that looked and found nothing is a different fact and does export a `0`: `MeasuredZero` and
+`AssumedZero` are bounded at both ends, so they *are* numbers. A `0` with no provenance
+(`ZeroUnknown`) is not, and exports blank.
+
+**The equality is exact, not approximate.** `sum` accumulates both bounds in one pass over the
+same slice, adding the same expression in the same order for every kind whose bounds coincide, so
+either they are bitwise equal or the interval is real. An epsilon would let a genuine trace with a
+tiny upper bound through as a measurement.
+
+**Nothing is recomputed, and the signature says so.** `export_log` takes the user database and
+not the reference database, so there is no path through it that could value an entry against
+today's data. An entry with no snapshot at all is counted and left out, and the screen says how
+many — freezing it on sight would make reading a file a write to history.
+
+**Figures are rounded once, to three decimals in the nutrient's own unit.** Vitamin D is printed
+in micrograms and sodium in milligrams, so that is already finer than any pack this app has read.
+Generation one loses sub-milli precision; from generation two the cycle is exact, because
+re-exporting an imported file reproduces the same rounded figures. The FILE is the authority.

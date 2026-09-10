@@ -18,6 +18,7 @@
  * fixture where everything is green would hide exactly the states this app
  * exists to distinguish.
  */
+import { LABEL_NUTRIENTS } from "../types";
 import type {
   Bottle,
   Cook,
@@ -25,6 +26,7 @@ import type {
   DaySummary,
   DayView,
   EnergyTarget,
+  ExportLog,
   FoodDetail,
   FoodHit,
   FrequentFood,
@@ -680,6 +682,11 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
 
   get_day: (a) => day(String(a.loggedOn ?? today())),
+  export_log: (a) => exportLog(String(a.from ?? today()), String(a.to ?? today())),
+  // A browser tab has no save panel, so nothing is written and the screen says
+  // so — which is also the state a cancelled panel leaves the real app in, and
+  // therefore the one worth being able to look at here.
+  save_exported_file: () => null,
   search_foods: (a) => search(String(a.query ?? ""), Number(a.limit ?? 30)),
   get_food_detail: (a) => detail(Number(a.fdcId)),
   frequent_foods: (a) => FREQUENT.slice(0, Number(a.limit ?? 6)),
@@ -707,6 +714,44 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   // every `pnpm dev` session, because `lib/awake.ts` asks as the page boots.
   set_keep_awake: () => undefined,
 };
+
+/**
+ * What an export of a period would carry, built out of the same day the rest of
+ * this fixture draws.
+ *
+ * Deliberately uneven, for the reason the whole fixture is: two rows carry a
+ * full set of figures, one carries three, and one carries none at all. A file
+ * where every cell is filled would hide the two states the export screen exists
+ * to state — a blank because nothing knew the value, and a row that will come
+ * back as no row at all.
+ */
+function exportLog(from: string, to: string): ExportLog {
+  const known = (n: number) =>
+    LABEL_NUTRIENTS.slice(0, n).map((n2, i) => ({ nutrient_id: n2.id, amount: 4 + i * 3.5 }));
+  const rows = ENTRIES.filter((e) => e.source_kind !== "water").map((e, i) => ({
+    logged_on: from,
+    meal: e.meal ?? "snack",
+    description: e.description,
+    nutrients: i === 3 ? [] : known(i % 3 === 0 ? LABEL_NUTRIENTS.length : 3),
+  }));
+  const blanks = rows.reduce((n, r) => n + (LABEL_NUTRIENTS.length - r.nutrients.length), 0);
+  return {
+    from,
+    to,
+    days: 1,
+    rows,
+    doses: [],
+    water: ENTRIES.filter((e) => e.source_kind === "water").map((e) => ({
+      logged_on: from,
+      description: e.description,
+      ml: Math.round((e.grams ?? 0) / 0.9982),
+      measured: e.bottle_id === "b1",
+    })),
+    blanks,
+    rows_without_values: rows.filter((r) => r.nutrients.length === 0).length,
+    unexportable: 0,
+  };
+}
 
 /** Answers one command, or explains that the fixture does not cover it. */
 export async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {

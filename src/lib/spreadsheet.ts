@@ -9,9 +9,18 @@
  * all happen here, in TypeScript, using the already-installed `xlsx`
  * (SheetJS) package. The Rust side receives an already-clean array and does
  * nothing but validate and write it — see `import_log_rows` in lib.rs.
+ *
+ * The import below names `../types.ts` with its extension, which is the one
+ * place in this tree that does. It is not a stray edit: this module and
+ * `exportSheet.ts` are the two the committed round-trip proof runs directly,
+ * with `node src/lib/exportSheet.test.ts` and nothing else installed, and
+ * Node's own TypeScript loader resolves a relative import exactly as ESM does
+ * — no extension guessing. `tsconfig.json` already sets
+ * `allowImportingTsExtensions`, and Vite resolves it unchanged, so the cost is
+ * one visible extension and the gain is a proof that runs with no toolchain.
  */
 import * as XLSX from "xlsx";
-import { LABEL_NUTRIENTS, MEALS, type Meal } from "../types";
+import { LABEL_NUTRIENTS, MEALS, type Meal } from "../types.ts";
 
 /* ── the public shapes ───────────────────────────────────────────────── */
 
@@ -343,6 +352,17 @@ export function parseDateCell(cell: unknown): DateParseResult {
 /* ── meal normalisation ───────────────────────────────────────────────── */
 
 /**
+ * What a row with no description of its own is called.
+ *
+ * Shared with `exportSheet.ts` rather than written twice, and that is
+ * load-bearing rather than tidy: a description this reader substitutes is a
+ * description the writer must produce, or a file this app writes stops being a
+ * fixed point of the file this app reads. `import_one_row` in lib.rs makes the
+ * same substitution for the same reason.
+ */
+export const IMPORTED_ENTRY_DESCRIPTION = "Imported entry";
+
+/**
  * Trim/lowercase and accept an exact match against the four meals; anything
  * else — including no meal column at all — defaults to "snack", the least
  * time-specific of the four. Deliberate default, not a fallback that happens
@@ -464,7 +484,7 @@ export async function parseSpreadsheet(file: File): Promise<ParseReport> {
       return;
     }
 
-    const description = String(descriptionCell ?? "").trim() || "Imported entry";
+    const description = String(descriptionCell ?? "").trim() || IMPORTED_ENTRY_DESCRIPTION;
     report.rows.push({
       logged_on: dateResult.iso,
       meal: normalizeMeal(mealCell),
