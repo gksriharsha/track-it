@@ -6969,6 +6969,41 @@ pub fn set_static_keypair(conn: &Connection, pk: &[u8], sk: &[u8]) -> Result<(),
     Ok(())
 }
 
+/// Give up this installation's household identity, so the next launch mints a
+/// fresh one and the household has to be joined again.
+///
+/// There is exactly one caller and it is a restore from a sealed backup. The
+/// sealed file is `user.db` whole, which means it carries the identity of the
+/// phone that sealed it — `this_device`, its keypair, and every `peers` row.
+/// Restoring it therefore hands a SECOND installation the first one's name in
+/// the household, and `cook_draws`' own comment names the consequence: two
+/// devices answering to one id is "the first restored backup that duplicated a
+/// device id", which counts every local helping twice and drains every pot at
+/// double speed, in silence. Silence is the part that matters — nothing on any
+/// screen would say the fridge had begun disagreeing with itself.
+///
+/// The alternative was to keep the identity, which is tempting because the
+/// ordinary restore is onto a replacement for a phone that is gone, and keeping
+/// it would mean the Mac recognised the new phone and nothing had to be paired
+/// again. It is rejected because the case it quietly breaks — the old phone
+/// still switched on somewhere — corrupts a quantity rather than inconveniencing
+/// anybody, and a household you have to join again is one visible step.
+///
+/// `row_version` is deliberately left alone. Those rows record who authored a
+/// write, which is a fact about the past and true whoever holds the id now;
+/// rewriting them is what the `device_id` comment forbids, and the merge still
+/// converges because a tiebreak only needs both sides to compare the same two
+/// strings.
+pub fn forget_household_identity(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "BEGIN IMMEDIATE;
+         DELETE FROM peers;
+         DELETE FROM this_device;
+         COMMIT;",
+    )
+    .map_err(|e| format!("giving up the restored device identity: {e}"))
+}
+
 /// A peer as the dialler needs it.
 #[derive(Debug, Clone)]
 pub struct PeerDial {
@@ -10340,6 +10375,66 @@ mod tests {
         pair_peer(&a, &b_id, "B", &key(2), None).unwrap();
         pair_peer(&b, &a_id, "A", &key(1), None).unwrap();
         (a, b)
+    }
+
+    #[test]
+    fn a_restored_log_gives_up_the_identity_it_arrived_wearing() {
+        // A sealed backup is `user.db` whole, so it carries the sealing phone's
+        // place in the household. Two installations answering to one id is the
+        // case `cook_draws` warns about by name, and its symptom is a pot that
+        // empties at twice the rate with nothing on screen to say so.
+        let (a, b) = paired();
+        let was = device_id(&a).unwrap();
+        // `paired` gives each side the OTHER's public key; a real installation
+        // also holds its own pair, minted on first use by `sync::ensure_identity`.
+        set_static_keypair(&a, &key(9), &key(10)).unwrap();
+        assert_eq!(list_peers(&a).unwrap().len(), 1);
+
+        forget_household_identity(&a).unwrap();
+
+        assert!(
+            device_id(&a).is_err(),
+            "the identity is gone rather than reused"
+        );
+        assert!(static_keypair(&a).unwrap().is_none(), "and so is the key");
+        assert!(
+            list_peers(&a).unwrap().is_empty(),
+            "the inherited pairings go too — they describe a household this \
+             installation has not joined"
+        );
+
+        // The next launch mints a fresh one, and it is not the old one.
+        ensure_device_identity(&a).unwrap();
+        assert_ne!(device_id(&a).unwrap(), was);
+        // Nothing was done to the other device, which still holds its own.
+        assert_eq!(list_peers(&b).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_restored_log_keeps_who_authored_every_past_write() {
+        // The other half of the same decision. `row_version.device_id` records
+        // who made a write, which stays true whoever holds the id afterwards —
+        // and rewriting it is what that column's own comment forbids.
+        let (mut a, _) = paired();
+        let (rid, _) = kitchen(&mut a);
+        let authored: String = a
+            .query_row(
+                "SELECT device_id FROM row_version WHERE table_name='recipes' AND row_id=?1",
+                [&rid],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        forget_household_identity(&a).unwrap();
+
+        let after: String = a
+            .query_row(
+                "SELECT device_id FROM row_version WHERE table_name='recipes' AND row_id=?1",
+                [&rid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(after, authored, "the past is not rewritten");
     }
 
     #[test]

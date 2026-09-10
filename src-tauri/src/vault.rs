@@ -857,6 +857,17 @@ pub fn enable(
     match crate::store::open_encrypted(&db, &key) {
         Ok(conn) => {
             *guard = conn;
+            // The sealed file was `user.db` whole, so it arrived carrying the
+            // household identity of the phone that sealed it. This is a second
+            // installation, not that one, and two devices answering to one id
+            // drain every pot at double speed without saying so — see
+            // `store::forget_household_identity`. Never fatal: the log is
+            // already back, and a duplicate identity is something the user can
+            // undo by pairing again, whereas failing here would leave them
+            // holding a restore that reported an error.
+            if let Err(e) = crate::store::forget_household_identity(&guard) {
+                eprintln!("the restored log kept its old household identity: {e}");
+            }
         }
         Err(e) => {
             // The encrypted log will not open. Put the plaintext one back —

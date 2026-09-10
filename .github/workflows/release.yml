@@ -73,6 +73,13 @@ jobs:
       # tsc + vite. Also produces dist/, which tauri-build requires to exist
       # before the Rust side of src-tauri will compile at all.
       - run: pnpm build
+      # The front end's own assertions, which are not vite's and not cargo's:
+      # the spreadsheet a period exports has to re-enter through the importer
+      # unchanged, and that property is proved by writing a file and reading it
+      # back rather than by inspecting either half. Without this step it would
+      # only ever be checked by somebody remembering to run it.
+      - name: Front-end round trip
+        run: pnpm test
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -247,8 +254,27 @@ jobs:
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
           EOF
+      # SQLCipher on Android means a vendored OpenSSL, and openssl-src drives its
+      # own Configure/make rather than going through the `cc` crate. It looks for
+      # `${CROSS_COMPILE}ranlib` — `aarch64-linux-android-ranlib` — and no NDK
+      # since r23 ships that name; there is only `llvm-ranlib`. Without these
+      # four the build dies deep inside `make install_dev` with
+      # "aarch64-linux-android-ranlib: command not found", and it dies only in
+      # the RELEASE profile, because a debug build of the same tree may still
+      # have a cached OpenSSL to reuse. This was found by running the real APK
+      # build rather than `cargo check`, which is the only thing that catches it.
       - name: Build
-        run: pnpm tauri android build --apk --target aarch64 --split-per-abi --ci
+        env:
+          NDK_BIN: ${{ env.NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        run: |
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+          export CXX_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang++"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          export RANLIB_aarch64_linux_android="$NDK_BIN/llvm-ranlib"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
+          test -x "$RANLIB_aarch64_linux_android" \
+            || { echo "::error::no llvm-ranlib at $NDK_BIN; the NDK layout has moved"; exit 1; }
+          pnpm tauri android build --apk --target aarch64 --split-per-abi --ci
       - name: Collect
         id: collect
         # The signature is CHECKED, not inferred from the filename, and the
