@@ -644,3 +644,16 @@ export const unpairDevice = (deviceId: string) =>
 
 /** Sync now with every paired device that answers. */
 export const syncNow = () => invoke<SyncOutcome[]>("sync_now");
+
+/**
+ * Hold the device's screen open, or let it go.
+ *
+ * Android only in effect. On the Mac and iOS builds this succeeds and does
+ * nothing, which is deliberate: a caller asks for what it wants and never for
+ * what platform it is on.
+ *
+ * Do not call this from a screen. `useKeepAwake` in lib/awake.ts owns the
+ * pairing of the two calls, and an unpaired `true` is a phone burning its
+ * screen on a kitchen counter all night.
+ */
+export const setKeepAwake = (on: boolean) => invoke<void>("set_keep_awake", { on });
