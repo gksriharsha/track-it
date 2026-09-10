@@ -652,7 +652,24 @@ CREATE TABLE IF NOT EXISTS this_device (
   -- from a hostname, which is a fact about a network rather than about a person
   -- in a kitchen.
   name       TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- This device's own X25519 static keypair, minted once and NEVER rewritten,
+  -- for the same reason `device_id` is not: every `peers.static_pk` row on
+  -- every other device in the house points at this key, and minting a second
+  -- one would make this device a stranger to all of them with nothing on any
+  -- screen to say so.
+  --
+  -- NULL together, and that is a real state rather than a gap: a database that
+  -- has just migrated has an identity and no key yet, because minting one needs
+  -- the protocol crate and this file has no business depending on it. Nothing
+  -- may read a NULL here as an empty key.
+  --
+  -- The secret half is in the app-private SQLite file because Android Keystore
+  -- cannot hold an exportable X25519 key at minSdk 24. Excluding it from a
+  -- platform backup is therefore a manifest question rather than a schema one.
+  static_pk  BLOB CHECK (static_pk IS NULL OR length(static_pk) = 32),
+  static_sk  BLOB CHECK (static_sk IS NULL OR length(static_sk) = 32),
+  CHECK ((static_pk IS NULL) = (static_sk IS NULL))
 );
 
 -- One row per household device this one has been paired with, and the only
@@ -664,7 +681,10 @@ CREATE TABLE IF NOT EXISTS peers (
   -- Noise handshake against this value, never by anything the peer announces
   -- about itself -- which is what keeps an unpaired device on the same Wi-Fi
   -- from being able to say anything this app will act on.
-  static_pk       BLOB NOT NULL UNIQUE,
+  -- A 31-byte key is not an error anywhere in the handshake; it is a session
+  -- that silently never completes. So the length is a constraint rather than
+  -- something the transport is trusted to have checked.
+  static_pk       BLOB NOT NULL UNIQUE CHECK (length(static_pk) = 32),
   paired_at       TEXT NOT NULL,
   -- The highest `row_version.seq` IN THAT PEER'S OWN NUMBERING whose row this
   -- device has durably applied. Their numbering, not ours: it is meaningless
@@ -674,12 +694,33 @@ CREATE TABLE IF NOT EXISTS peers (
   -- 0 means "nothing yet", which is also where a device that has just joined
   -- the household starts -- so a full first sync needs no separate code path.
   applied_through INTEGER NOT NULL DEFAULT 0 CHECK (applied_through >= 0),
+  -- How far this peer says it has got through OUR feed, in OUR numbering.
+  --
+  -- The mirror of `applied_through`, and it has to be a second column rather
+  -- than a reuse of that one: the two numbers count different feeds, and
+  -- `queued_for_peers` compared them as though they counted the same one --
+  -- arithmetic on two unrelated counters, printed on the Household screen as a
+  -- backlog. Written only when an ack arrives, and only ever forward.
+  acked_through   INTEGER NOT NULL DEFAULT 0 CHECK (acked_through >= 0),
   last_synced_at  TEXT,
+  -- Where this device answered from last time, so the next sync can dial it
+  -- directly instead of sweeping a subnet. A hint and never an identity:
+  -- reaching this address proves nothing, and the handshake against `static_pk`
+  -- is still the only thing that says who answered. The port is the one the
+  -- peer ANNOUNCED it listens on, not the ephemeral source port a connection
+  -- came from -- dialling the latter would miss every time. All three are NULL
+  -- until a session has actually completed.
+  last_addr       TEXT,
+  last_port       INTEGER CHECK (last_port IS NULL OR
+                    (last_port BETWEEN 1 AND 65535)),
+  last_addr_at    TEXT,
   -- Pairing is revocable, and soft-deleted like every other user record: a
   -- device that comes back after being removed must be recognised as the same
   -- one rather than re-admitted as a stranger. Revocation is local -- it stops
   -- future sync, it does not reach back into what that device already holds.
-  deleted_at      TEXT
+  deleted_at      TEXT,
+  CHECK ((last_addr IS NULL) = (last_port IS NULL)),
+  CHECK ((last_addr IS NULL) = (last_addr_at IS NULL))
 );
 
 -- What each shared row's current state is worth in a merge, and where it sits
@@ -1100,7 +1141,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -1239,13 +1280,19 @@ BEGIN
     version = version + 1, device_id = (SELECT device_id FROM this_device),
     seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
 END;
--- `last_used_at` is excluded on purpose, and it is the only field-level
--- exception in the design. `touch_vessels` runs on every weighed helping --
--- the hottest write in the app -- and the column exists to order the picker by
--- "the vessel you reached for last". That is a statement about a PERSON riding
--- on a shared object: replicated, it would make one household member's katori
--- reorder the other's picker, and it would put a full vessel round-trip on the
--- wire for every serving while carrying nothing the household needs to know.
+-- `last_used_at` is excluded on purpose, and the exception generalises. The
+-- rule, stated once here and referred back to from `NOT_PORTABLE`: a column
+-- whose value is a HANDLE INTO ONE DEVICE is not a fact about the kitchen.
+-- `touch_vessels` runs on every weighed helping -- the hottest write in the app
+-- -- and this column exists to order the picker by "the vessel you reached for
+-- last". That is a statement about a PERSON riding on a shared object:
+-- replicated, it would make one household member's katori reorder the other's
+-- picker, and it would put a full vessel round-trip on the wire for every
+-- serving while carrying nothing the household needs to know. The photo columns
+-- on `custom_foods` and `supplements` are the same kind of thing one layer over
+-- -- filenames in this device's own photos directory -- and they are excluded
+-- in Rust rather than here, because there the exclusion has to work in BOTH
+-- directions.
 CREATE TRIGGER trg_ver_vessels_upd AFTER UPDATE OF name, grams, deleted_at ON vessels
 WHEN (SELECT applying FROM sync_control) = 0
 BEGIN
@@ -1267,7 +1314,14 @@ BEGIN
     version = version + 1, device_id = (SELECT device_id FROM this_device),
     seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), changed_at = NEW.updated_at;
 END;
-CREATE TRIGGER trg_ver_bottles_upd AFTER UPDATE OF name, full_g, deleted_at ON bottles
+-- `empty_g` and `volume_ml` are in this list because the v13 -> v14 arm added
+-- them and this list was not updated with it. Without them, calibrating a
+-- bottle wrote nothing to `row_version` and never entered the feed: a bottle
+-- weighed empty on the Mac went on reading at the density of water on the
+-- phone, for good, with nothing anywhere to say so. `last_used_at` stays out,
+-- for the reason the vessels trigger above states.
+CREATE TRIGGER trg_ver_bottles_upd
+  AFTER UPDATE OF name, full_g, empty_g, volume_ml, deleted_at ON bottles
 WHEN (SELECT applying FROM sync_control) = 0
 BEGIN
   INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
@@ -1381,6 +1435,16 @@ fn prepare(mut conn: Connection) -> Result<Connection, String> {
     conn.execute("UPDATE sync_control SET applying = 0", [])
         .map_err(|e| e.to_string())?;
     install_sync_triggers(&conn)?;
+    // An aggregate held for a dependency that has since arrived from a THIRD
+    // device is released here, without anybody pressing anything. A held row is
+    // otherwise invisible until the next sync with the device that sent it, and
+    // that device may never be the one that has the missing pot.
+    //
+    // A failure must not stop the app. The rows stay held, which is exactly the
+    // state they are already in, and the next launch tries again.
+    if let Err(e) = drain_pending(&mut conn) {
+        eprintln!("could not release aggregates held for a missing dependency: {e}");
+    }
     // After `migrate`, because a migration is the largest burst of writes this
     // app ever makes and is exactly the case that leaves a long log behind.
     // TRUNCATE rather than PASSIVE: passive folds the pages in but leaves the
@@ -2337,6 +2401,93 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
                WHERE deleted_at IS NULL;",
         )
         .map_err(|e| format!("migrating bottles to v14: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+    }
+
+    // v14 -> v15: the household learns to talk.
+    //
+    // Two things the older schema had nowhere to put. This device's own Noise
+    // keypair -- `this_device` held only an id, a name and an instant, so there
+    // was no key with which to prove this device's identity to anybody. And an
+    // address for a peer -- `peers` had none at all, which is what makes a
+    // device unreachable for good once its DHCP lease changes.
+    //
+    // Existing rows come through with every new column NULL, and NULL is the
+    // honest answer to all of them: this device has not minted a key yet and
+    // nobody has been reached at any address. `acked_through` is the one
+    // exception and it defaults to 0, which is already what "nothing has been
+    // acknowledged" means everywhere else in this arm of the schema.
+    //
+    // Rebuilt rather than ALTERed for the reason every other arm here rebuilds:
+    // the new columns carry CHECKs. It also buys `peers.static_pk` the
+    // `length = 32` check it has never had.
+    //
+    // One hazard specific to the `this_device` rebuild, worth stating because a
+    // reader will worry about it: all fourteen change-tracking triggers read
+    // `(SELECT device_id FROM this_device)`. Dropping and renaming that table
+    // does not drop them -- they hang off `recipes`, `cooks` and the rest, not
+    // off `this_device` -- and they resolve the name at fire time, so they keep
+    // working across this arm.
+    if !columns(conn, "this_device")?.iter().any(|c| c == "static_pk") {
+        conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE this_device_migrating (
+               id         INTEGER PRIMARY KEY CHECK (id = 1),
+               device_id  TEXT NOT NULL,
+               name       TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               static_pk  BLOB CHECK (static_pk IS NULL OR length(static_pk) = 32),
+               static_sk  BLOB CHECK (static_sk IS NULL OR length(static_sk) = 32),
+               CHECK ((static_pk IS NULL) = (static_sk IS NULL))
+             );
+             INSERT INTO this_device_migrating (id, device_id, name, created_at)
+             SELECT id, device_id, name, created_at FROM this_device;
+             DROP TABLE this_device;
+             ALTER TABLE this_device_migrating RENAME TO this_device;",
+        )
+        .map_err(|e| format!("migrating this_device to v15: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+    }
+
+    if !columns(conn, "peers")?.iter().any(|c| c == "acked_through") {
+        conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE peers_migrating (
+               device_id       TEXT PRIMARY KEY,
+               name            TEXT NOT NULL,
+               static_pk       BLOB NOT NULL UNIQUE CHECK (length(static_pk) = 32),
+               paired_at       TEXT NOT NULL,
+               applied_through INTEGER NOT NULL DEFAULT 0 CHECK (applied_through >= 0),
+               acked_through   INTEGER NOT NULL DEFAULT 0 CHECK (acked_through >= 0),
+               last_synced_at  TEXT,
+               last_addr       TEXT,
+               last_port       INTEGER CHECK (last_port IS NULL OR
+                                 (last_port BETWEEN 1 AND 65535)),
+               last_addr_at    TEXT,
+               deleted_at      TEXT,
+               CHECK ((last_addr IS NULL) = (last_port IS NULL)),
+               CHECK ((last_addr IS NULL) = (last_addr_at IS NULL))
+             );
+             INSERT INTO peers_migrating
+               (device_id,name,static_pk,paired_at,applied_through,last_synced_at,deleted_at)
+             SELECT device_id,name,static_pk,paired_at,applied_through,last_synced_at,deleted_at
+               FROM peers;
+             DROP TABLE peers;
+             ALTER TABLE peers_migrating RENAME TO peers;",
+        )
+        .map_err(|e| format!("migrating peers to v15: {e}"))?;
         tx.commit().map_err(|e| e.to_string())?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| e.to_string())?;
@@ -5133,12 +5284,20 @@ pub fn unpair(conn: &Connection, device_id: &str) -> Result<(), String> {
 /// Zero when there is nobody to send to — not the size of the feed. A count of
 /// everything in the kitchen, shown as "waiting to go out" on a device paired
 /// with nothing, would report a backlog that does not exist.
+///
+/// `acked_through` and not `applied_through`, and the difference is the whole
+/// point of there being two columns. `applied_through` counts the PEER'S feed
+/// in the PEER'S numbering; `row_version.seq` counts ours in ours. Comparing
+/// them was arithmetic on two unrelated counters — it happened to read zero
+/// only because nothing could yet write a non-zero `applied_through`, and it
+/// would have printed nonsense on the Household screen the day the transport
+/// landed.
 pub fn queued_for_peers(conn: &Connection) -> Result<i64, String> {
     conn.query_row(
         "SELECT CASE
                   WHEN NOT EXISTS (SELECT 1 FROM peers WHERE deleted_at IS NULL) THEN 0
                   ELSE (SELECT COUNT(*) FROM row_version
-                         WHERE seq > (SELECT MIN(applied_through) FROM peers
+                         WHERE seq > (SELECT MIN(acked_through) FROM peers
                                        WHERE deleted_at IS NULL))
                 END",
         [],
@@ -5151,9 +5310,12 @@ pub fn household(conn: &Connection) -> Result<HouseholdView, String> {
     Ok(HouseholdView {
         device: this_device(conn)?,
         peers: list_peers(conn)?,
-        // Nothing has run yet: the transport is not built. An empty list is the
-        // honest answer and renders as no card at all, rather than a green tick
-        // over a sync that never happened.
+        // How the last run went is a fact about THIS SESSION rather than about
+        // the kitchen, so it lives in memory beside the pairing state and is
+        // laid on top of this view by the command. Persisting it would put a
+        // green tick from Tuesday over a fridge that has been wrong since
+        // Wednesday. An empty list renders as no card at all, which is the
+        // honest answer before anything has been attempted.
         last: Vec::new(),
         queued: queued_for_peers(conn)?,
         shared: shared_counts(conn)?,
@@ -5831,6 +5993,1093 @@ pub fn recorrect_entry(
     snap.corrected_at = Some(now_iso(&tx)?);
     write_snapshot(&tx, entry_id, &snap)?;
     tx.commit().map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// The household feed, and applying a peer's half of it
+// ---------------------------------------------------------------------------
+
+/// The tables the household shares, in the order a batch works through them.
+///
+/// This list and `row_version`'s `table_name` CHECK are two spellings of one
+/// definition, and two definitions drift. The drift would be silent — a table
+/// added to the CHECK and not here is a table that never syncs and never
+/// errors — so `the_shared_table_list_and_the_row_version_check_agree` asks the
+/// database, on a real schema, whether the two still say the same thing. That
+/// is the assertion; this is only the list.
+///
+/// Reading the CHECK back out of the database at apply time was considered and
+/// rejected: the only way to run the real predicate is to attempt a real
+/// insert, and `row_version` also carries five NOT NULLs, a `version > 0` CHECK
+/// and a primary key. Any of those failing would have read as "this table does
+/// not replicate", which is a silent discard of valid data — the very failure
+/// the mechanism was reached for to avoid.
+const SHARED: [&str; 7] = [
+    "recipes",
+    "cooks",
+    "custom_foods",
+    "supplements",
+    "vessels",
+    "bottles",
+    "cook_draws",
+];
+
+/// Columns that stay on the device that wrote them, though their table travels.
+///
+/// The rule is stated once on the `trg_ver_vessels_upd` comment in
+/// [`SYNC_TRIGGERS`]: a column whose value is a HANDLE INTO ONE DEVICE is not a
+/// fact about the kitchen. `last_used_at` is a statement about a person riding
+/// on a shared object, and the photo columns hold filenames in this device's own
+/// photos directory — replicated verbatim they would name a file the peer does
+/// not have, and `read_food_photo` would answer `read <name>: No such file` on
+/// a screen.
+///
+/// Excluded in BOTH directions, and the second half is the one that is easy to
+/// miss: an aggregate arriving without a photo name must not erase the name
+/// already here, or a peer that edits a food and syncs it back would silently
+/// strip the photograph off the device that took it. `replace_aggregate` never
+/// writes a column in this list, which is what gives that for free.
+const NOT_PORTABLE: &[(&str, &str)] = &[
+    ("vessels", "last_used_at"),
+    ("bottles", "last_used_at"),
+    ("custom_foods", "photo_label"),
+    ("custom_foods", "photo_ingredients"),
+    ("supplements", "photo_panel"),
+    ("supplements", "photo_ingredients"),
+];
+
+/// Which children travel inside which parent, and the column that ties them.
+///
+/// A parent with no children is listed anyway, so a reader can see that the set
+/// is closed rather than having to prove an absence.
+const CHILDREN: &[(&str, &[(&str, &str)])] = &[
+    (
+        "recipes",
+        &[
+            ("recipe_ingredients", "recipe_id"),
+            ("recipe_servings", "recipe_id"),
+        ],
+    ),
+    ("cooks", &[("cook_ingredients", "cook_id")]),
+    ("custom_foods", &[("custom_food_nutrients", "food_id")]),
+    ("supplements", &[("supplement_nutrients", "supplement_id")]),
+    ("vessels", &[]),
+    ("bottles", &[]),
+    ("cook_draws", &[]),
+];
+
+/// The primary key column, which is `entry_id` for exactly one shared table.
+///
+/// `cook_draws` borrows the authoring device's `log_entries.id` as its
+/// identity, so the same helping re-sent is the same row. See that table's own
+/// comment for why it is a borrowed id and not a pointer.
+fn key_column(table: &str) -> &'static str {
+    if table == "cook_draws" {
+        "entry_id"
+    } else {
+        "id"
+    }
+}
+
+fn children_of(table: &str) -> &'static [(&'static str, &'static str)] {
+    CHILDREN
+        .iter()
+        .find(|(t, _)| *t == table)
+        .map(|(_, c)| *c)
+        .unwrap_or(&[])
+}
+
+fn is_portable(table: &str, column: &str) -> bool {
+    !NOT_PORTABLE
+        .iter()
+        .any(|(t, c)| *t == table && *c == column)
+}
+
+/// One SQLite value as JSON, for a wire body that follows the schema rather
+/// than a hand-written struct per table.
+///
+/// A BLOB is refused rather than encoded. No shared table has one today, and a
+/// column that quietly became base64 on the wire is a shape nobody chose — the
+/// refusal is what makes adding one a decision.
+fn json_of_sql(
+    table: &str,
+    column: &str,
+    v: rusqlite::types::ValueRef<'_>,
+) -> Result<serde_json::Value, String> {
+    use rusqlite::types::ValueRef;
+    Ok(match v {
+        ValueRef::Null => serde_json::Value::Null,
+        ValueRef::Integer(i) => serde_json::Value::from(i),
+        ValueRef::Real(f) => serde_json::Number::from_f64(f)
+            .map(serde_json::Value::Number)
+            .ok_or_else(|| format!("{table}.{column} is not a finite number"))?,
+        ValueRef::Text(t) => serde_json::Value::from(
+            std::str::from_utf8(t).map_err(|e| format!("{table}.{column} is not text: {e}"))?,
+        ),
+        ValueRef::Blob(_) => {
+            return Err(format!(
+                "{table}.{column} holds bytes, and the household feed has no shape for those"
+            ))
+        }
+    })
+}
+
+/// One JSON value as something SQLite can bind.
+fn sql_of_json(
+    table: &str,
+    column: &str,
+    j: &serde_json::Value,
+) -> Result<rusqlite::types::Value, String> {
+    use rusqlite::types::Value;
+    Ok(match j {
+        serde_json::Value::Null => Value::Null,
+        // A schema that stores a flag as 0/1 and a peer that sent `true` mean
+        // the same thing, and the CHECKs are written against the integers.
+        serde_json::Value::Bool(b) => Value::Integer(i64::from(*b)),
+        serde_json::Value::Number(n) => match n.as_i64() {
+            Some(i) => Value::Integer(i),
+            None => Value::Real(n.as_f64().ok_or_else(|| {
+                format!("{table}.{column} is not a number this build can store")
+            })?),
+        },
+        serde_json::Value::String(s) => Value::Text(s.clone()),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            return Err(format!(
+                "{table}.{column} arrived as a structure where a single value belongs"
+            ))
+        }
+    })
+}
+
+/// One shared row and every child that travels inside it.
+///
+/// The unit of replication is a PARENT ROW AND ALL OF ITS CHILDREN, versioned
+/// once on the parent — the rule stated at the top of the Household sync block
+/// in [`SCHEMA`]. `body` is a JSON object keyed by table name: one object for
+/// the parent, one array per child table. So an aggregate is one thing to send,
+/// one thing to hold in `sync_pending`, and one thing to apply.
+#[derive(Debug, Clone, Serialize)]
+pub struct FeedRow {
+    pub table: String,
+    pub id: String,
+    pub version: i64,
+    pub device_id: String,
+    pub seq: i64,
+    pub changed_at: String,
+    pub body: serde_json::Value,
+}
+
+/// Read one row of one table into a JSON object, dropping what does not travel.
+fn row_object(
+    conn: &Connection,
+    table: &str,
+    key: &str,
+    id: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let mut stmt = conn
+        .prepare(&format!("SELECT * FROM {table} WHERE {key} = ?1"))
+        .map_err(|e| e.to_string())?;
+    let names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
+    let mut rows = stmt.query([id]).map_err(|e| e.to_string())?;
+    let Some(r) = rows.next().map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let mut out = serde_json::Map::new();
+    for (i, name) in names.iter().enumerate() {
+        if !is_portable(table, name) {
+            continue;
+        }
+        let v = r.get_ref(i).map_err(|e| e.to_string())?;
+        out.insert(name.clone(), json_of_sql(table, name, v)?);
+    }
+    Ok(Some(serde_json::Value::Object(out)))
+}
+
+/// Read every child row of one parent into a JSON array, in a fixed order so
+/// two devices build the same array from the same rows.
+fn child_array(
+    conn: &Connection,
+    child: &str,
+    fk: &str,
+    parent_id: &str,
+) -> Result<serde_json::Value, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT * FROM {child} WHERE {fk} = ?1 ORDER BY rowid"
+        ))
+        .map_err(|e| e.to_string())?;
+    let names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
+    let mut rows = stmt.query([parent_id]).map_err(|e| e.to_string())?;
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    while let Some(r) = rows.next().map_err(|e| e.to_string())? {
+        let mut obj = serde_json::Map::new();
+        for (i, name) in names.iter().enumerate() {
+            if !is_portable(child, name) {
+                continue;
+            }
+            let v = r.get_ref(i).map_err(|e| e.to_string())?;
+            obj.insert(name.clone(), json_of_sql(child, name, v)?);
+        }
+        out.push(serde_json::Value::Object(obj));
+    }
+    Ok(serde_json::Value::Array(out))
+}
+
+/// Everything this device has that a peer at watermark `since` has not.
+///
+/// Returns `(rows, upto, more)`. `upto` is the highest `seq` in the batch and
+/// is what the peer's `applied_through` becomes once it has COMMITTED them;
+/// `more` says whether another frame follows. Capped by `max_rows` because a
+/// Noise message carries at most 65,519 bytes of plaintext and the first sync
+/// of a year-old kitchen is not one frame.
+///
+/// The scan is `seq > ?1 ORDER BY seq`, which `idx_rowver_feed` covers. It is
+/// cheap for the same reason the register is a register: one row per tracked
+/// row, self-compacting, so the feed does not grow with edits.
+///
+/// A `row_version` row naming a parent that is not in the database is not
+/// skipped. Nothing in this app hard-deletes a shared row — every deletion is
+/// `deleted_at` — so it cannot happen without corruption, and quietly leaving
+/// it out would publish a kitchen with a hole in it and never say so.
+pub fn feed_since(
+    conn: &Connection,
+    since: i64,
+    max_rows: usize,
+) -> Result<(Vec<FeedRow>, i64, bool), String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT table_name, row_id, version, device_id, seq, changed_at
+               FROM row_version WHERE seq > ?1 ORDER BY seq LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    // One more than asked for, so "is there another frame after this one" is
+    // answered by what the database returned rather than by a second query
+    // against a feed that may have moved in between.
+    let want = max_rows.saturating_add(1) as i64;
+    let mut heads: Vec<(String, String, i64, String, i64, String)> = stmt
+        .query_map(rusqlite::params![since, want], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    let more = heads.len() > max_rows;
+    heads.truncate(max_rows);
+
+    let mut out = Vec::with_capacity(heads.len());
+    let mut upto = since;
+    for (table, id, version, device_id, seq, changed_at) in heads {
+        let key = key_column(&table);
+        let Some(parent) = row_object(conn, &table, key, &id)? else {
+            return Err(format!(
+                "the feed names {table} {id}, which is not in this database"
+            ));
+        };
+        let mut body = serde_json::Map::new();
+        body.insert(table.clone(), parent);
+        for (child, fk) in children_of(&table) {
+            body.insert((*child).to_string(), child_array(conn, child, fk, &id)?);
+        }
+        upto = upto.max(seq);
+        out.push(FeedRow {
+            table,
+            id,
+            version,
+            device_id,
+            seq,
+            changed_at,
+            body: serde_json::Value::Object(body),
+        });
+    }
+    Ok((out, upto, more))
+}
+
+/// One aggregate as a peer sent it.
+///
+/// `raw` is the envelope's own JSON text, kept because `sync_pending.payload`
+/// is documented to hold the peer's own bytes: a retry then re-decides from
+/// what arrived rather than from something this device has already interpreted.
+#[derive(Debug, Clone)]
+pub struct Incoming {
+    pub table: String,
+    pub id: String,
+    pub version: i64,
+    pub device_id: String,
+    pub changed_at: String,
+    pub body: serde_json::Value,
+    pub raw: String,
+}
+
+impl Incoming {
+    /// Read one envelope back out of its own bytes.
+    ///
+    /// Used by the transport for a row off the wire and by the drain for a row
+    /// out of `sync_pending`, which is those same bytes read back — so there is
+    /// one parse and one set of refusals rather than two that could disagree.
+    pub fn from_envelope(text: &str) -> Result<Incoming, String> {
+        #[derive(Deserialize)]
+        struct Wire {
+            table: String,
+            id: String,
+            version: i64,
+            device_id: String,
+            changed_at: String,
+            body: serde_json::Value,
+        }
+        let w: Wire = serde_json::from_str(text)
+            .map_err(|e| format!("reading an aggregate a peer sent: {e}"))?;
+        Ok(Incoming {
+            table: w.table,
+            id: w.id,
+            version: w.version,
+            device_id: w.device_id,
+            changed_at: w.changed_at,
+            body: w.body,
+            raw: text.to_string(),
+        })
+    }
+}
+
+/// What one batch did, in counts the screen can turn into a sentence.
+#[derive(Debug, Clone, Default)]
+pub struct Applied {
+    /// Rows where the peer's version won and was written.
+    pub taken: usize,
+    /// Rows where the local version won and the peer's was discarded.
+    pub kept: usize,
+    /// Aggregates parked in `sync_pending` because something they depend on is
+    /// not here yet.
+    pub held: usize,
+    /// Aggregates that came back out of `sync_pending` this pass.
+    pub released: usize,
+    /// What is still in `sync_pending` after the drain. Non-zero means the sync
+    /// is NOT finished, and `SyncOutcome.detail` has to say so — a green line
+    /// over a fridge that is missing a pot is the same failure as a nutrient bar
+    /// drawn at zero because nobody measured it.
+    pub still_held: usize,
+}
+
+impl Applied {
+    /// Fold one frame's counts into a whole session's.
+    ///
+    /// `still_held` is taken rather than added: it is a reading of the table as
+    /// it stands after the last frame, not a tally of events, and adding two
+    /// readings of one number would report a backlog several times its size.
+    pub fn add(&mut self, other: &Applied) {
+        self.taken += other.taken;
+        self.kept += other.kept;
+        self.held += other.held;
+        self.released += other.released;
+        self.still_held = other.still_held;
+    }
+}
+
+/// Does the peer's row win?
+///
+/// Higher `version` wins. At equal version the lexicographically greater
+/// `device_id` wins. Both halves are decided identically on every device, which
+/// is what makes the merge CONVERGE rather than merely stop: two devices that
+/// saw the same pair of edits end on the same row without having talked about
+/// it. `updated_at` is deliberately not an input — two household clocks
+/// disagree and `now_iso` is accurate only to the second, so a wall-clock
+/// comparison decides real conflicts by whose phone runs fast.
+fn peer_wins(incoming: (i64, &str), local: Option<(i64, &str)>) -> bool {
+    match local {
+        None => true,
+        Some((lv, ld)) => incoming.0 > lv || (incoming.0 == lv && incoming.1 > ld),
+    }
+}
+
+/// What this aggregate is waiting for, or `None` if it can be applied.
+///
+/// Exactly two cross-aggregate foreign keys exist among the seven shared
+/// tables: `cooks.recipe_id -> recipes(id)` and `cook_draws.cook_id ->
+/// cooks(id)`. Every other foreign key among them is a child pointing at its
+/// own parent, which travels in the same envelope. So this function is short on
+/// purpose and its remit is closed.
+fn missing_dependency(tx: &rusqlite::Transaction, r: &Incoming) -> Result<Option<String>, String> {
+    let need = |table: &str, column: &str, waiting: &str| -> Result<Option<String>, String> {
+        let Some(parent) = r.body.get(&r.table) else {
+            return Err(format!("the {} a peer sent has no row in it", r.table));
+        };
+        let Some(v) = parent.get(column).and_then(|v| v.as_str()) else {
+            return Ok(None);
+        };
+        let here: bool = tx
+            .query_row(
+                &format!("SELECT EXISTS (SELECT 1 FROM {table} WHERE id = ?1)"),
+                [v],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok((!here).then(|| waiting.to_string()))
+    };
+    match r.table.as_str() {
+        "cooks" => need(
+            "recipes",
+            "recipe_id",
+            "waiting for the recipe this pot was cooked from",
+        ),
+        "cook_draws" => need(
+            "cooks",
+            "cook_id",
+            "waiting for the pot this helping came out of",
+        ),
+        _ => Ok(None),
+    }
+}
+
+/// Replace the parent and every child, whole.
+///
+/// Never a partial apply. `save_cook` deletes and reinserts every
+/// `cook_ingredients` row with fresh ids on each save, so merging children
+/// individually would UNION two edits of one pot rather than choosing between
+/// them: eleven ingredient lines where there were five, a summed yield twice
+/// what the pot holds, and every helping logged afterwards frozen at half its
+/// real nutrition.
+///
+/// The parent is written in place and NEVER deleted and reinserted, and that is
+/// not a style preference. `foreign_keys` is ON and `log_entries.recipe_id`,
+/// `cook_id`, `custom_food_id`, `supplement_id` and `bottle_id`, plus
+/// `cooks.recipe_id` and `cook_draws.cook_id`, all reference these parents with
+/// NO ACTION. Deleting a recipe you have cooked from, or a food you have eaten,
+/// would return `FOREIGN KEY constraint failed`, abort the whole batch, and
+/// leave the sync permanently stuck on one row with a sentence nobody could act
+/// on. Making those keys CASCADE to get around it is the obvious wrong fix and
+/// is forbidden: it would reach back into frozen history, which is the one
+/// thing this app promises never to do. Children may be deleted, and only
+/// because nothing references them.
+///
+/// Columns are the intersection of what arrived with what this build's table
+/// actually has, minus [`NOT_PORTABLE`]. A column this build does not know is
+/// dropped, and a column the peer did not send is left ALONE rather than
+/// nulled — which is what lets a Mac one release ahead of the phone keep
+/// syncing, and what stops an older peer erasing a field it has never heard of.
+///
+/// A row already here is UPDATEd and one that is not is INSERTed, rather than
+/// both going through one `ON CONFLICT DO UPDATE`. An upsert looks tidier and
+/// is wrong here: SQLite checks the inserted row's NOT NULL constraints BEFORE
+/// it resolves the conflict, so an edit that legitimately omitted `grams`
+/// failed on `vessels.grams` even though the row it was about to update already
+/// had one. Two statements, and the "left alone" rule above actually holds.
+fn replace_aggregate(tx: &rusqlite::Transaction, r: &Incoming) -> Result<(), String> {
+    let key = key_column(&r.table);
+    let Some(parent) = r.body.get(&r.table).and_then(|v| v.as_object()) else {
+        return Err(format!("the {} a peer sent has no row in it", r.table));
+    };
+    let local = columns(tx, &r.table)?;
+
+    let mut names: Vec<&str> = Vec::new();
+    let mut values: Vec<rusqlite::types::Value> = Vec::new();
+    for name in &local {
+        if !is_portable(&r.table, name) {
+            continue;
+        }
+        let Some(v) = parent.get(name) else { continue };
+        names.push(name);
+        values.push(sql_of_json(&r.table, name, v)?);
+    }
+    if !names.contains(&key) {
+        return Err(format!("the {} a peer sent has no {key}", r.table));
+    }
+
+    let here: bool = tx
+        .query_row(
+            &format!(
+                "SELECT EXISTS (SELECT 1 FROM {} WHERE {key} = ?1)",
+                r.table
+            ),
+            [&r.id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if here {
+        let sets = names
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| **n != key)
+            .map(|(i, n)| format!("{n} = ?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !sets.is_empty() {
+            let mut binds = values.clone();
+            binds.push(rusqlite::types::Value::Text(r.id.clone()));
+            let at = binds.len();
+            tx.execute(
+                &format!("UPDATE {} SET {sets} WHERE {key} = ?{at}", r.table),
+                rusqlite::params_from_iter(binds.iter()),
+            )
+            .map_err(|e| format!("applying {} {}: {e}", r.table, r.id))?;
+        }
+    } else {
+        let holes = (1..=names.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        tx.execute(
+            &format!(
+                "INSERT INTO {} ({}) VALUES ({holes})",
+                r.table,
+                names.join(",")
+            ),
+            rusqlite::params_from_iter(values.iter()),
+        )
+        .map_err(|e| format!("applying {} {}: {e}", r.table, r.id))?;
+    }
+
+    // Children after the parent, because every one of them has a foreign key
+    // pointing at it and the parent may be arriving here for the first time.
+    for (child, fk) in children_of(&r.table) {
+        tx.execute(&format!("DELETE FROM {child} WHERE {fk} = ?1"), [&r.id])
+            .map_err(|e| format!("clearing {child} of {} {}: {e}", r.table, r.id))?;
+        let Some(arr) = r.body.get(*child).and_then(|v| v.as_array()) else {
+            continue;
+        };
+        let child_local = columns(tx, child)?;
+        for row in arr {
+            let Some(obj) = row.as_object() else {
+                return Err(format!("a {child} line a peer sent is not a row"));
+            };
+            let mut cn: Vec<&str> = Vec::new();
+            let mut cv: Vec<rusqlite::types::Value> = Vec::new();
+            for name in &child_local {
+                if !is_portable(child, name) {
+                    continue;
+                }
+                let Some(v) = obj.get(name) else { continue };
+                cn.push(name);
+                cv.push(sql_of_json(child, name, v)?);
+            }
+            if cn.is_empty() {
+                return Err(format!(
+                    "a {child} line a peer sent has no columns this build knows"
+                ));
+            }
+            let ch = (1..=cn.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            tx.execute(
+                &format!("INSERT INTO {child} ({}) VALUES ({ch})", cn.join(",")),
+                rusqlite::params_from_iter(cv.iter()),
+            )
+            .map_err(|e| format!("applying a {child} line of {} {}: {e}", r.table, r.id))?;
+        }
+    }
+    Ok(())
+}
+
+/// Move `row_version` to the head of OUR feed while adopting THEIR version.
+///
+/// The fact travelled; the write did not happen again. So `version` and
+/// `device_id` are the peer's, unchanged, and `seq` is a fresh local one — so a
+/// third device can learn the row from us. See the `row_version.seq` comment.
+fn adopt_row_version(tx: &rusqlite::Transaction, r: &Incoming) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+         VALUES (?1, ?2, ?3, ?4, (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version), ?5)
+         ON CONFLICT (table_name, row_id) DO UPDATE SET
+           version = excluded.version,
+           device_id = excluded.device_id,
+           seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_version),
+           changed_at = excluded.changed_at",
+        rusqlite::params![r.table, r.id, r.version, r.device_id, r.changed_at],
+    )
+    .map_err(|e| format!("recording the version of {} {}: {e}", r.table, r.id))?;
+    Ok(())
+}
+
+/// What happened to one aggregate.
+///
+/// Three outcomes and none of them is a failure, which is why this is an enum
+/// and not a `Result<bool, String>`: "the local row won" and "this is waiting
+/// for a pot" are decisions the merge makes on purpose, and folding either into
+/// an error string would put them on the same footing as a schema this build
+/// cannot honour.
+#[derive(Debug, Clone, PartialEq)]
+enum Took {
+    /// Written, and the version register moved.
+    Applied,
+    /// The local row won on version, or on device id at equal version.
+    Kept,
+    /// Parked in `sync_pending`, with the sentence saying what for.
+    Held(String),
+}
+
+/// Try one aggregate: apply it, hold it, or discard it as already beaten.
+fn take_one(
+    tx: &rusqlite::Transaction,
+    r: &Incoming,
+    from_hold: bool,
+) -> Result<Took, String> {
+    if !SHARED.contains(&r.table.as_str()) {
+        return Err(format!(
+            "“{}” is not one of the tables a household shares",
+            r.table
+        ));
+    }
+    // The envelope says which row this is; the body carries the row's own key
+    // column. They have to be the same string, and nothing until this line
+    // checked that they were.
+    //
+    // What the disagreement costs is out of all proportion to how ordinary it
+    // looks. `replace_aggregate` builds its INSERT from the LOCAL schema and
+    // takes every value out of the body, key column included, so the row lands
+    // under the BODY's id — while `adopt_row_version` writes the register entry
+    // under the ENVELOPE's. From that moment this device's own feed names a row
+    // it does not have, `feed_since` refuses rather than skipping it, and
+    // because `stream_rows` reads the feed before anything else, this device
+    // can never send a row to any peer again, in either direction. Nothing in
+    // the app deletes from `row_version`, and the sending peer's watermark has
+    // already moved past the row, so there is no way back: the Household screen
+    // simply reports the same sentence for ever.
+    //
+    // A null key is the same defect by a quieter route. SQLite does not enforce
+    // NOT NULL on a TEXT PRIMARY KEY in a non-rowid table, so a body carrying
+    // `"id": null` would insert a row with no id at all under a named register
+    // entry. Requiring the exact string covers both.
+    let key = key_column(&r.table);
+    let claimed = r.body.get(&r.table).and_then(|t| t.get(key));
+    if claimed != Some(&serde_json::Value::String(r.id.clone())) {
+        return Err(format!(
+            "a peer sent {} {} whose own {key} says something else, so it was not applied",
+            r.table, r.id
+        ));
+    }
+    let local: Option<(i64, String)> = tx
+        .query_row(
+            "SELECT version, device_id FROM row_version WHERE table_name = ?1 AND row_id = ?2",
+            rusqlite::params![r.table, r.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+    if !peer_wins(
+        (r.version, &r.device_id),
+        local.as_ref().map(|(v, d)| (*v, d.as_str())),
+    ) {
+        // A row that was being held for a dependency, and has since been beaten
+        // by a local edit, stops being worth holding — so it goes rather than
+        // sitting in `sync_pending` for ever, reported as unfinished work.
+        if from_hold {
+            drop_hold(tx, &r.table, &r.id)?;
+        }
+        return Ok(Took::Kept);
+    }
+    if let Some(reason) = missing_dependency(tx, r)? {
+        hold(tx, r, &reason)?;
+        return Ok(Took::Held(reason));
+    }
+    replace_aggregate(tx, r)?;
+    adopt_row_version(tx, r)?;
+    drop_hold(tx, &r.table, &r.id)?;
+    Ok(Took::Applied)
+}
+
+/// Park an aggregate until what it depends on arrives.
+///
+/// `ON CONFLICT DO UPDATE`, because a peer may edit the same held row again
+/// before its dependency turns up. Without it the second copy collides on
+/// `sync_pending`'s primary key, the apply transaction aborts — and since the
+/// watermark has already moved past the first copy, and the feed is
+/// self-compacting, the row would afterwards be unreachable from either side.
+fn hold(tx: &rusqlite::Transaction, r: &Incoming, reason: &str) -> Result<(), String> {
+    let now = now_iso(tx)?;
+    tx.execute(
+        "INSERT INTO sync_pending (table_name, row_id, payload, reason, received_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (table_name, row_id) DO UPDATE SET
+           payload = excluded.payload,
+           reason = excluded.reason,
+           received_at = excluded.received_at",
+        rusqlite::params![r.table, r.id, r.raw, reason, now],
+    )
+    .map_err(|e| format!("holding {} {}: {e}", r.table, r.id))?;
+    Ok(())
+}
+
+fn drop_hold(tx: &rusqlite::Transaction, table: &str, id: &str) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM sync_pending WHERE table_name = ?1 AND row_id = ?2",
+        rusqlite::params![table, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Work `sync_pending` until a pass releases nothing, and report what is left.
+///
+/// A loop rather than a single pass because the dependencies chain: a recipe
+/// releases a pot, and that pot releases the helpings taken out of it. One pass
+/// in arrival order would leave the helpings parked until the next sync.
+///
+/// A payload that cannot be parsed at all is left where it is and counted as
+/// still held. It can never be released, so erroring here would wedge every
+/// future drain on one bad row; leaving it means `Applied.still_held` stays
+/// non-zero and the screen keeps saying the sync is not finished, which is true.
+///
+/// Returns `(released, beaten, still)`. Three numbers rather than two, because a
+/// held row that a local edit has since overtaken LEAVES the hold without ever
+/// arriving: counting it as released would have put it in the "came back" figure
+/// on the Household screen, which is a small lie in a sentence whose whole job
+/// is not to be one. It is still progress as far as the loop is concerned, which
+/// is why the loop counts both and the caller is told them apart.
+fn drain_in(tx: &rusqlite::Transaction) -> Result<(usize, usize, usize), String> {
+    let mut released = 0usize;
+    let mut beaten = 0usize;
+    loop {
+        let mut stmt = tx
+            .prepare("SELECT payload FROM sync_pending ORDER BY received_at, table_name, row_id")
+            .map_err(|e| e.to_string())?;
+        let held: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(stmt);
+        let mut moved = 0usize;
+        for payload in &held {
+            let Ok(r) = Incoming::from_envelope(payload) else {
+                continue;
+            };
+            match take_one(tx, &r, true)? {
+                Took::Applied => {
+                    released += 1;
+                    moved += 1;
+                }
+                Took::Kept => {
+                    beaten += 1;
+                    moved += 1;
+                }
+                Took::Held(_) => {}
+            }
+        }
+        if moved == 0 {
+            break;
+        }
+    }
+    let still: i64 = tx
+        .query_row("SELECT COUNT(*) FROM sync_pending", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    Ok((released, beaten, still as usize))
+}
+
+/// Release anything held whose dependency has since arrived.
+///
+/// Called from `open`, so a pot that turns up later from a THIRD device
+/// unblocks the helpings that were waiting for it without anybody pressing
+/// anything.
+///
+/// An empty `sync_pending` returns before opening a transaction at all. Nothing
+/// held is the state almost every launch is in, and `open`'s own comments are
+/// about how little the app may do before the first screen — a write
+/// transaction and a raised `applying` flag for a table with no rows in it is
+/// exactly the kind of cost that adds up to a launch nobody can account for.
+pub fn drain_pending(conn: &mut Connection) -> Result<usize, String> {
+    let anything: bool = conn
+        .query_row("SELECT EXISTS (SELECT 1 FROM sync_pending)", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if !anything {
+        return Ok(0);
+    }
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|e| e.to_string())?;
+    tx.execute("UPDATE sync_control SET applying = 1", [])
+        .map_err(|e| e.to_string())?;
+    let (released, _beaten, _still) = drain_in(&tx)?;
+    tx.execute("UPDATE sync_control SET applying = 0", [])
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(released)
+}
+
+/// Apply one frame of a peer's feed, in one transaction.
+///
+/// `BEGIN IMMEDIATE` rather than a deferred transaction, for the reason `open`
+/// records: under WAL a deferred transaction that reads and then writes after
+/// another connection committed gets SQLITE_BUSY_SNAPSHOT, and the busy handler
+/// is not invoked for it at all.
+///
+/// `sync_control.applying` goes to 1 first and back to 0 before commit. While
+/// it is up the fourteen change-tracking triggers stand down and this function
+/// writes `row_version` itself, because the version to record is the PEER'S and
+/// a trigger cannot know it — recording a fresh local version there would make
+/// an applied row look locally authored and win itself straight back. A rollback
+/// restores the flag by itself, which is why the flag is a real table.
+///
+/// `upto` reaches `peers.applied_through` only as `MAX(applied_through, upto)`,
+/// and only inside this transaction. Advancing it on RECEIPT instead of on
+/// COMMIT loses rows to a crash with no way to notice afterwards: the feed is
+/// self-compacting, so the row has already moved under the watermark and will
+/// never be sent again.
+///
+/// `seen_at` is where this peer answered from and the port it says it listens
+/// on, remembered so the next sync can dial it instead of sweeping. A hint and
+/// not an identity — the handshake against `static_pk` is what said who this is.
+pub fn apply_batch(
+    conn: &mut Connection,
+    peer_device_id: &str,
+    rows: &[Incoming],
+    upto: i64,
+    seen_at: Option<(&str, u16)>,
+) -> Result<Applied, String> {
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|e| e.to_string())?;
+    tx.execute("UPDATE sync_control SET applying = 1", [])
+        .map_err(|e| e.to_string())?;
+
+    let mut out = Applied::default();
+    for r in rows {
+        match take_one(&tx, r, false)? {
+            Took::Applied => out.taken += 1,
+            Took::Kept => out.kept += 1,
+            Took::Held(_) => out.held += 1,
+        }
+    }
+
+    let (released, beaten, still) = drain_in(&tx)?;
+    out.released = released;
+    // A row that came out of the hold because a local edit had overtaken it was
+    // discarded, not delivered, so it belongs with the rest of the rows the
+    // local copy won rather than in the figure the screen calls "came back".
+    out.kept += beaten;
+    out.still_held = still;
+
+    let now = now_iso(&tx)?;
+    tx.execute(
+        "UPDATE peers SET applied_through = MAX(applied_through, ?2), last_synced_at = ?3
+          WHERE device_id = ?1",
+        rusqlite::params![peer_device_id, upto, now],
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some((addr, port)) = seen_at {
+        // Port 0 is what a device that is not listening announces, and
+        // `last_port`'s CHECK refuses it. Remembering an address with no port
+        // would be remembering half a way back.
+        if port > 0 {
+            tx.execute(
+                "UPDATE peers SET last_addr = ?2, last_port = ?3, last_addr_at = ?4
+                  WHERE device_id = ?1",
+                rusqlite::params![peer_device_id, addr, port, now],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.execute("UPDATE sync_control SET applying = 0", [])
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Record how far this peer says it has got through OUR feed.
+///
+/// Monotonic: `acked_through = MAX(acked_through, ?2)`. An ack that went
+/// backwards would make `queued_for_peers` invent a backlog that has already
+/// been delivered.
+pub fn note_ack(conn: &Connection, peer_device_id: &str, acked_through: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE peers SET acked_through = MAX(acked_through, ?2) WHERE device_id = ?1",
+        rusqlite::params![peer_device_id, acked_through],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// This device's own Noise static keypair, or `None` if it has not been minted
+/// yet. Never read a `None` here as an empty key.
+pub fn static_keypair(conn: &Connection) -> Result<Option<(Vec<u8>, Vec<u8>)>, String> {
+    let got: Option<(Option<Vec<u8>>, Option<Vec<u8>>)> = conn
+        .query_row(
+            "SELECT static_pk, static_sk FROM this_device WHERE id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok();
+    Ok(match got {
+        Some((Some(pk), Some(sk))) => Some((pk, sk)),
+        _ => None,
+    })
+}
+
+/// Write this device's keypair, once.
+///
+/// Refuses if one is already there, because every `peers.static_pk` row on
+/// every other device in the house points at the first one.
+pub fn set_static_keypair(conn: &Connection, pk: &[u8], sk: &[u8]) -> Result<(), String> {
+    if static_keypair(conn)?.is_some() {
+        return Err("this device already has a household key, and replacing it would make \
+                    every device it is paired with treat it as a stranger"
+            .into());
+    }
+    let n = conn
+        .execute(
+            "UPDATE this_device SET static_pk = ?1, static_sk = ?2 WHERE id = 1",
+            rusqlite::params![pk, sk],
+        )
+        .map_err(|e| format!("minting this device's household key: {e}"))?;
+    if n == 0 {
+        return Err("this device has no identity to attach a household key to".into());
+    }
+    Ok(())
+}
+
+/// A peer as the dialler needs it.
+#[derive(Debug, Clone)]
+pub struct PeerDial {
+    pub device_id: String,
+    pub name: String,
+    pub static_pk: Vec<u8>,
+    pub last_addr: Option<String>,
+    pub last_port: Option<u16>,
+    /// How far through THEIR feed this device has got, which is what a pull
+    /// addressed to them has to carry.
+    pub applied_through: i64,
+}
+
+fn peer_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<PeerDial> {
+    Ok(PeerDial {
+        device_id: r.get(0)?,
+        name: r.get(1)?,
+        static_pk: r.get(2)?,
+        last_addr: r.get(3)?,
+        last_port: r.get::<_, Option<i64>>(4)?.map(|p| p as u16),
+        applied_through: r.get(5)?,
+    })
+}
+
+const PEER_DIAL_COLS: &str = "device_id, name, static_pk, last_addr, last_port, applied_through";
+
+/// Every device this one should try to reach, in a stable order.
+///
+/// Forgotten devices are excluded here rather than by the caller. `unpair` only
+/// sets `deleted_at`, and the Household screen promises that forgetting a device
+/// stops this one syncing with it — so the filter belongs where every dialler
+/// and every answerer will pass through it.
+pub fn peers_to_dial(conn: &Connection) -> Result<Vec<PeerDial>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {PEER_DIAL_COLS} FROM peers WHERE deleted_at IS NULL ORDER BY paired_at"
+        ))
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], peer_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+/// Who this is, by the key the handshake authenticated.
+///
+/// Identity comes from the key and never from anything the peer announced about
+/// itself. A forgotten device is `None`, which is what makes the promise on the
+/// Household screen true on the inbound path as well as the outbound one.
+pub fn peer_by_static_pk(conn: &Connection, pk: &[u8]) -> Result<Option<PeerDial>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {PEER_DIAL_COLS} FROM peers WHERE static_pk = ?1 AND deleted_at IS NULL"
+        ))
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([pk]).map_err(|e| e.to_string())?;
+    let got = match rows.next().map_err(|e| e.to_string())? {
+        Some(r) => Some(peer_row(r).map_err(|e| e.to_string())?),
+        None => None,
+    };
+    Ok(got)
+}
+
+/// Write a device into the household, or bring a forgotten one back.
+///
+/// UPSERT on `device_id`, clearing `deleted_at`: a device that was removed and
+/// pairs again is the same device, and re-admitting it as a stranger would give
+/// the household two rows for one phone and two watermarks for one feed.
+///
+/// A `static_pk` already in the household under a DIFFERENT `device_id` is
+/// refused with a sentence rather than a constraint code, because it has a real
+/// cause worth naming.
+pub fn pair_peer(
+    conn: &Connection,
+    device_id: &str,
+    name: &str,
+    static_pk: &[u8],
+    addr: Option<(&str, u16)>,
+) -> Result<(), String> {
+    if static_pk.len() != 32 {
+        return Err("that device did not present a household key this app can use".into());
+    }
+    let clash: Option<String> = conn
+        .query_row(
+            "SELECT device_id FROM peers WHERE static_pk = ?1",
+            [static_pk],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(other) = clash {
+        if other != device_id {
+            return Err("another device in this household already uses that key — this looks \
+                        like a copy of an app data folder rather than a second device"
+                .into());
+        }
+    }
+    let now = now_iso(conn)?;
+    conn.execute(
+        "INSERT INTO peers (device_id, name, static_pk, paired_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (device_id) DO UPDATE SET
+           name = excluded.name,
+           static_pk = excluded.static_pk,
+           deleted_at = NULL",
+        rusqlite::params![device_id, name, static_pk, now],
+    )
+    .map_err(|e| format!("writing {name} into the household: {e}"))?;
+    if let Some((a, p)) = addr {
+        note_seen(conn, device_id, a, p)?;
+    }
+    Ok(())
+}
+
+/// Remember where a peer answered from, without touching any watermark.
+///
+/// The port is the one the peer ANNOUNCED it listens on, never the ephemeral
+/// source port a connection arrived from — dialling that would miss every time,
+/// costing a connect timeout plus a whole subnet sweep on every sync. A device
+/// that is not listening announces 0, and there is nothing to remember about
+/// that, so it is quietly not written rather than refused.
+pub fn note_seen(conn: &Connection, device_id: &str, addr: &str, port: u16) -> Result<(), String> {
+    if port == 0 {
+        return Ok(());
+    }
+    let now = now_iso(conn)?;
+    conn.execute(
+        "UPDATE peers SET last_addr = ?2, last_port = ?3, last_addr_at = ?4 WHERE device_id = ?1",
+        rusqlite::params![device_id, addr, port, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Say that a session with this peer completed.
+///
+/// Without this a wholly successful sync still leaves a grey pip and "paired,
+/// not synced yet" on the Household screen, because `list_peers` reads
+/// `last_synced_at` and nothing else would ever have written it.
+pub fn note_synced(conn: &Connection, device_id: &str) -> Result<(), String> {
+    let now = now_iso(conn)?;
+    conn.execute(
+        "UPDATE peers SET last_synced_at = ?2 WHERE device_id = ?1",
+        rusqlite::params![device_id, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -8273,9 +9522,12 @@ mod tests {
     fn forgetting_a_device_leaves_it_recognisable_rather_than_gone() {
         let c = db();
         c.execute(
+            // A real 32-byte key, because `static_pk` now says so: a short key
+            // is a handshake that silently never completes rather than an
+            // error anybody sees, so the length is a constraint.
             "INSERT INTO peers (device_id, name, static_pk, paired_at)
-             VALUES ('her-phone', 'Pixel', X'00', '2026-09-02T18:20:00Z')",
-            [],
+             VALUES ('her-phone', 'Pixel', ?1, '2026-09-02T18:20:00Z')",
+            [vec![7u8; 32]],
         )
         .unwrap();
         assert_eq!(list_peers(&c).unwrap().len(), 1);
@@ -8624,6 +9876,1150 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM row_version WHERE table_name = 'cooks'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(queued, 1);
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Household sync: the migration, the feed, the merge
+    // -----------------------------------------------------------------------
+
+    /// `this_device` and `peers` as v14 shipped them.
+    ///
+    /// Only these two, because `SCHEMA` is `CREATE TABLE IF NOT EXISTS` and so
+    /// leaves anything already here alone — which is exactly the production
+    /// situation the arm has to survive. Creating them first and then running
+    /// `SCHEMA` puts the database in the shape an installed v14 build is in.
+    const V14_HOUSEHOLD: &str = "
+      CREATE TABLE this_device (
+        id         INTEGER PRIMARY KEY CHECK (id = 1),
+        device_id  TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE peers (
+        device_id       TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        static_pk       BLOB NOT NULL UNIQUE,
+        paired_at       TEXT NOT NULL,
+        applied_through INTEGER NOT NULL DEFAULT 0 CHECK (applied_through >= 0),
+        last_synced_at  TEXT,
+        deleted_at      TEXT
+      );";
+
+    fn key(fill: u8) -> Vec<u8> {
+        vec![fill; 32]
+    }
+
+    #[test]
+    fn migrates_a_v14_database_to_a_household_key_and_a_remembered_address() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch(V14_HOUSEHOLD).unwrap();
+        c.execute_batch(SCHEMA).unwrap();
+        c.execute(
+            "INSERT INTO this_device (id, device_id, name, created_at)
+             VALUES (1, 'mac-1', 'Kitchen Mac', '2026-08-01T09:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO peers (device_id, name, static_pk, paired_at, applied_through)
+             VALUES ('phone-1', 'Pixel', ?1, '2026-08-02T18:20:00Z', 41)",
+            [key(7)],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 14).unwrap();
+
+        migrate(&mut c).unwrap();
+
+        // The identity and the pairing came through whole, provenance included.
+        assert_eq!(device_id(&c).unwrap(), "mac-1");
+        assert_eq!(this_device(&c).unwrap().name, "Kitchen Mac");
+        let peers = peers_to_dial(&c).unwrap();
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].name, "Pixel");
+        assert_eq!(peers[0].static_pk, key(7));
+        assert_eq!(peers[0].applied_through, 41, "their watermark survived");
+
+        // And the new columns read as "not recorded" rather than as a value.
+        assert!(
+            static_keypair(&c).unwrap().is_none(),
+            "a migrated database has an identity and no key yet, and a NULL key \
+             must never read as an empty one"
+        );
+        assert_eq!(peers[0].last_addr, None);
+        assert_eq!(peers[0].last_port, None);
+        let acked: i64 = c
+            .query_row("SELECT acked_through FROM peers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(acked, 0, "nothing has been acknowledged");
+
+        // The capability the arm exists for now works.
+        set_static_keypair(&c, &key(1), &key(2)).unwrap();
+        assert_eq!(static_keypair(&c).unwrap(), Some((key(1), key(2))));
+        note_seen(&c, "phone-1", "192.168.0.31", 51733).unwrap();
+        let after = peers_to_dial(&c).unwrap();
+        assert_eq!(after[0].last_addr.as_deref(), Some("192.168.0.31"));
+        assert_eq!(after[0].last_port, Some(51733));
+    }
+
+    #[test]
+    fn a_thirty_one_byte_household_key_is_refused_rather_than_stored() {
+        let c = db();
+        assert!(
+            set_static_keypair(&c, &vec![9u8; 31], &key(2)).is_err(),
+            "a short key is a handshake that silently never completes, so it \
+             must not reach the column at all"
+        );
+        assert!(
+            pair_peer(&c, "phone-1", "Pixel", &vec![9u8; 31], None).is_err(),
+            "and the same for a peer's"
+        );
+    }
+
+    #[test]
+    fn a_household_key_is_never_rewritten() {
+        let c = db();
+        set_static_keypair(&c, &key(1), &key(2)).unwrap();
+        let again = set_static_keypair(&c, &key(3), &key(4));
+        assert!(again.is_err(), "minting a second key makes this device a stranger");
+        assert_eq!(static_keypair(&c).unwrap(), Some((key(1), key(2))));
+    }
+
+    #[test]
+    fn the_shared_table_list_and_the_row_version_check_agree() {
+        // The CHECK is the definition of what the household shares, and SHARED
+        // is a second spelling of it. This is the assertion that stops them
+        // drifting: a table added to one and not the other would otherwise be a
+        // table that never syncs and never errors.
+        let c = db();
+        let accepted = |table: &str| -> bool {
+            c.execute(
+                "INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+                 VALUES (?1, 'probe', 1, 'probe', 1, '2026-09-10T00:00:00Z')",
+                [table],
+            )
+            .is_ok()
+        };
+        for table in SHARED {
+            assert!(accepted(table), "{table} is in SHARED but the CHECK refuses it");
+            c.execute("DELETE FROM row_version WHERE row_id = 'probe'", []).unwrap();
+        }
+        for private in [
+            "log_entries",
+            "entry_snapshots",
+            "entry_components",
+            "entry_nutrients",
+            "profile",
+            "nutrient_targets",
+            "recipe_ingredients",
+            "cook_ingredients",
+        ] {
+            assert!(
+                !accepted(private),
+                "{private} is not in SHARED, so the CHECK must refuse it too"
+            );
+        }
+    }
+
+    /// A kitchen with one of everything in it, and one meal eaten.
+    fn kitchen(c: &mut Connection) -> (String, String) {
+        let rid = save_recipe(
+            c,
+            "Rajma",
+            900.0,
+            Some(4.0),
+            Some("soak overnight"),
+            &[ing("kidney beans", Some(16033), 300.0, 900.0)],
+            &[RecipeServing { id: String::new(), label: "katori".into(), grams: 200.0 }],
+            &Tags { origin: Some("home".into()), cuisine: Some("North Indian".into()) },
+        )
+        .unwrap();
+        let cid = save_cook(
+            c,
+            None,
+            &CookInput {
+                recipe_id: Some(rid.clone()),
+                name: "Rajma".into(),
+                cooked_on: "2026-09-04".into(),
+                scale: 1.0,
+                gross_g: None,
+                vessel_ids: Vec::new(),
+                weighed_yield_g: Some(900.0),
+                notes: None,
+                defaults: Tags::default(),
+                ingredients: vec![CookIngredient {
+                    id: String::new(),
+                    position: 0,
+                    fdc_id: Some(16033),
+                    description: "kidney beans".into(),
+                    planned_g: 900.0,
+                    raw_g: 300.0,
+                    cooked_g: 900.0,
+                    substituted_for: None,
+                }],
+            },
+        )
+        .unwrap();
+        save_vessel(c, None, "katori", 42.0).unwrap();
+        save_bottle(c, None, "steel flask", 900.0, Some(300.0), Some(600.0)).unwrap();
+        save_custom_food(
+            c,
+            None,
+            &CustomFood {
+                id: String::new(),
+                name: "Milk chocolate bar".into(),
+                brand: Some("Hershey's".into()),
+                overrides_fdc_id: None,
+                serving_g: 43.0,
+                serving_label: Some("1 bar".into()),
+                ingredients: Some("sugar, milk".into()),
+                barcode: None,
+                photo_label: Some("shot-1.jpg".into()),
+                photo_ingredients: None,
+                import_only: false,
+                nutrients: vec![CustomNutrient {
+                    nutrient_id: 1004,
+                    kind: "measured".into(),
+                    amount: Some(13.0),
+                    upper: None,
+                }],
+            },
+        )
+        .unwrap();
+        save_supplement(c, None, &multivit()).unwrap();
+        add(
+            c,
+            "2026-09-04",
+            Some("dinner"),
+            Source::Cook(&cid),
+            "Rajma",
+            Quantity::Grams(300.0),
+            None,
+            &Tags::default(),
+        )
+        .unwrap();
+        (rid, cid)
+    }
+
+    #[test]
+    fn the_feed_carries_each_aggregate_with_its_children_inside_it() {
+        let mut c = db();
+        let (rid, cid) = kitchen(&mut c);
+        let (rows, _upto, more) = feed_since(&c, 0, 1000).unwrap();
+        assert!(!more, "a kitchen this size is one frame");
+
+        let recipe = rows.iter().find(|r| r.table == "recipes" && r.id == rid).unwrap();
+        // The children are INSIDE the parent, not beside it: one aggregate is
+        // one thing to send, hold and apply.
+        let ings = recipe.body["recipe_ingredients"].as_array().unwrap();
+        assert_eq!(ings.len(), 1);
+        assert_eq!(ings[0]["description"], "kidney beans");
+        let servings = recipe.body["recipe_servings"].as_array().unwrap();
+        assert_eq!(servings.len(), 1);
+        assert_eq!(servings[0]["label"], "katori");
+        assert!(
+            !rows.iter().any(|r| r.table == "recipe_ingredients"),
+            "a child has no identity of its own in the feed"
+        );
+
+        let pot = rows.iter().find(|r| r.table == "cooks" && r.id == cid).unwrap();
+        assert_eq!(pot.body["cook_ingredients"].as_array().unwrap().len(), 1);
+        assert_eq!(pot.version, 1, "one pot, saved once, versioned once");
+
+        for table in ["custom_foods", "supplements", "vessels", "bottles", "cook_draws"] {
+            assert!(
+                rows.iter().any(|r| r.table == table),
+                "{table} should be in the feed"
+            );
+        }
+    }
+
+    #[test]
+    fn a_logged_meal_never_appears_in_the_feed() {
+        let mut c = db();
+        let (_rid, cid) = kitchen(&mut c);
+        save_bottle(&c, None, "bottle", 800.0, Some(200.0), Some(600.0)).unwrap();
+        let bid: String = c
+            .query_row("SELECT id FROM bottles WHERE name = 'bottle'", [], |r| r.get(0))
+            .unwrap();
+        add(
+            &c,
+            "2026-09-04",
+            None,
+            Source::Water(&bid),
+            "water",
+            Quantity::Grams(250.0),
+            None,
+            &Tags::default(),
+        )
+        .unwrap();
+        save_profile(
+            &c,
+            &Profile {
+                sex: Some("female".into()),
+                birth_year: Some(1992),
+                height_cm: Some(165.0),
+                weight_kg: Some(60.0),
+                activity: None,
+                life_stage: "standard".into(),
+                energy_kcal: None,
+            },
+        )
+        .unwrap();
+
+        let (rows, _upto, _more) = feed_since(&c, 0, 1000).unwrap();
+        for private in [
+            "log_entries",
+            "entry_snapshots",
+            "entry_components",
+            "entry_nutrients",
+            "profile",
+            "nutrient_targets",
+        ] {
+            assert!(
+                !rows.iter().any(|r| r.table == private),
+                "{private} is one person's, and the Household screen says so"
+            );
+        }
+        // And nothing in any body names an entry either, except the one place
+        // the schema deliberately does: a helping's borrowed id.
+        let draw = rows.iter().find(|r| r.table == "cook_draws").unwrap();
+        assert_eq!(draw.body["cook_draws"]["cook_id"], serde_json::json!(cid));
+        assert!(draw.body["cook_draws"]["grams"].as_f64().unwrap() > 0.0);
+    }
+
+    #[test]
+    fn a_handle_into_one_device_does_not_travel() {
+        let mut c = db();
+        kitchen(&mut c);
+        // Touching a vessel is the hottest write in the app, and the column it
+        // touches is a statement about a person rather than about the kitchen.
+        let vid: String = c
+            .query_row("SELECT id FROM vessels WHERE name = 'katori'", [], |r| r.get(0))
+            .unwrap();
+        touch_vessels(&c, &[vid.clone()]).unwrap();
+
+        let (rows, _upto, _more) = feed_since(&c, 0, 1000).unwrap();
+        let vessel = rows.iter().find(|r| r.table == "vessels").unwrap();
+        let body = vessel.body["vessels"].as_object().unwrap();
+        assert!(body.contains_key("name") && body.contains_key("grams"));
+        assert!(
+            !body.contains_key("last_used_at"),
+            "one household member's katori must not reorder the other's picker"
+        );
+
+        let food = rows.iter().find(|r| r.table == "custom_foods").unwrap();
+        let fbody = food.body["custom_foods"].as_object().unwrap();
+        assert!(
+            !fbody.contains_key("photo_label") && !fbody.contains_key("photo_ingredients"),
+            "a filename in this device's photos directory names a file the peer \
+             does not have"
+        );
+        assert!(fbody.contains_key("ingredients"), "the transcription does travel");
+    }
+
+    #[test]
+    fn the_feed_stops_at_max_rows_and_says_there_is_more() {
+        let mut c = db();
+        kitchen(&mut c);
+        let (rows, upto, more) = feed_since(&c, 0, 2).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(more, "there is more, and a caller that believed otherwise would stop early");
+        assert_eq!(upto, rows[1].seq);
+        let (rest, _upto2, _more2) = feed_since(&c, upto, 1000).unwrap();
+        assert!(!rest.iter().any(|r| r.seq <= upto), "a frame never resends itself");
+    }
+
+    #[test]
+    fn a_feed_row_naming_a_row_that_is_not_there_fails_loudly() {
+        let c = db();
+        c.execute(
+            "INSERT INTO row_version (table_name, row_id, version, device_id, seq, changed_at)
+             VALUES ('vessels', 'nobody', 1, 'mac-1', 1, '2026-09-10T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let err = feed_since(&c, 0, 10).unwrap_err();
+        assert!(
+            err.contains("not in this database"),
+            "publishing a kitchen with a hole in it would be the worse failure: {err}"
+        );
+    }
+
+    #[test]
+    fn calibrating_a_bottle_travels() {
+        // The v13 -> v14 arm added `empty_g` and `volume_ml` and the version
+        // trigger's UPDATE OF list was not updated with them, so a bottle
+        // weighed empty on the Mac read at the density of water on the phone
+        // for ever, in silence.
+        let c = db();
+        let bid = save_bottle(&c, None, "steel flask", 900.0, None, None).unwrap();
+        let before: i64 = c
+            .query_row(
+                "SELECT version FROM row_version WHERE table_name = 'bottles' AND row_id = ?1",
+                [&bid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        save_bottle(&c, Some(&bid), "steel flask", 900.0, Some(300.0), Some(600.0)).unwrap();
+        let after: i64 = c
+            .query_row(
+                "SELECT version FROM row_version WHERE table_name = 'bottles' AND row_id = ?1",
+                [&bid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(after > before, "a calibration is a fact about the kitchen");
+    }
+
+    /// Move every aggregate one database has into another, in one batch.
+    fn hand_over(from: &Connection, to: &mut Connection, as_peer: &str) -> Applied {
+        let (rows, upto, _more) = feed_since(from, 0, 1000).unwrap();
+        let incoming = rows
+            .iter()
+            .map(|r| {
+                let text = serde_json::to_string(&serde_json::json!({
+                    "table": r.table,
+                    "id": r.id,
+                    "version": r.version,
+                    "device_id": r.device_id,
+                    "seq": r.seq,
+                    "changed_at": r.changed_at,
+                    "body": r.body,
+                }))
+                .unwrap();
+                Incoming::from_envelope(&text).unwrap()
+            })
+            .collect::<Vec<_>>();
+        apply_batch(to, as_peer, &incoming, upto, None).unwrap()
+    }
+
+    /// Two databases that know each other, so an apply has a peer row to move.
+    fn paired() -> (Connection, Connection) {
+        let a = db();
+        let b = db();
+        let a_id = device_id(&a).unwrap();
+        let b_id = device_id(&b).unwrap();
+        pair_peer(&a, &b_id, "B", &key(2), None).unwrap();
+        pair_peer(&b, &a_id, "A", &key(1), None).unwrap();
+        (a, b)
+    }
+
+    #[test]
+    fn an_envelope_whose_head_and_body_name_different_rows_is_refused() {
+        // The register and the table have to end up naming the same row. If
+        // they do not, this device's own feed names a row it does not hold,
+        // `feed_since` refuses, and — because every session reads the feed
+        // before it does anything else — this device can never send a row to
+        // anybody again, in either direction. Nothing deletes from
+        // `row_version` and the sending peer's watermark has already moved
+        // past, so there is no way back out of it.
+        let (mut a, mut b) = paired();
+        let (rid, _) = kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+
+        let text = serde_json::to_string(&serde_json::json!({
+            "table": "recipes",
+            "id": "the-envelope-says-this",
+            "version": 9,
+            "device_id": a_id,
+            "seq": 1,
+            "changed_at": "2026-09-10T00:00:00Z",
+            "body": { "recipes": { "id": rid, "name": "Rajma" } },
+        }))
+        .unwrap();
+        let row = Incoming::from_envelope(&text).unwrap();
+        let err = apply_batch(&mut b, &device_id(&a).unwrap(), &[row], 1, None)
+            .expect_err("an envelope that contradicts itself is not applied");
+        assert!(
+            err.contains("says something else"),
+            "the refusal names the disagreement rather than a constraint code: {err}"
+        );
+
+        let registered: i64 = b
+            .query_row(
+                "SELECT COUNT(*) FROM row_version WHERE table_name = 'recipes'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(registered, 0, "nothing was written to the register either");
+    }
+
+    #[test]
+    fn a_peers_kitchen_arrives_whole() {
+        let (mut a, mut b) = paired();
+        let (rid, cid) = kitchen(&mut a);
+        let b_peer = device_id(&a).unwrap();
+        let out = hand_over(&a, &mut b, &b_peer);
+        assert!(out.taken >= 7, "seven aggregates and their children");
+        assert_eq!(out.still_held, 0, "nothing was waiting for anything");
+
+        let name: String = b
+            .query_row("SELECT name FROM recipes WHERE id = ?1", [&rid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "Rajma");
+        let lines: i64 = b
+            .query_row(
+                "SELECT COUNT(*) FROM recipe_ingredients WHERE recipe_id = ?1",
+                [&rid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(lines, 1, "the children came inside the parent");
+        let pots = list_open_cooks(&b).unwrap();
+        let pot = pots.iter().find(|p| p.id == cid).unwrap();
+        assert_eq!(pot.ingredients.len(), 1);
+
+        // The helping came across as a draw, and the meal did not come at all.
+        let draws: i64 = b
+            .query_row("SELECT COUNT(*) FROM cook_draws", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(draws, 1);
+        let entries: i64 = b
+            .query_row("SELECT COUNT(*) FROM log_entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(entries, 0, "the eating is not shared");
+        // Which is the whole reason `cook_draws` is its own table: the pot
+        // shrinks on the other device without the day being touched.
+        assert!(pot.remaining_g < 900.0, "the pot is smaller than it was cooked");
+    }
+
+    #[test]
+    fn applying_a_peers_row_adopts_their_version_and_takes_a_fresh_local_seq() {
+        let (mut a, mut b) = paired();
+        kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+        hand_over(&a, &mut b, &a_id);
+
+        let (table, version, owner, seq): (String, i64, String, i64) = b
+            .query_row(
+                "SELECT table_name, version, device_id, seq FROM row_version
+                  WHERE table_name = 'recipes'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(table, "recipes");
+        assert_eq!(version, 1, "their write, not a new one");
+        assert_eq!(owner, a_id, "the write is still theirs");
+        assert!(seq > 0, "and it sits in OUR feed, so a third device learns it from us");
+    }
+
+    #[test]
+    fn the_same_feed_applied_twice_changes_nothing() {
+        let (mut a, mut b) = paired();
+        kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+        hand_over(&a, &mut b, &a_id);
+        let seqs: Vec<(String, i64)> = {
+            let mut s = b
+                .prepare("SELECT row_id, seq FROM row_version ORDER BY row_id")
+                .unwrap();
+            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        let again = hand_over(&a, &mut b, &a_id);
+        assert_eq!(again.taken, 0, "nothing was newer");
+        assert!(again.kept > 0, "and every row was decided rather than skipped");
+        let after: Vec<(String, i64)> = {
+            let mut s = b
+                .prepare("SELECT row_id, seq FROM row_version ORDER BY row_id")
+                .unwrap();
+            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(seqs, after, "a second pass must not churn the feed");
+    }
+
+    #[test]
+    fn at_equal_version_the_higher_device_id_wins_on_both_devices() {
+        // Convergence rather than mere termination: run the merge in both
+        // directions and the same row has to survive on each, without the two
+        // devices having talked about which.
+        let a = db();
+        let b = db();
+        let a_id = device_id(&a).unwrap();
+        let b_id = device_id(&b).unwrap();
+        pair_peer(&a, &b_id, "B", &key(2), None).unwrap();
+        pair_peer(&b, &a_id, "A", &key(1), None).unwrap();
+
+        let shared = "same-vessel";
+        for (c, name) in [(&a, "A's katori"), (&b, "B's katori")] {
+            c.execute(
+                "INSERT INTO vessels (id, name, grams, created_at, updated_at)
+                 VALUES (?1, ?2, 42.0, '2026-09-04T10:00:00Z', '2026-09-04T10:00:00Z')",
+                rusqlite::params![shared, name],
+            )
+            .unwrap();
+        }
+        let winner = if a_id > b_id { "A's katori" } else { "B's katori" };
+
+        let mut a = a;
+        let mut b = b;
+        hand_over(&a, &mut b, &a_id);
+        hand_over(&b, &mut a, &b_id);
+
+        for (c, side) in [(&a, "A"), (&b, "B")] {
+            let name: String = c
+                .query_row("SELECT name FROM vessels WHERE id = ?1", [shared], |r| r.get(0))
+                .unwrap();
+            assert_eq!(name, winner, "{side} settled on a different row");
+        }
+    }
+
+    #[test]
+    fn a_lower_version_from_a_peer_is_discarded_and_counted_as_kept() {
+        let (a, mut b) = paired();
+        let a_id = device_id(&a).unwrap();
+        let vid = save_vessel(&a, None, "katori", 42.0).unwrap();
+        hand_over(&a, &mut b, &a_id);
+        // B edits it, so B's version is now higher than anything A can send.
+        save_vessel(&b, Some(&vid), "B's katori", 44.0).unwrap();
+        let out = hand_over(&a, &mut b, &a_id);
+        assert_eq!(out.taken, 0);
+        assert_eq!(out.kept, 1);
+        let name: String = b
+            .query_row("SELECT name FROM vessels WHERE id = ?1", [&vid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "B's katori");
+    }
+
+    #[test]
+    fn a_pot_that_arrives_before_its_recipe_is_held_whole_not_applied_in_part() {
+        let (mut a, mut b) = paired();
+        let (rid, cid) = kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+
+        // Only the pot, and it names a recipe B has never seen.
+        let (rows, upto, _more) = feed_since(&a, 0, 1000).unwrap();
+        let pot = rows.iter().find(|r| r.table == "cooks").unwrap();
+        let text = serde_json::to_string(&serde_json::json!({
+            "table": pot.table, "id": pot.id, "version": pot.version,
+            "device_id": pot.device_id, "seq": pot.seq,
+            "changed_at": pot.changed_at, "body": pot.body,
+        }))
+        .unwrap();
+        let out = apply_batch(
+            &mut b,
+            &a_id,
+            &[Incoming::from_envelope(&text).unwrap()],
+            upto,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(out.held, 1);
+        assert_eq!(out.taken, 0);
+        assert_eq!(out.still_held, 1, "and the sync has to say so");
+        let pots: i64 = b
+            .query_row("SELECT COUNT(*) FROM cooks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(pots, 0, "half a pot is worse than no pot");
+        let lines: i64 = b
+            .query_row("SELECT COUNT(*) FROM cook_ingredients", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(lines, 0);
+        let reason: String = b
+            .query_row("SELECT reason FROM sync_pending", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(reason, "waiting for the recipe this pot was cooked from");
+
+        // The watermark still moved: the row is durably recorded and will be
+        // retried, and not advancing would replay the same feed for ever.
+        let through: i64 = b
+            .query_row("SELECT applied_through FROM peers WHERE device_id = ?1", [&a_id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(through, upto);
+
+        // And now the recipe arrives from anywhere at all.
+        let recipe = rows.iter().find(|r| r.table == "recipes" && r.id == rid).unwrap();
+        let rtext = serde_json::to_string(&serde_json::json!({
+            "table": recipe.table, "id": recipe.id, "version": recipe.version,
+            "device_id": recipe.device_id, "seq": recipe.seq,
+            "changed_at": recipe.changed_at, "body": recipe.body,
+        }))
+        .unwrap();
+        let out = apply_batch(
+            &mut b,
+            &a_id,
+            &[Incoming::from_envelope(&rtext).unwrap()],
+            upto,
+            None,
+        )
+        .unwrap();
+        assert_eq!(out.released, 1, "the held pot came back out");
+        assert_eq!(out.still_held, 0);
+        let landed: i64 = b
+            .query_row("SELECT COUNT(*) FROM cooks WHERE id = ?1", [&cid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(landed, 1);
+        assert_eq!(
+            b.query_row::<i64, _, _>("SELECT COUNT(*) FROM cook_ingredients", [], |r| r.get(0))
+                .unwrap(),
+            1,
+            "and whole, not in part"
+        );
+    }
+
+    #[test]
+    fn a_recipe_a_pot_and_a_helping_arriving_out_of_order_all_land_in_one_drain() {
+        let (mut a, mut b) = paired();
+        let (_rid, cid) = kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+        let (rows, upto, _more) = feed_since(&a, 0, 1000).unwrap();
+
+        // Deliberately the wrong way round: the helping, then the pot, then the
+        // recipe. The chained release is what the fixed-point loop exists for.
+        let mut order: Vec<&FeedRow> = Vec::new();
+        for want in ["cook_draws", "cooks", "recipes"] {
+            order.extend(rows.iter().filter(|r| r.table == want));
+        }
+        let incoming = order
+            .iter()
+            .map(|r| {
+                let text = serde_json::to_string(&serde_json::json!({
+                    "table": r.table, "id": r.id, "version": r.version,
+                    "device_id": r.device_id, "seq": r.seq,
+                    "changed_at": r.changed_at, "body": r.body,
+                }))
+                .unwrap();
+                Incoming::from_envelope(&text).unwrap()
+            })
+            .collect::<Vec<_>>();
+        let out = apply_batch(&mut b, &a_id, &incoming, upto, None).unwrap();
+        assert_eq!(out.still_held, 0, "one drain, chained: recipe -> pot -> helping");
+        let pots = list_open_cooks(&b).unwrap();
+        assert!(pots.iter().any(|p| p.id == cid));
+        assert_eq!(
+            b.query_row::<i64, _, _>("SELECT COUNT(*) FROM cook_draws", [], |r| r.get(0))
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_held_row_edited_again_before_its_dependency_arrives_does_not_abort_the_batch() {
+        // `sync_pending`'s primary key is (table, row) and the watermark has
+        // already moved past the first copy. Without an upsert the second copy
+        // collides, the batch rolls back, and — the feed being self-compacting
+        // — the row is afterwards unreachable from either side.
+        let (mut a, mut b) = paired();
+        let (_rid, cid) = kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+
+        let take_pot = |a: &Connection| -> (Incoming, i64) {
+            let (rows, upto, _more) = feed_since(a, 0, 1000).unwrap();
+            let pot = rows.iter().find(|r| r.table == "cooks").unwrap();
+            let text = serde_json::to_string(&serde_json::json!({
+                "table": pot.table, "id": pot.id, "version": pot.version,
+                "device_id": pot.device_id, "seq": pot.seq,
+                "changed_at": pot.changed_at, "body": pot.body,
+            }))
+            .unwrap();
+            (Incoming::from_envelope(&text).unwrap(), upto)
+        };
+
+        let (first, upto1) = take_pot(&a);
+        apply_batch(&mut b, &a_id, &[first], upto1, None).unwrap();
+        // A edits the same pot, still without B having the recipe.
+        finish_cook(&a, &cid, true).unwrap();
+        let (second, upto2) = take_pot(&a);
+        let out = apply_batch(&mut b, &a_id, &[second], upto2, None).unwrap();
+        assert_eq!(out.held, 1);
+        assert_eq!(
+            b.query_row::<i64, _, _>("SELECT COUNT(*) FROM sync_pending", [], |r| r.get(0))
+                .unwrap(),
+            1,
+            "one row held, not two and not an aborted transaction"
+        );
+    }
+
+    #[test]
+    fn a_peers_edit_of_a_recipe_this_device_has_cooked_from_applies() {
+        // The parent is an UPSERT and never a delete-and-reinsert. `cooks
+        // .recipe_id` and `log_entries.custom_food_id` reference these parents
+        // with NO ACTION, so a delete would abort the batch and wedge the sync
+        // on one row for good.
+        let (mut a, mut b) = paired();
+        let (rid, _cid) = kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+        hand_over(&a, &mut b, &a_id);
+
+        // B has now cooked from that recipe and eaten a food off a pack, which
+        // is what makes both parents un-deletable.
+        save_cook(
+            &mut b,
+            None,
+            &CookInput {
+                recipe_id: Some(rid.clone()),
+                name: "Rajma again".into(),
+                cooked_on: "2026-09-05".into(),
+                scale: 1.0,
+                gross_g: None,
+                vessel_ids: Vec::new(),
+                weighed_yield_g: Some(600.0),
+                notes: None,
+                defaults: Tags::default(),
+                ingredients: vec![CookIngredient {
+                    id: String::new(),
+                    position: 0,
+                    fdc_id: Some(16033),
+                    description: "kidney beans".into(),
+                    planned_g: 600.0,
+                    raw_g: 200.0,
+                    cooked_g: 600.0,
+                    substituted_for: None,
+                }],
+            },
+        )
+        .unwrap();
+        let fid: String = b
+            .query_row("SELECT id FROM custom_foods LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        add(
+            &b,
+            "2026-09-05",
+            Some("snack"),
+            Source::Custom(&fid),
+            "Milk chocolate bar",
+            Quantity::Grams(43.0),
+            None,
+            &Tags::default(),
+        )
+        .unwrap();
+
+        // A edits both, and both have to land.
+        save_recipe(
+            &mut a,
+            "Rajma, less salt",
+            900.0,
+            Some(4.0),
+            None,
+            &[ing("kidney beans", Some(16033), 300.0, 900.0)],
+            &[],
+            &Tags::default(),
+        )
+        .unwrap();
+        a.execute(
+            "UPDATE recipes SET name = 'Rajma, less salt', updated_at = '2026-09-06T09:00:00Z'
+              WHERE id = ?1",
+            [&rid],
+        )
+        .unwrap();
+        a.execute(
+            "UPDATE custom_foods SET name = 'Dark chocolate bar',
+                                     updated_at = '2026-09-06T09:00:00Z'",
+            [],
+        )
+        .unwrap();
+        let out = hand_over(&a, &mut b, &a_id);
+        assert!(out.taken >= 2, "both edits applied: {out:?}");
+        let name: String = b
+            .query_row("SELECT name FROM recipes WHERE id = ?1", [&rid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "Rajma, less salt");
+        let food: String = b
+            .query_row("SELECT name FROM custom_foods WHERE id = ?1", [&fid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(food, "Dark chocolate bar");
+        // And the history that pointed at them is untouched.
+        assert_eq!(
+            b.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM log_entries WHERE custom_food_id = ?1",
+                [&fid],
+                |r| r.get(0)
+            )
+            .unwrap(),
+            1,
+            "an entry keeps the nutrition it had when it was logged"
+        );
+    }
+
+    #[test]
+    fn a_photo_name_already_here_survives_an_aggregate_that_arrives_without_one() {
+        let (mut a, mut b) = paired();
+        kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+        hand_over(&a, &mut b, &a_id);
+        let fid: String = b
+            .query_row("SELECT id FROM custom_foods LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        b.execute(
+            "UPDATE custom_foods SET photo_label = 'b-shot.jpg' WHERE id = ?1",
+            [&fid],
+        )
+        .unwrap();
+
+        // Twice, because B taking its own photograph is a real local edit and
+        // bumps B's version too. A has to out-version it to win, which is the
+        // merge working rather than the exception being tested.
+        for brand in ["Cadbury", "Cadbury Dairy Milk"] {
+            a.execute(
+                "UPDATE custom_foods SET brand = ?1, updated_at = '2026-09-07T09:00:00Z'",
+                [brand],
+            )
+            .unwrap();
+        }
+        hand_over(&a, &mut b, &a_id);
+
+        let (brand, photo): (String, Option<String>) = b
+            .query_row(
+                "SELECT brand, photo_label FROM custom_foods WHERE id = ?1",
+                [&fid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(brand, "Cadbury Dairy Milk", "the edit landed");
+        assert_eq!(
+            photo.as_deref(),
+            Some("b-shot.jpg"),
+            "a peer that edits a food must not strip the photograph off the \
+             device that took it"
+        );
+    }
+
+    #[test]
+    fn a_column_this_build_does_not_know_is_ignored_and_one_the_peer_omitted_is_left_alone() {
+        let (a, mut b) = paired();
+        let a_id = device_id(&a).unwrap();
+        let vid = save_vessel(&a, None, "katori", 42.0).unwrap();
+        hand_over(&a, &mut b, &a_id);
+
+        let (rows, upto, _more) = feed_since(&a, 0, 1000).unwrap();
+        let vessel = rows.iter().find(|r| r.table == "vessels").unwrap();
+        let mut body = vessel.body.clone();
+        // A release ahead of us: a column we have never heard of, and one we do
+        // have that this peer no longer sends.
+        body["vessels"]["colour"] = serde_json::json!("brass");
+        body["vessels"]["name"] = serde_json::json!("A's katori");
+        body["vessels"].as_object_mut().unwrap().remove("grams");
+        let text = serde_json::to_string(&serde_json::json!({
+            "table": "vessels", "id": vid, "version": vessel.version + 1,
+            "device_id": a_id, "seq": vessel.seq + 1,
+            "changed_at": "2026-09-08T09:00:00Z", "body": body,
+        }))
+        .unwrap();
+        let out = apply_batch(
+            &mut b,
+            &a_id,
+            &[Incoming::from_envelope(&text).unwrap()],
+            upto,
+            None,
+        )
+        .unwrap();
+        assert_eq!(out.taken, 1, "a household where one device is ahead keeps working");
+        let (name, grams): (String, f64) = b
+            .query_row("SELECT name, grams FROM vessels WHERE id = ?1", [&vid], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(name, "A's katori");
+        assert_eq!(grams, 42.0, "an older peer must not erase what it never sent");
+    }
+
+    #[test]
+    fn a_table_that_is_not_shared_is_refused_with_a_sentence() {
+        let (_a, mut b) = paired();
+        let a_id = "somebody";
+        let text = serde_json::to_string(&serde_json::json!({
+            "table": "log_entries", "id": "e1", "version": 1,
+            "device_id": a_id, "seq": 1, "changed_at": "2026-09-08T09:00:00Z",
+            "body": { "log_entries": { "id": "e1" } },
+        }))
+        .unwrap();
+        let err = apply_batch(
+            &mut b,
+            a_id,
+            &[Incoming::from_envelope(&text).unwrap()],
+            1,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("is not one of the tables a household shares"),
+            "a sentence, not a constraint code: {err}"
+        );
+    }
+
+    #[test]
+    fn a_write_while_applying_is_up_leaves_row_version_alone() {
+        let c = db();
+        c.execute("UPDATE sync_control SET applying = 1", []).unwrap();
+        save_vessel(&c, None, "katori", 42.0).unwrap();
+        let tracked: i64 = c
+            .query_row("SELECT COUNT(*) FROM row_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            tracked, 0,
+            "while the flag is up the triggers stand down and the apply path \
+             writes the register itself"
+        );
+    }
+
+    #[test]
+    fn applied_through_stays_put_when_the_apply_transaction_rolls_back() {
+        let (mut a, mut b) = paired();
+        kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+        let before: i64 = b
+            .query_row("SELECT applied_through FROM peers WHERE device_id = ?1", [&a_id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+
+        // A row this build cannot honour, in the same batch as good ones. The
+        // whole batch must roll back rather than move the watermark past rows
+        // that never landed — the feed is self-compacting, so they would never
+        // be sent again.
+        let (rows, upto, _more) = feed_since(&a, 0, 1000).unwrap();
+        let mut incoming: Vec<Incoming> = rows
+            .iter()
+            .map(|r| {
+                let text = serde_json::to_string(&serde_json::json!({
+                    "table": r.table, "id": r.id, "version": r.version,
+                    "device_id": r.device_id, "seq": r.seq,
+                    "changed_at": r.changed_at, "body": r.body,
+                }))
+                .unwrap();
+                Incoming::from_envelope(&text).unwrap()
+            })
+            .collect();
+        incoming.push(
+            Incoming::from_envelope(
+                &serde_json::to_string(&serde_json::json!({
+                    "table": "profile", "id": "1", "version": 1, "device_id": a_id,
+                    "seq": 99, "changed_at": "2026-09-08T09:00:00Z",
+                    "body": { "profile": { "id": 1 } },
+                }))
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        assert!(apply_batch(&mut b, &a_id, &incoming, upto, None).is_err());
+
+        let after: i64 = b
+            .query_row("SELECT applied_through FROM peers WHERE device_id = ?1", [&a_id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(after, before, "the watermark moves on COMMIT and never on receipt");
+        let applying: i64 = b
+            .query_row("SELECT applying FROM sync_control", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(applying, 0, "a rollback puts the flag back by itself");
+        assert_eq!(
+            b.query_row::<i64, _, _>("SELECT COUNT(*) FROM recipes", [], |r| r.get(0))
+                .unwrap(),
+            0,
+            "and nothing from the batch landed"
+        );
+    }
+
+    #[test]
+    fn applied_through_only_ever_moves_forward() {
+        let (mut a, mut b) = paired();
+        kitchen(&mut a);
+        let a_id = device_id(&a).unwrap();
+        hand_over(&a, &mut b, &a_id);
+        let high: i64 = b
+            .query_row("SELECT applied_through FROM peers WHERE device_id = ?1", [&a_id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        apply_batch(&mut b, &a_id, &[], 1, None).unwrap();
+        let after: i64 = b
+            .query_row("SELECT applied_through FROM peers WHERE device_id = ?1", [&a_id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(after, high);
+    }
+
+    #[test]
+    fn a_completed_batch_stops_the_pip_being_cold() {
+        let (mut a, mut b) = paired();
+        let a_id = device_id(&a).unwrap();
+        assert!(
+            list_peers(&b).unwrap()[0].last_seen_at.is_none(),
+            "paired, not synced yet"
+        );
+        kitchen(&mut a);
+        hand_over(&a, &mut b, &a_id);
+        assert!(
+            list_peers(&b).unwrap()[0].last_seen_at.is_some(),
+            "a wholly successful sync must not still read as never having happened"
+        );
+    }
+
+    #[test]
+    fn pairing_a_forgotten_device_brings_the_same_row_back_rather_than_adding_a_second() {
+        let c = db();
+        pair_peer(&c, "phone-1", "Pixel", &key(7), Some(("192.168.0.31", 51733))).unwrap();
+        unpair(&c, "phone-1").unwrap();
+        assert!(peers_to_dial(&c).unwrap().is_empty());
+        assert!(
+            peer_by_static_pk(&c, &key(7)).unwrap().is_none(),
+            "a forgotten device cannot push rows back in either"
+        );
+        pair_peer(&c, "phone-1", "Pixel", &key(7), None).unwrap();
+        let back = peers_to_dial(&c).unwrap();
+        assert_eq!(back.len(), 1, "one phone, one row, one watermark");
+        assert_eq!(
+            back[0].last_addr.as_deref(),
+            Some("192.168.0.31"),
+            "and what was known about it is still known"
+        );
+    }
+
+    #[test]
+    fn a_second_device_claiming_a_key_already_in_the_household_is_refused_with_a_sentence() {
+        let c = db();
+        pair_peer(&c, "phone-1", "Pixel", &key(7), None).unwrap();
+        let err = pair_peer(&c, "phone-2", "Pixel copy", &key(7), None).unwrap_err();
+        assert!(
+            err.contains("copy of an app data folder"),
+            "the cause is worth naming: {err}"
+        );
+    }
+
+    #[test]
+    fn queued_counts_our_own_rows_against_what_the_peer_acknowledged() {
+        let mut c = db();
+        pair_peer(&c, "phone-1", "Pixel", &key(7), None).unwrap();
+        kitchen(&mut c);
+        let all = queued_for_peers(&c).unwrap();
+        assert!(all > 0, "a phone that has acknowledged nothing is owed everything");
+
+        // Their watermark is in THEIR numbering and must not touch this figure.
+        c.execute(
+            "UPDATE peers SET applied_through = 9999 WHERE device_id = 'phone-1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            queued_for_peers(&c).unwrap(),
+            all,
+            "two independent counters must never be compared as one"
+        );
+
+        let head: i64 = c
+            .query_row("SELECT MAX(seq) FROM row_version", [], |r| r.get(0))
+            .unwrap();
+        note_ack(&c, "phone-1", head).unwrap();
+        assert_eq!(queued_for_peers(&c).unwrap(), 0);
+        note_ack(&c, "phone-1", 1).unwrap();
+        assert_eq!(
+            queued_for_peers(&c).unwrap(),
+            0,
+            "an ack that went backwards would invent a delivered backlog"
+        );
     }
 
     // -----------------------------------------------------------------------

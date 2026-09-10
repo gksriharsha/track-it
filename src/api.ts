@@ -21,6 +21,7 @@ import type {
   NutrientMeta,
   Origin,
   HouseholdView,
+  PairCodeScan,
   PairingOffer,
   PairingState,
   Profile,
@@ -675,6 +676,27 @@ export const confirmPairing = (matches: boolean) =>
 
 /** Stop offering to pair, without having paired. */
 export const cancelPairing = () => invoke<void>("cancel_pairing");
+
+/**
+ * Join the household whose code was just scanned.
+ *
+ * The other half of `beginPairing`: that one shows a code and listens, this one
+ * reads a code and dials. Both then poll `pairingState`, both are asked the
+ * same six digits, and neither writes the other down until both have said yes.
+ */
+export const joinPairing = (payload: string) =>
+  invoke<void>("join_pairing", { payload });
+
+/**
+ * Read a pairing code out of one camera frame.
+ *
+ * Separate from `scanBarcode` because that one ranks what it finds as a product
+ * code and runs it through a check-digit rule that says nothing at all about a
+ * QR. Stores nothing: a photograph of a pairing code is worth nothing once it
+ * has been read, and worth something to somebody else if it is kept.
+ */
+export const scanPairCode = (dataBase64: string) =>
+  invoke<PairCodeScan>("scan_pair_code", { dataBase64 });
 
 /**
  * Forget a device.

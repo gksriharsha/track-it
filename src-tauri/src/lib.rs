@@ -4,6 +4,7 @@ mod db;
 mod export;
 mod keystore;
 mod store;
+mod sync;
 mod vault;
 mod vision;
 
@@ -1820,9 +1821,12 @@ fn decode_photo(data_base64: &str) -> Result<(Vec<u8>, &'static str), String> {
 }
 
 fn photo_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
+    // `data_root` and not `app_data_dir`, so a debug run under
+    // `TRACKIT_DATA_DIR` moves the pictures with the database. Two databases
+    // against one photos directory would let one instance read the other's
+    // photographs, which is exactly the thing the photo columns are excluded
+    // from the feed to prevent.
+    let dir = data_root(app)
         .map_err(|e| format!("no app data dir: {e}"))?
         .join("photos");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
@@ -3620,16 +3624,23 @@ fn tally(
 // Household
 //
 // The kitchen is shared between the devices in a house; the diary is not.
-// These read and write the local side of that. The transport that carries it
-// between devices is not built yet, and the commands that would need it say so
-// in a sentence rather than failing with a missing-command error — a nav row
-// that leads to a broken screen is worse than one that leads to an honest one.
+// These read and write the local side of that, and `sync` carries it between
+// devices — one code shown on one screen and read by another, two devices on
+// one network, and nothing in between.
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-fn get_household(user: State<'_, store::Store>) -> Result<store::HouseholdView, String> {
+fn get_household(app: AppHandle, user: State<'_, store::Store>) -> Result<store::HouseholdView, String> {
     let conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::household(&conn)
+    let mut view = store::household(&conn)?;
+    // `store::household` cannot know how the last run went: the outcomes live
+    // in the Hub, in memory, because they are a fact about this session and not
+    // about the kitchen. The store builds the view and this puts the run on top
+    // of it.
+    if let Some(hub) = app.try_state::<std::sync::Arc<sync::Hub>>() {
+        view.last = hub.last();
+    }
+    Ok(view)
 }
 
 #[tauri::command]
@@ -3644,38 +3655,128 @@ fn unpair_device(user: State<'_, store::Store>, device_id: String) -> Result<(),
     store::unpair(&conn, &device_id)
 }
 
-/// What the transport half will do, and does not yet.
+/// The Hub, or a sentence saying why there is not one.
 ///
-/// One sentence, in the same voice the rest of the app answers in, rather than
-/// a Tauri "command not found". The screen renders it where it renders every
-/// other failure.
-const NOT_BUILT: &str =
-    "Pairing is not built yet. The kitchen is already tracked and ready to \
-     travel — what is missing is the part that carries it to the other device.";
+/// Resolved inside each command body rather than taken as a `State<'_, _>` in
+/// the signature, so a command that is `(async)` — and therefore runs off the
+/// thread the IPC message arrived on — never holds a borrow of app state across
+/// the dispatch.
+fn hub_of(app: &AppHandle) -> Result<std::sync::Arc<sync::Hub>, String> {
+    app.try_state::<std::sync::Arc<sync::Hub>>()
+        .map(|s| std::sync::Arc::clone(&s))
+        .ok_or_else(|| "the household is not ready yet — try again in a moment".into())
+}
 
-#[tauri::command]
-fn begin_pairing() -> Result<serde_json::Value, String> {
-    Err(NOT_BUILT.into())
+/// Show a code and listen for a device to pair with.
+///
+/// `(async)` because it binds a socket, mints a key on first use and draws a QR
+/// — none of which belongs on the thread the window's key events are dispatched
+/// on, as `scan_label_photo` already records.
+#[tauri::command(async)]
+fn begin_pairing(app: AppHandle) -> Result<sync::PairingOffer, String> {
+    let hub = hub_of(&app)?;
+    sync::begin_pairing(sync::AppKitchen(app), hub)
 }
 
 #[tauri::command]
-fn pairing_state() -> Result<serde_json::Value, String> {
-    Err(NOT_BUILT.into())
+fn pairing_state(app: AppHandle) -> Result<sync::PairingState, String> {
+    Ok(hub_of(&app)?.state())
 }
 
 #[tauri::command]
-fn confirm_pairing(_matches: bool) -> Result<(), String> {
-    Err(NOT_BUILT.into())
-}
-
-#[tauri::command]
-fn cancel_pairing() -> Result<(), String> {
+fn confirm_pairing(matches: bool, app: AppHandle) -> Result<(), String> {
+    hub_of(&app)?.answer(matches);
     Ok(())
 }
 
 #[tauri::command]
-fn sync_now() -> Result<Vec<store::SyncOutcome>, String> {
-    Err(NOT_BUILT.into())
+fn cancel_pairing(app: AppHandle) -> Result<(), String> {
+    // Nothing to stop is not an error, which is what this command has always
+    // returned and what the screen's unmount cleanup relies on.
+    if let Ok(hub) = hub_of(&app) {
+        hub.cancel();
+    }
+    Ok(())
+}
+
+/// Join the household whose code was just scanned.
+///
+/// The other half of `begin_pairing`: that one shows a code and listens, this
+/// one reads a code and dials. Both then poll `pairing_state`, both are asked
+/// the same six digits, and neither writes the other down until both have said
+/// yes.
+#[tauri::command(async)]
+fn join_pairing(payload: String, app: AppHandle) -> Result<(), String> {
+    let hub = hub_of(&app)?;
+    sync::join_pairing(sync::AppKitchen(app), hub, payload)
+}
+
+#[tauri::command(async)]
+fn sync_now(app: AppHandle) -> Result<Vec<store::SyncOutcome>, String> {
+    let hub = hub_of(&app)?;
+    sync::sync_now(sync::AppKitchen(app), hub)
+}
+
+/// What one camera frame held, when looking for a pairing code.
+#[derive(Debug, Clone, Serialize)]
+pub struct PairCodeScan {
+    /// `None` when the frame held no QR at all, which is the ordinary case
+    /// while the camera is still being pointed — not an error.
+    pub payload: Option<String>,
+    /// Why nothing came back, in the user's terms. `None` when something did.
+    pub trouble: Option<String>,
+}
+
+/// Whether one thing a camera found could be a pairing code.
+///
+/// The two spellings are the two engines: "QR" is what the Android bridge's
+/// `canonicalBarcodeFormat` returns for `Barcode.FORMAT_QR_CODE`, and
+/// "VNBarcodeSymbologyQR" is the framework constant Vision hands back on macOS.
+/// A function with a test on it rather than a closure inside the command,
+/// because getting either string wrong makes pairing by camera quietly
+/// impossible — the sheet would sit on "point the camera at the code" for ever
+/// with a perfectly good code in the frame, and nothing anywhere would say why.
+fn is_pair_qr(b: &crate::vision::Barcode) -> bool {
+    let s = b.symbology.as_str();
+    (s == "QR" || s == "VNBarcodeSymbologyQR") && !b.payload.trim().is_empty()
+}
+
+/// Read a pairing code out of one camera frame.
+///
+/// A separate command from `scan_barcode` and not a widening of it.
+/// `best_barcode` ranks candidates as PRODUCT codes and runs them through
+/// `barcode::check`, which is a check-digit rule for EAN and UPC and says
+/// nothing useful about a QR at all. This filters for the QR symbology instead
+/// — see [`is_pair_qr`] — and hands the payload back untouched, because the
+/// exact bytes are hashed into the handshake.
+///
+/// Stores nothing. A photograph of a pairing code is worth nothing once it has
+/// been read, and worth something to somebody else if it is kept.
+#[tauri::command(async)]
+fn scan_pair_code(data_base64: String, app: AppHandle) -> Result<PairCodeScan, String> {
+    let (bytes, _ext) = decode_photo(&data_base64)?;
+    let found = crate::vision::detect_barcodes(&app, &bytes)?;
+    let qr = found.iter().find(|b| is_pair_qr(b));
+    let Some(qr) = qr else {
+        return Ok(PairCodeScan {
+            payload: None,
+            trouble: None,
+        });
+    };
+    // Parsed here rather than on the screen, so a code from some other app is
+    // refused with a sentence at the moment the camera reads it instead of
+    // being carried into a handshake that would fail for a reason nobody could
+    // relate to what they pointed the phone at.
+    match sync::parse_code(&qr.payload) {
+        Ok(_) => Ok(PairCodeScan {
+            payload: Some(qr.payload.clone()),
+            trouble: None,
+        }),
+        Err(e) => Ok(PairCodeScan {
+            payload: None,
+            trouble: Some(e),
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3822,7 +3923,12 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
     let ref_conn = db::open(&ref_path)?;
     let ref_db = db::Db(Mutex::new(ref_conn));
 
-    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    // `data_root` rather than `app_data_dir` directly: it honours the debug-only
+    // relocation the transport's end-to-end test needs, and every path below —
+    // the interrupted-restore recovery, the key material, the log itself — has
+    // to agree about where this installation lives or a relocated instance
+    // would encrypt one database and read another.
+    let data_dir = data_root(app)?;
 
     // BEFORE the database is opened, and that order is the whole point. A
     // restore or a one-time conversion to SQLCipher renames `user.db` out of the
@@ -3876,6 +3982,14 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
         }
     }
 
+    // Before anything can need it, and never rewritten afterwards. `NULL` in
+    // `this_device.static_pk` is a real state — a database that has just
+    // migrated has an identity and no key — and this is what ends it.
+    if let Err(e) = sync::ensure_identity(&user_conn) {
+        eprintln!("this device has no household key yet: {e}");
+    }
+    let peers = store::peers_to_dial(&user_conn).unwrap_or_default();
+
     app.manage(ref_db);
     app.manage(store::Store(Mutex::new(user_conn)));
     app.manage(vault::Vault(Mutex::new(session)));
@@ -3895,6 +4009,19 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
         let dir = data_dir.clone();
         std::thread::spawn(move || vault::reseal_if_stale(&handle, &dir));
     }
+
+    let hub = std::sync::Arc::new(sync::Hub::new());
+    app.manage(std::sync::Arc::clone(&hub));
+
+    // A device paired with nobody binds no socket at all. The alternative —
+    // listening only while the Household screen is open — would mean a sync
+    // from the Mac succeeded only if somebody happened to be holding the phone
+    // on that exact screen, which is not a feature.
+    if !peers.is_empty() {
+        if let Err(e) = sync::serve(sync::AppKitchen(app.clone()), hub) {
+            eprintln!("this device cannot be reached by the rest of the household: {e}");
+        }
+    }
     Ok(())
 }
 
@@ -3912,6 +4039,26 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn set_keep_awake(on: bool, app: AppHandle) -> Result<(), String> {
     awake::set(&app, on)
+}
+
+/// Where this installation keeps its own data.
+///
+/// `TRACKIT_DATA_DIR` exists so two desktop instances can be run against two
+/// databases on one machine and actually paired with each other, which is the
+/// only way to exercise the transport end to end without two devices. It is
+/// gated on a debug build on purpose: an environment variable that relocates
+/// the user's database in a shipped app is a footgun, and one that relocated
+/// the database WITHOUT the photos beside it would be worse — instance B would
+/// serve instance A's pictures and the photo-portability rules would appear to
+/// hold for the wrong reason.
+fn data_root(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("TRACKIT_DATA_DIR") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+        return Ok(dir);
+    }
+    app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -3980,6 +4127,8 @@ pub fn run() {
             pairing_state,
             confirm_pairing,
             cancel_pairing,
+            join_pairing,
+            scan_pair_code,
             sync_now,
             get_cook,
             finish_cook,
@@ -5006,6 +5155,27 @@ mod tests {
             scan_trouble(true, 22, "the ingredient list", Some("some quibble".into())).is_none(),
             "nor is it trouble because the parser also had something to say"
         );
+    }
+
+    #[test]
+    fn a_pairing_code_is_recognised_from_either_engines_spelling_and_nothing_else() {
+        // Both engines, because a household is a Mac and a phone and the string
+        // is not the same on the two. Getting one of them wrong is a camera
+        // sheet that never finds a code that is plainly in the frame.
+        assert!(is_pair_qr(&seen(
+            "trackit-household-1|192.168.0.7|51733|AAAA|2026-09-10T12:00:00Z",
+            "VNBarcodeSymbologyQR",
+            1.0
+        )));
+        assert!(is_pair_qr(&seen(
+            "trackit-household-1|192.168.0.7|51733|AAAA|2026-09-10T12:00:00Z",
+            "QR",
+            0.4
+        )));
+        // An EAN off a packet of beans is not a way into somebody's household,
+        // and neither is a QR that decoded to nothing at all.
+        assert!(!is_pair_qr(&seen("9780201379624", "VNBarcodeSymbologyEAN13", 1.0)));
+        assert!(!is_pair_qr(&seen("   ", "QR", 1.0)));
     }
 
     #[test]

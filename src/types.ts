@@ -1397,6 +1397,29 @@ export interface HouseholdView {
 export interface PairingOffer {
   payload: string;
   expires_at: string;
+  /**
+   * The code itself, as SVG markup ready to drop into the page.
+   *
+   * Drawn in Rust, beside the key material, because the payload is hashed into
+   * the handshake as EXACT bytes on both sides — assembling it a second time
+   * here is one space away from a pairing that fails for no visible reason.
+   * Trusted markup: it comes from this app's own backend and holds nothing but
+   * a viewBox, a rect and a path.
+   */
+  svg: string;
+}
+
+/**
+ * What one camera frame held, when looking for a pairing code.
+ *
+ * `payload` is `null` while the camera is still being pointed, which is the
+ * ordinary case rather than a failure — the same distinction `Probe` draws.
+ * Never write `?? ""`.
+ */
+export interface PairCodeScan {
+  payload: string | null;
+  /** Why nothing came back, in the user's terms. `null` when something did. */
+  trouble: string | null;
 }
 
 /**

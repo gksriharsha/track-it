@@ -2123,29 +2123,27 @@ button.row:hover { background: var(--sunken); }
 
 .qrblock { display: flex; flex-direction: column; align-items: center; gap: var(--s4); }
 
-/* Reserved at the size the real code will occupy, so drawing it later
-   does not move the sentence underneath. */
+/* The code, not decoration: a scanner needs a quiet zone and real
+   contrast, and neither survives being themed. This is one of the very
+   few places in this file that names a colour rather than a token, and
+   the reason is that a QR rendered in --ink on --surface is a QR that
+   some cameras read and some do not. White ground, dark modules, in both
+   schemes.
+
+   The 220px was already reserved at "the size the real code will occupy",
+   so drawing it for real does not move the sentence underneath. The
+   padding stays at zero because the quiet zone is inside the SVG — a
+   scanner has to see the clear margin as part of the image, and CSS
+   padding is not part of the image. */
 .qrblock__box {
-  display: grid; place-items: center;
   width: 220px; height: 220px;
+  padding: 0;
+  background: #fff;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  color: var(--ink-3);
-  font-size: 12px;
+  overflow: hidden;
 }
-
-/* The payload in the clear while there is no code to draw. It wraps
-   rather than scrolls: this is something to read, not a field. */
-.qrblock__payload {
-  max-width: 46ch;
-  padding: var(--s2) var(--s3);
-  border-radius: var(--r-sm);
-  background: var(--sunken);
-  color: var(--ink-3);
-  font-size: 11px;
-  line-height: 1.5;
-  word-break: break-all;
-}
+.qrblock__box svg { display: block; width: 100%; height: 100%; }
 
 @media (max-width: 900px) {
   .hh { grid-template-columns: minmax(0, 1fr); }
