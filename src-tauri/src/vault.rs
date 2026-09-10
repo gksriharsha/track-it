@@ -546,17 +546,23 @@ pub fn status(
 /// the cold-launch symptom `store::open`'s comment records this app having
 /// already been burned by once.
 ///
-/// `query_only` is belt and braces: nothing here writes, and a second writer on
-/// the same file is the one thing that could turn a seal into a `SQLITE_BUSY`
-/// against a meal somebody is trying to save.
+/// Read-only by discipline rather than by `query_only`, and that is forced.
+/// The pragma was here as belt and braces, and it made the seal impossible:
+/// `backup::snapshot` copies an encrypted database with `sqlcipher_export`,
+/// which WRITES into an attached in-memory copy, and `query_only` is
+/// connection-wide — it does not distinguish the attached schema from `main`,
+/// so it refused the export with "attempt to write a readonly database". The
+/// two cannot both be had.
+///
+/// What actually protects the log is that nothing on this connection ever
+/// writes to `main`: `snapshot` reads pages out and `fingerprint` reads a
+/// count. Keep it that way — this is the one connection in the app that touches
+/// the live database without holding `Store`'s mutex.
 fn read_only_connection(path: &Path, dek: Option<&Dek>) -> Result<Connection, String> {
     let conn = Connection::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
     if let Some(d) = dek {
-        conn.pragma_update(None, "key", d.sqlcipher_key().as_str())
-            .map_err(|e| format!("keying {}: {e}", path.display()))?;
+        crate::store::apply_key(&conn, d.sqlcipher_key().as_str())?;
     }
-    conn.pragma_update(None, "query_only", true)
-        .map_err(|e| e.to_string())?;
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
         .map_err(|_| "the log could not be read to copy it".to_string())?;
     Ok(conn)
@@ -627,7 +633,9 @@ fn seal_with(
     let db = data_dir.join("user.db");
     let (gz, plain_len) = {
         let ro = read_only_connection(&db, Some(&dek))?;
-        backup::snapshot(&ro)?
+        // Keyed, so the ATTACH + sqlcipher_export path — the online backup API
+        // is refused on an encrypted database. See backup::snapshot.
+        backup::snapshot(&ro, true)?
     };
 
     let blob = backup::seal(&dek, wrap, &gz, plain_len, &sealed_at)?;

@@ -563,14 +563,14 @@ pub fn open_payload(dek: &Dek, blob: &[u8]) -> Result<Zeroizing<Vec<u8>>, String
 
 /// Copy the live database and hand back `(gzip(snapshot), uncompressed length)`.
 ///
-/// The online-backup API into a memory database, then `serialize`, rather than
-/// `VACUUM INTO` a temporary file. The reason is not speed: it is that no
-/// plaintext copy of the log is ever written to disk, not even briefly, on a
-/// phone whose whole reason for encrypting the database was that a file in the
-/// data directory is readable by anything that can reach the data directory.
+/// Into a memory database and then `serialize`, rather than `VACUUM INTO` a
+/// temporary file. The reason is not speed: it is that no plaintext copy of the
+/// log is ever written to disk, not even briefly, on a phone whose whole reason
+/// for encrypting the database was that a file in the data directory is
+/// readable by anything that can reach the data directory.
 ///
-/// Be honest about the cost. `Connection::open_in_memory` opens the literal
-/// string ":memory:" through the DEFAULT VFS, not the memdb one, so
+/// Be honest about the cost. A `:memory:` database opens through the DEFAULT
+/// VFS, not the memdb one, so
 /// `SQLITE_SERIALIZE_NOCOPY` does not apply and `sqlite3_serialize` mallocs a
 /// second full-size buffer and copies into it page by page. The peak is
 /// therefore roughly TWICE the database plus the compressed buffer, and that is
@@ -578,25 +578,56 @@ pub fn open_payload(dek: &Dek, blob: &[u8]) -> Result<Zeroizing<Vec<u8>>, String
 /// heap for a moment, which is affordable, and `VACUUM INTO` would trade it for
 /// a plaintext file on disk, which is not.
 ///
-/// On Android the source connection is SQLCipher-keyed and the destination is
-/// not, so what comes back is a PLAINTEXT SQLite database inside a sealed
-/// envelope. That is on purpose: a restore then only has to open bytes, and the
-/// same code runs here and on the developer's Mac.
-pub fn snapshot(live: &Connection) -> Result<(Zeroizing<Vec<u8>>, u64), String> {
-    let mut mem = Connection::open_in_memory()
-        .map_err(|e| format!("preparing a copy of the log: {e}"))?;
-    {
-        let bk = rusqlite::backup::Backup::new(live, &mut mem)
-            .map_err(|e| format!("copying the log: {e}"))?;
-        bk.run_to_completion(1_000, std::time::Duration::ZERO, None)
-            .map_err(|e| format!("copying the log: {e}"))?;
-    }
-    let bytes = mem
-        .serialize(rusqlite::MAIN_DB)
-        .map_err(|e| format!("reading the copy of the log back: {e}"))?;
-    let plain_len = bytes.len() as u64;
-    let plain = Zeroizing::new(bytes.to_vec());
-    drop(bytes);
+/// The source connection is SQLCipher-keyed and the destination is not, so what
+/// comes back is a PLAINTEXT SQLite database inside a sealed envelope. That is
+/// on purpose: a restore then only has to open bytes.
+///
+/// `encrypted` says which of two copying mechanisms to use, and it is a
+/// parameter rather than something detected here because getting it wrong is
+/// invisible until it runs on a phone. SQLCipher REFUSES the online-backup API
+/// on a keyed database — "backup is not supported with encrypted databases" —
+/// so the encrypted path goes through `sqlcipher_export` into an attached
+/// in-memory plaintext database instead, which is SQLCipher's own supported way
+/// to decrypt a whole database. The plaintext path keeps the backup API,
+/// because `sqlcipher_export` does not exist at all in the plain SQLite the Mac
+/// compiles, which is exactly why the first version of this function passed
+/// every test here and then failed on the first device that ran it.
+pub fn snapshot(live: &Connection, encrypted: bool) -> Result<(Zeroizing<Vec<u8>>, u64), String> {
+    let plain: Zeroizing<Vec<u8>> = if encrypted {
+        // The attached database is created by the ATTACH and lives only in this
+        // connection, so the DETACH below is what frees it. `KEY ''` is the
+        // documented way to say "not encrypted" to a SQLCipher ATTACH.
+        live.execute("ATTACH DATABASE ':memory:' AS trackit_plain KEY ''", [])
+            .map_err(|e| format!("preparing a copy of the log: {e}"))?;
+        let copied = live
+            .query_row("SELECT sqlcipher_export('trackit_plain')", [], |_| Ok(()))
+            .map_err(|e| format!("copying the log: {e}"));
+        // Read it back BEFORE detaching, and detach whatever happened above, so
+        // a failure cannot leave the schema attached to a connection the app
+        // goes on using. The bytes are copied here rather than returned, because
+        // what `serialize` hands back borrows the connection it came from.
+        let read = copied.and_then(|()| {
+            live.serialize(c"trackit_plain")
+                .map(|d| Zeroizing::new(d.to_vec()))
+                .map_err(|e| format!("reading the copy of the log back: {e}"))
+        });
+        let _ = live.execute("DETACH DATABASE trackit_plain", []);
+        read?
+    } else {
+        let mut mem = Connection::open_in_memory()
+            .map_err(|e| format!("preparing a copy of the log: {e}"))?;
+        {
+            let bk = rusqlite::backup::Backup::new(live, &mut mem)
+                .map_err(|e| format!("copying the log: {e}"))?;
+            bk.run_to_completion(1_000, std::time::Duration::ZERO, None)
+                .map_err(|e| format!("copying the log: {e}"))?;
+        }
+        let d = mem
+            .serialize(rusqlite::MAIN_DB)
+            .map_err(|e| format!("reading the copy of the log back: {e}"))?;
+        Zeroizing::new(d.to_vec())
+    };
+    let plain_len = plain.len() as u64;
 
     let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     enc.write_all(plain.as_slice())
@@ -912,8 +943,7 @@ pub fn convert(
     }
     let conn = Connection::open(from).map_err(|e| format!("open {}: {e}", from.display()))?;
     if let Some(k) = from_key {
-        conn.pragma_update(None, "key", k)
-            .map_err(|e| format!("keying {}: {e}", from.display()))?;
+        crate::store::apply_key(&conn, k)?;
     }
     // Forces the codec before the ATTACH, so a wrong key is one sentence rather
     // than a half-written destination file.
@@ -923,8 +953,16 @@ pub fn convert(
     // The destination path goes in as a bound parameter; the key cannot,
     // because `ATTACH … KEY` takes an expression SQLCipher reads at parse time.
     // It is this build's own hex, never anything a user typed.
+    //
+    // The key goes through `key_literal`, and the quotes it adds are the whole
+    // point: `KEY x'…'` bare is accepted by the parser as a blob literal and
+    // then read by SQLCipher as a PASSPHRASE, so the file is written under a
+    // key nothing can reproduce. See `store::key_literal`.
     let sql = match to_key {
-        Some(k) => format!("ATTACH DATABASE ?1 AS trackit_export KEY {k}"),
+        Some(k) => format!(
+            "ATTACH DATABASE ?1 AS trackit_export KEY {}",
+            crate::store::key_literal(k)
+        ),
         None => "ATTACH DATABASE ?1 AS trackit_export KEY ''".to_string(),
     };
     conn.execute(&sql, [to.to_string_lossy().as_ref()])
@@ -946,8 +984,7 @@ pub fn convert(
     drop(conn);
     let dest = Connection::open(to).map_err(|e| format!("open {}: {e}", to.display()))?;
     if let Some(k) = to_key {
-        dest.pragma_update(None, "key", k)
-            .map_err(|e| format!("keying {}: {e}", to.display()))?;
+        crate::store::apply_key(&dest, k)?;
     }
     dest.pragma_update(None, "user_version", v)
         .map_err(|e| format!("stamping {}: {e}", to.display()))?;
@@ -1223,7 +1260,7 @@ mod tests {
     fn a_snapshot_compresses_enough_to_matter() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(crate::store::SCHEMA).unwrap();
-        let (gz, plain_len) = snapshot(&conn).unwrap();
+        let (gz, plain_len) = snapshot(&conn, false).unwrap();
         assert!(plain_len > 0);
         assert!(
             (gz.len() as u64) * 2 < plain_len,
@@ -1242,7 +1279,7 @@ mod tests {
             [],
         )
         .unwrap();
-        let (gz, plain_len) = snapshot(&conn).unwrap();
+        let (gz, plain_len) = snapshot(&conn, false).unwrap();
         let dek = Dek::new().unwrap();
         let w = wrap_dek_at(PASS, &dek, M, 1, 1).unwrap();
         let blob = seal(&dek, &w, &gz, plain_len, "2026-09-10T12:00:00Z").unwrap();
@@ -1297,7 +1334,7 @@ mod tests {
         )
         .unwrap();
 
-        let (gz, plain_len) = snapshot(&conn).unwrap();
+        let (gz, plain_len) = snapshot(&conn, false).unwrap();
         let dek = Dek::new().unwrap();
         let w = wrap_dek_at(PASS, &dek, M, 1, 1).unwrap();
         let blob = seal(&dek, &w, &gz, plain_len, "2026-09-10T12:00:00Z").unwrap();
