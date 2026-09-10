@@ -632,6 +632,10 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   set_entry_tags: () => undefined,
   save_profile: () => undefined,
   set_nutrient_target: () => undefined,
+  // No screen to hold open in a browser tab, and the real command is a no-op
+  // off Android anyway — but without an entry here the fixture would throw on
+  // every `pnpm dev` session, because `lib/awake.ts` asks as the page boots.
+  set_keep_awake: () => undefined,
 };
 
 /** Answers one command, or explains that the fixture does not cover it. */

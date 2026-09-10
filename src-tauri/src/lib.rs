@@ -1,3 +1,4 @@
+mod awake;
 mod db;
 mod store;
 mod vision;
@@ -3615,6 +3616,22 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Hold the device's screen open, or let it go.
+///
+/// Android only in effect; everywhere else this succeeds and does nothing,
+/// which is what lets the front end ask for what it wants without first asking
+/// what it is running on. A failure here leaves the screen dimming on its
+/// ordinary timeout, so the caller swallows it rather than putting an alert in
+/// front of somebody with their hands in a pot.
+///
+/// Callers do not reach this directly: `useKeepAwake` in `src/lib/awake.ts`
+/// owns the pairing of the two calls, and an unpaired `true` is a phone that
+/// burns its screen all night.
+#[tauri::command]
+fn set_keep_awake(on: bool, app: AppHandle) -> Result<(), String> {
+    awake::set(&app, on)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_fs::init());
@@ -3624,6 +3641,12 @@ pub fn run() {
     // cannot accidentally carry a second vision stack.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(vision::init());
+
+    // The same arrangement for the screen flag, and a second plugin rather
+    // than a second command on the vision one: an OCR bridge is where a screen
+    // flag goes to never be found again.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(awake::init());
 
     builder
         .setup(|app| {
@@ -3698,7 +3721,8 @@ pub fn run() {
             dates_with_existing_imports,
             get_goals,
             save_profile,
-            set_nutrient_target
+            set_nutrient_target,
+            set_keep_awake
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

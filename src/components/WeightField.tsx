@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useKeepAwake } from "../lib/awake";
 import type { Vessel } from "../types";
 
 /** What a scale reading is made of: the whole reading, and what was under the food. */
@@ -48,6 +49,14 @@ export default function WeightField(p: Props) {
   const [picked, setPicked] = useState<string[]>([]);
   /** What was typed in direct mode, so a look at scale mode and back does not lose it. */
   const [heldDirect, setHeldDirect] = useState("");
+
+  // Scale mode only, and the asymmetry is the point. Scale mode is the
+  // read-tick-re-read loop: the plate goes down, the gross figure is read, the
+  // vessels under it are ticked, and the figure is read again — minutes in
+  // which the phone is on the counter and the hands are not free to touch it.
+  // Direct mode is one number typed and committed, and typing keeps the screen
+  // alive by itself. Android only in effect; see lib/awake.ts.
+  useKeepAwake(mode === "scale");
 
   // Selection is resolved against the live list every render, so a vessel deleted in
   // the library drops out of the tare instead of lingering as a weight with no name.

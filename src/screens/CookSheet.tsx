@@ -3,6 +3,7 @@ import { draftCook, getCook, listVessels, saveCook, searchFoods } from "../api";
 import IngredientDial from "../components/IngredientDial";
 import TagPicker from "../components/TagPicker";
 import WeightField, { type Weighed } from "../components/WeightField";
+import { useKeepAwake } from "../lib/awake";
 import { pct, plural } from "../lib/nutrient";
 import { SOURCE_LABEL } from "../types";
 import type { Cook, CookIngredient, FoodHit, Origin, Vessel } from "../types";
@@ -150,6 +151,14 @@ export default function CookSheet(p: Props) {
   }, [p.cookId, p.recipeId, draftKey]);
 
   useEffect(() => { load(); }, [load]);
+
+  // The whole sheet holds the screen open, not only its weight field. The pot
+  // is on the heat and the dialling happens in bursts across a long stretch —
+  // a line skipped, a stir, a line swapped — with the phone propped up and
+  // nobody's hands free. Above the early returns below, so a sheet that is
+  // still loading or that failed to load holds nothing. Android only in
+  // effect; see lib/awake.ts.
+  useKeepAwake(!loading && cook !== null);
 
   // Mirrored on every change. Not while still loading, or the initial empty
   // state would overwrite the very draft being restored.
