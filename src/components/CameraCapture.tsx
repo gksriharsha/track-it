@@ -1,9 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { probeFrame, scanBarcode } from "../api";
+import { probeFrame, scanBarcode, scanPairCode } from "../api";
 import type { Probe } from "../types";
 
-export type ScanKind = "nutrition" | "supplement" | "ingredients" | "barcode";
+export type ScanKind = "nutrition" | "supplement" | "ingredients" | "barcode" | "pair";
+
+/**
+ * The kinds that are an encoded symbol rather than print to be read.
+ *
+ * They take a different path through this sheet: there is no line pitch to
+ * measure, so the local gauge only says whether the frame has structure and is
+ * sharp, and the readiness verdict comes from the native detector instead.
+ *
+ * A type predicate rather than a plain boolean, so the other branch narrows to
+ * the kinds `probeSays` actually accepts. Without it that call needs a cast,
+ * and a cast is how a fifth kind gets added one day without anybody being told
+ * that this function has no answer for it.
+ */
+function isCode(kind: ScanKind): kind is "barcode" | "pair" {
+  return kind === "barcode" || kind === "pair";
+}
 
 interface Props {
   scanKind: ScanKind;
@@ -108,10 +124,25 @@ const SHOT_QUALITY = 0.85;
 const PROBE_EDGE = 900;
 const PROBE_QUALITY = 0.6;
 
+/**
+ * A pairing code gets the sensor's own frame, at near-lossless quality.
+ *
+ * 900px and quality 0.6 were chosen for the bar widths of an EAN, and a QR is
+ * a different problem: the pairing payload is a 45-module code, so at 900px
+ * with the code filling part of the frame that is five or six pixels a module
+ * with JPEG artefacts across every boundary. The scan then simply never
+ * succeeds — the sheet sits on "point the camera at the code" and says nothing
+ * — so this kind pays the bytes instead.
+ */
+const CODE_EDGE = 1600;
+const CODE_QUALITY = 0.9;
+
 type Gauge = "seeking" | "closer" | "back" | "blurry" | "ready";
 
-/** The same camera sheet reads four different parts of a pack. Keeping this copy
-    beside the kind prevents a barcode scan from announcing a nutrition panel. */
+/** The same camera sheet reads four different parts of a pack, and one thing
+    that is not a pack at all. Keeping this copy beside the kind prevents a
+    barcode scan from announcing a nutrition panel, and a pairing code from
+    being described as anything to do with food. */
 const SUBJECT: Record<
   ScanKind,
   { title: string; aria: string; seeking: string; ready: string; captured: string }
@@ -143,6 +174,13 @@ const SUBJECT: Record<
     seeking: "Fill the guide with the barcode",
     ready: "Barcode found — looks readable",
     captured: "The camera is off. The barcode is being read.",
+  },
+  pair: {
+    title: "Pairing code",
+    aria: "Scan a pairing code",
+    seeking: "Point the camera at the code on the other device",
+    ready: "Code found",
+    captured: "The camera is off. The code is being read.",
   },
 };
 
@@ -182,8 +220,8 @@ export default function CameraCapture(p: Props) {
 
   const [gauge, setGauge] = useState<Gauge>("seeking");
   const [probe, setProbe] = useState<Probe | null>(null);
-  const [barcodeReady, setBarcodeReady] = useState(false);
-  const [barcodeMisses, setBarcodeMisses] = useState(0);
+  const [codeReady, setCodeReady] = useState(false);
+  const [codeMisses, setCodeMisses] = useState(0);
   const [snag, setSnag] = useState<Snag | null>(null);
   const [live, setLive] = useState(false);
   const [done, setDone] = useState(false);
@@ -196,7 +234,7 @@ export default function CameraCapture(p: Props) {
   const misses = useRef(0);
   /** A barcode has no horizontal line pitch. It is worth asking the native
       detector about once the frame has structure and is sharp enough. */
-  const barcodeProbeable = useRef(false);
+  const codeProbeable = useRef(false);
   /** Every change that makes an in-flight reading obsolete advances this. */
   const probeEpoch = useRef(0);
   const mounted = useRef(true);
@@ -217,12 +255,12 @@ export default function CameraCapture(p: Props) {
     invalidateProbe();
     gaugeNow.current = "seeking";
     pending.current = { state: "seeking", runs: 0 };
-    barcodeProbeable.current = false;
+    codeProbeable.current = false;
     misses.current = 0;
     setGauge("seeking");
     setProbe(null);
-    setBarcodeReady(false);
-    setBarcodeMisses(0);
+    setCodeReady(false);
+    setCodeMisses(0);
   }, [p.scanKind, invalidateProbe]);
 
   const stop = useCallback(() => {
@@ -266,9 +304,9 @@ export default function CameraCapture(p: Props) {
           t.addEventListener("ended", () => {
             if (dead) return;
             invalidateProbe();
-            barcodeProbeable.current = false;
-            setBarcodeReady(false);
-            setBarcodeMisses(0);
+            codeProbeable.current = false;
+            setCodeReady(false);
+            setCodeMisses(0);
             setLive(false);
             setSnag({
               title: "The camera stopped",
@@ -404,16 +442,16 @@ export default function CameraCapture(p: Props) {
         // single line of type, where an x-height band repeats, while the whole
         // frame can see the lines themselves and how many of them are in shot.
         frame.pitch = fine !== null && fine < RESOLVABLE_ROWS * scale ? fine : (coarse ?? fine);
-        if (p.scanKind === "barcode") {
+        if (isCode(p.scanKind)) {
           const canProbe = frame.edge >= EDGE_MIN && frame.sharp >= SHARP_MIN;
-          if (canProbe !== barcodeProbeable.current) {
-            barcodeProbeable.current = canProbe;
+          if (canProbe !== codeProbeable.current) {
+            codeProbeable.current = canProbe;
             // A result from before the lens lost the code is no longer a result
             // about the frame on screen now.
             if (!canProbe) {
               invalidateProbe();
-              setBarcodeReady(false);
-              setBarcodeMisses(0);
+              setCodeReady(false);
+              setCodeMisses(0);
             }
           }
           // Barcodes are vertical edges rather than rows of type, so their real
@@ -443,7 +481,7 @@ export default function CameraCapture(p: Props) {
         // described.
         misses.current = 0;
         setProbe(null);
-        if (p.scanKind !== "barcode") invalidateProbe();
+        if (!isCode(p.scanKind)) invalidateProbe();
       }
     }, GAUGE_MS);
     return () => window.clearInterval(id);
@@ -455,29 +493,54 @@ export default function CameraCapture(p: Props) {
   useEffect(() => {
     if (!live || done) return;
     const id = window.setInterval(() => {
-      const barcode = p.scanKind === "barcode";
-      if ((barcode ? !barcodeProbeable.current : gaugeNow.current !== "ready") || probing.current) return;
+      const code = isCode(p.scanKind);
+      if ((code ? !codeProbeable.current : gaugeNow.current !== "ready") || probing.current) return;
       const v = video.current;
       if (!v || v.readyState < 2 || !v.videoWidth) return;
-      const b64 = encode(v, PROBE_EDGE, PROBE_QUALITY);
+      // A QR needs the pixels a barcode does not. See CODE_EDGE.
+      const b64 = p.scanKind === "pair"
+        ? encode(v, CODE_EDGE, CODE_QUALITY)
+        : encode(v, PROBE_EDGE, PROBE_QUALITY);
       if (!b64) return;
       const epoch = ++probeEpoch.current;
       probing.current = true;
 
-      if (barcode) {
-        scanBarcode(b64).then(
+      if (p.scanKind === "pair") {
+        scanPairCode(b64).then(
           (r) => {
             probing.current = false;
-            if (!mounted.current || epoch !== probeEpoch.current || !barcodeProbeable.current) return;
-            const found = r.payload !== null && r.trusted;
-            setBarcodeReady(found);
-            setBarcodeMisses((n) => (found ? 0 : Math.min(2, n + 1)));
+            if (!mounted.current || epoch !== probeEpoch.current || !codeProbeable.current) return;
+            // A frame with no code in it is the ordinary case while the camera
+            // is still being pointed, and `trouble` is a code that was read and
+            // is not one of ours. Neither is an error.
+            const found = r.payload !== null;
+            setCodeReady(found);
+            setCodeMisses((n) => (found ? 0 : Math.min(2, n + 1)));
           },
           () => {
             probing.current = false;
             if (!mounted.current || epoch !== probeEpoch.current) return;
-            setBarcodeReady(false);
-            setBarcodeMisses(0);
+            setCodeReady(false);
+            setCodeMisses(0);
+          },
+        );
+        return;
+      }
+
+      if (code) {
+        scanBarcode(b64).then(
+          (r) => {
+            probing.current = false;
+            if (!mounted.current || epoch !== probeEpoch.current || !codeProbeable.current) return;
+            const found = r.payload !== null && r.trusted;
+            setCodeReady(found);
+            setCodeMisses((n) => (found ? 0 : Math.min(2, n + 1)));
+          },
+          () => {
+            probing.current = false;
+            if (!mounted.current || epoch !== probeEpoch.current) return;
+            setCodeReady(false);
+            setCodeMisses(0);
           },
         );
         return;
@@ -526,13 +589,14 @@ export default function CameraCapture(p: Props) {
     p.onCapture(b64);
   }
 
-  const shownGauge: Gauge = p.scanKind === "barcode" && barcodeReady ? "ready" : gauge;
+  const shownGauge: Gauge = isCode(p.scanKind) && codeReady ? "ready" : gauge;
   const ready = shownGauge === "ready";
-  const count = p.scanKind === "barcode"
-    ? barcodeReady
-      ? "Barcode found in the frame"
-      : barcodeMisses >= 2
-        ? "Not finding a barcode yet"
+  const noun = p.scanKind === "pair" ? "code" : "barcode";
+  const count = isCode(p.scanKind)
+    ? codeReady
+      ? `A ${noun} is in the frame`
+      : codeMisses >= 2
+        ? `Not finding a ${noun} yet`
         : null
     : probe && ready
       ? probeSays(probe, misses.current, p.scanKind)
@@ -879,7 +943,7 @@ function verdict(f: Frame, frameH: number): Gauge {
 function probeSays(
   r: Probe,
   misses: number,
-  kind: Exclude<ScanKind, "barcode">,
+  kind: Exclude<ScanKind, "barcode" | "pair">,
 ): string | null {
   const seen = kind === "nutrition" ? r.panel_lines : r.lines;
   if (seen > 0) {

@@ -652,3 +652,84 @@ photographed again where a meal eaten in March cannot be eaten again. Changing t
 re-wraps the same data key rather than rotating it, so a copy already carried elsewhere still opens
 with the old passphrase; that is a worse secret than a rotation would give, and a better one than a
 rekey that crashes halfway with the new wrap not yet on disk.
+## D17 — What a household shares, how a conflict is settled, and what a helping publishes
+
+*(Added with the sync transport.)*
+
+**Defect.** The database half of household sync shipped first — `row_version`, the fourteen
+change-tracking triggers, `sync_pending`, `sync_control` — and the five commands that would have
+used it returned a sentence saying the transport was not built. The kitchen was tracked and
+nothing carried it anywhere. Two smaller defects came out with it: `peers` had no address column
+at all, so a device was unreachable for good after its DHCP lease turned over; and
+`queued_for_peers` compared `peers.applied_through`, which counts the PEER'S feed in the PEER'S
+numbering, against our own `row_version.seq` — arithmetic on two unrelated counters, printed on
+the Household screen as a backlog.
+
+**Decision.**
+
+**One Noise pattern for both jobs: `Noise_XX_25519_ChaChaPoly_BLAKE2s`.** `KK` was the obvious
+choice for a resync, since both static keys are already known and two messages would do, and it
+is unbuildable here: snow gives KK pre-message statics for both sides, so `build_responder`
+refuses without the remote key — and a device answering an inbound connection does not yet know
+who is dialling. Under XX the responder learns the initiator's static during the handshake, and
+every entry point asserts it against `peers.static_pk` afterwards and hangs up on a key the
+household does not know. Authenticating a connection and authorising it are two steps, and
+keeping them apart is what lets the pairing path — where the key is deliberately new — share the
+code with the resync path, where it must not be.
+
+**The pairing code is bound to the session twice.** The prologue is a domain string plus the
+EXACT bytes of the payload on both sides, so a phone that read a different code fails at the
+handshake rather than reaching the digits; and the initiator hard-asserts the responder's static
+key against the key printed in the code before any digits are shown. The six digits — SHA256 over
+the handshake hash, mod 10^6 — are a second, human line of defence, not the only one. They are
+about twenty bits, which is plenty for a comparison a person makes once and worth nothing to
+somebody who gets retries, so a live offer serves one connection at a time and derives fresh
+digits for each. A refused comparison returns the offer to waiting rather than ending it:
+ending it would have made anybody who could reach the announced port a denial of pairing.
+
+**The merge rule, decided identically on every device.** Higher `version` wins; at equal version
+the lexicographically greater `device_id` wins. That is what makes the merge CONVERGE rather than
+merely stop — two devices that saw the same pair of edits end on the same row without having
+talked about which. `updated_at` is deliberately not an input: two household clocks disagree and
+`now_iso` is accurate only to the second, so a wall-clock comparison would decide real conflicts
+by whose phone runs fast.
+
+**The unit of replication is a parent row and all of its children, and the parent is written in
+place.** Never a delete-and-reinsert. `foreign_keys` is ON and `log_entries.recipe_id`,
+`cook_id`, `custom_food_id`, `supplement_id` and `bottle_id`, plus `cooks.recipe_id` and
+`cook_draws.cook_id`, all reference these parents with NO ACTION — so deleting a recipe you have
+cooked from would abort the apply transaction and wedge the sync on one row for good. Making
+those keys CASCADE to get around it is forbidden: it would reach back into frozen history, which
+is the one thing this app promises never to do. Children are still replaced wholesale, and only
+because nothing references them.
+
+**Two field-level exceptions, and they generalise.** A column whose value is a HANDLE INTO ONE
+DEVICE is not a fact about the kitchen. `vessels.last_used_at` and `bottles.last_used_at` order
+one person's picker; `custom_foods.photo_label`, `custom_foods.photo_ingredients`,
+`supplements.photo_panel` and `supplements.photo_ingredients` are filenames in one device's own
+photos directory. Both are excluded in BOTH directions — an aggregate arriving without a photo
+name must not erase the name already here, or a peer that edits a food and syncs it back would
+silently strip the photograph off the device that took it. Shipping photo bytes as a second,
+content-addressed channel is deliberately out of scope.
+
+**`applied_through` advances only when the apply transaction commits.** Advancing it on receipt
+loses rows to a crash with no way to notice afterwards: the feed is self-compacting, so the row
+has already moved under the watermark and will never be sent again. An aggregate whose dependency
+has not arrived is parked whole in `sync_pending` and the watermark moves past it anyway — the
+row is durably recorded and will be retried — so `SyncOutcome.detail` has to name what is still
+held. A green line over a fridge that is missing a pot is the same failure as a nutrient bar
+drawn at zero because nobody measured it.
+
+**What a helping publishes, stated plainly.** `cook_draws` is in the shared set, and it carries
+the authoring device's entry id, the pot, which device took it, the grams, and the local date and
+instant. That is what makes the pot say the same thing in two kitchens. It is never part of
+anybody's day: the receiving device has no `log_entries` row for it, no nutrition off it and
+nothing about it in any total, and the nutrition arm cannot reach it because it does not join to
+that table. The Household screen says both halves rather than leaving the second to be
+discovered.
+
+**Not a daemon.** No foreground service, no notification, no wake lock; on Android the sockets die
+with the process. That is agreement with Doze and App Standby rather than a shortcut around them
+— Doze suspends network access for every app regardless of target API, so a listener that fought
+it would be an app running behind your back for no benefit. The consequence is honest and belongs
+on screen: a phone can be reached while TrackIt is open on it, and not otherwise.

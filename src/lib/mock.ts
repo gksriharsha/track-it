@@ -610,6 +610,17 @@ const HOUSEHOLD = {
 let pairStartedAt: number | null = null;
 let pairConfirmed = false;
 
+/**
+ * A payload in the real shape: tag, addresses, port, base64url key, expiry.
+ *
+ * Flat and pipe-delimited because the real one is, and the real one is because
+ * its exact bytes are hashed into the handshake on both sides — a re-serialised
+ * JSON object could differ by a space.
+ */
+const PAIR_PAYLOAD =
+  "trackit-household-1|192.168.1.24|51733|" +
+  "8Kx2vQ1mZ0pR7sN4dT9hJ3bW6yL5cF8aG2eU0iO1kM4|2026-09-06T08:43:00Z";
+
 /** Where the scripted pairing has got to, from how long the QR has been up. */
 function pairing() {
   if (pairStartedAt === null) return { stage: "expired" };
@@ -635,13 +646,29 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
     pairStartedAt = Date.now();
     pairConfirmed = false;
     return {
-      // Shaped like the real thing: address, port, static key, one-time token.
-      payload:
-        "trackit-pair:v1?h=192.168.1.24&p=51733" +
-        "&k=8Kx2vQ1mZ0pR7sN4dT9hJ3bW6yL5cF8aG2eU0iO1kM4&t=Qz7RfV2nB9mK4xC1sD6gH0jL5pT8wY3uA7eI2oN9rS6",
+      // Shaped like the real thing: tag, addresses, port, static key, expiry.
+      payload: PAIR_PAYLOAD,
       expires_at: new Date(Date.now() + 120_000).toISOString(),
+      // A real code is drawn in Rust from the real key. The fixture cannot
+      // encode one, and a wrong pattern of squares would look like a code that
+      // does not scan rather than like a fixture, so this says what it is.
+      svg:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" ' +
+        'aria-label="Pairing code, drawn only in the real app">' +
+        '<rect width="100" height="100" fill="#fff"/>' +
+        '<text x="50" y="46" text-anchor="middle" font-family="system-ui" ' +
+        'font-size="9" fill="#000">no real code</text>' +
+        '<text x="50" y="60" text-anchor="middle" font-family="system-ui" ' +
+        'font-size="9" fill="#000">in the browser</text></svg>',
     };
   },
+  join_pairing: () => {
+    // The scanning half lands in the same scripted pairing as the showing
+    // half, which is what the screen's single polling effect assumes.
+    pairStartedAt = Date.now();
+    pairConfirmed = false;
+  },
+  scan_pair_code: () => ({ payload: PAIR_PAYLOAD, trouble: null }),
   pairing_state: () => pairing(),
   confirm_pairing: (a) => {
     if (a.matches === true) {

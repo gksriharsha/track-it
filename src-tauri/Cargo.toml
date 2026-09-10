@@ -34,6 +34,32 @@ rusqlite = { version = "0.40", features = ["bundled", "backup", "serialize"] }
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Household sync speaks Noise over plain TCP. `default-features = false` is
+# load-bearing rather than tidy: snow's `std` feature enables `ring/std`
+# written WITHOUT a `?`, so the defaults drag ring and aes-gcm in — 57 packages
+# resolved instead of 35, and a C toolchain on every Android ABI. Without them
+# snow is pure Rust and all four Android targets link with nothing but the NDK
+# linker. The cost is that snow becomes `no_std`, which is why every call site
+# here uses `.map_err(|e| e.to_string())` rather than any boxed-error path:
+# `snow::Error` implements `core::error::Error`, not `std::error::Error`.
+snow = { version = "0.10.0", default-features = false, features = [
+  "default-resolver", "use-chacha20poly1305", "use-blake2",
+  "use-sha2", "use-curve25519", "use-getrandom" ] }
+# The nonce in a rendezvous probe. A direct dependency, at the version snow
+# already compiles, rather than a reach through snow's own tree: a nonce that
+# an eavesdropper can predict is a probe they can replay to make a device
+# announce the port it answers on.
+getrandom = "0.3"
+# The six-digit comparison is SHA256 over the handshake hash. sha2 reaches the
+# tree today only through tauri-codegen, which is a host-only proc-macro, so it
+# has to be a direct dependency to exist on a phone at all.
+sha2 = "0.10"
+# Every non-loopback IPv4 this device has, for the pairing payload and for the
+# rendezvous sweep. libc `getifaddrs`, which bionic has had since API 24.
+if-addrs = "0.14.0"
+# Drawing the pairing code. Zero dependencies, and it happens in Rust beside
+# the key material so the payload is never assembled twice in two languages.
+qrcodegen = "1.8.0"
 
 # The sealed backup artifact — see `backup.rs` and docs/decisions.md D18.
 #
