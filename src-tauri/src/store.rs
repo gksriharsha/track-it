@@ -1359,6 +1359,55 @@ pub fn open(path: &PathBuf) -> Result<Connection, String> {
     prepare(conn)
 }
 
+/// A raw SQLCipher key as it must appear in SQL: the `x'…'` hex form wrapped in
+/// QUOTES, so it reaches SQLCipher as a string.
+///
+/// One function because two call sites disagreed about this and it cost the
+/// whole feature. SQLCipher only reads `x'…'` as a raw key when it arrives as
+/// a string value; the hex wrapper is a convention it looks for INSIDE the
+/// string, not SQLite syntax. So:
+///
+/// - `PRAGMA key = "x'ABCD…'"` works. So does `rusqlite`'s `pragma_update`,
+///   which quotes the value for you and is what every reader here uses.
+/// - `PRAGMA key = x'ABCD…'` bare is a SYNTAX ERROR — SQLite's pragma grammar
+///   has no place for a blob literal.
+/// - `ATTACH … KEY x'ABCD…'` bare is accepted, because a KEY takes an
+///   expression and a blob literal is one — and it is the trap. SQLCipher gets
+///   a 32-byte BLOB rather than the string it looks for, treats it as a
+///   passphrase, and derives a different key entirely. The database is written
+///   and can never be opened again: "file is not a database" from the next
+///   reader, `hmac check failed for pgno=1` in logcat.
+///
+/// That is exactly what shipped, and it meant switching encryption on could
+/// never once succeed. Proved on both a device and the host, the second by
+/// building a throwaway binary against `bundled-sqlcipher` and writing with one
+/// spelling then reading with the other. No test in this tree could have caught
+/// it, because SQLCipher is not compiled for the Mac at all: against plain
+/// SQLite a `key` pragma is accepted and ignored, so every keyed path passes
+/// while doing nothing. [`the_key_literal_is_quoted`] is the tripwire that can
+/// run here — it pins the spelling rather than the behaviour.
+///
+/// Interpolating into SQL is safe rather than a lapse: the key is this build's
+/// own hex from [`crate::backup::Dek::sqlcipher_key`] and never anything a
+/// person typed. The assertion pins that too.
+pub fn key_literal(key: &str) -> String {
+    debug_assert!(
+        key.len() == 67 && key.starts_with("x'") && key.ends_with('\''),
+        "a raw SQLCipher key is x', 64 hex characters, and a closing quote"
+    );
+    format!("\"{key}\"")
+}
+
+/// Put a raw SQLCipher key on a connection. See [`key_literal`].
+///
+/// NOT gated on Android, unlike [`open_encrypted`]: plain SQLite parses the
+/// pragma and ignores it, so this is harmless on the Mac, and compiling it
+/// everywhere is what lets the spelling be tested here.
+pub fn apply_key(conn: &Connection, key: &str) -> Result<(), String> {
+    conn.execute_batch(&format!("PRAGMA key = {};", key_literal(key)))
+        .map_err(|e| format!("keying the log: {e}"))
+}
+
 /// Open a SQLCipher-encrypted user database, keying it before anything else.
 ///
 /// Separate from [`open`] for one reason, and it is a hard ordering constraint
@@ -1377,8 +1426,7 @@ pub fn open(path: &PathBuf) -> Result<Connection, String> {
 #[cfg(target_os = "android")]
 pub fn open_encrypted(path: &PathBuf, key: &str) -> Result<Connection, String> {
     let conn = Connection::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
-    conn.pragma_update(None, "key", key)
-        .map_err(|e| format!("keying {}: {e}", path.display()))?;
+    apply_key(&conn, key)?;
     // Forces the codec to run NOW. Without this the wrong key surfaces later,
     // mid-query, as a confusing "file is not a database" against a table the
     // user was reading — rather than here, where the caller can say that the
@@ -10375,6 +10423,31 @@ mod tests {
         pair_peer(&a, &b_id, "B", &key(2), None).unwrap();
         pair_peer(&b, &a_id, "A", &key(1), None).unwrap();
         (a, b)
+    }
+
+    /// The tripwire for the spelling that cost the whole encryption feature.
+    ///
+    /// It pins the SQL rather than the behaviour, which is the most a test on
+    /// this platform can do: SQLCipher is compiled for Android only, so on the
+    /// Mac a `key` pragma is parsed and ignored and every keyed path passes
+    /// while encrypting nothing. What went wrong was one call site writing
+    /// `KEY x'…'` bare — a blob literal, which SQLCipher reads as a passphrase
+    /// — while every reader used the quoted form. The file was written under a
+    /// key nothing could reproduce, and enabling encryption could never
+    /// succeed.
+    #[test]
+    fn the_key_literal_is_quoted() {
+        let key = format!("x'{}'", "ab".repeat(32));
+        let lit = key_literal(&key);
+        assert!(
+            lit.starts_with('"') && lit.ends_with('"'),
+            "a raw key reaches SQLCipher as a string or not at all: {lit}"
+        );
+        assert_eq!(lit, format!("\"{key}\""));
+        assert!(
+            !lit.starts_with("x'"),
+            "bare is the spelling that writes a database nothing can reopen"
+        );
     }
 
     #[test]
