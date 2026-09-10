@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widgets' own tokens, transcribed from the `:root` block at the top of
+     src/styles.css so a tile beside the app reads as the same object.
+     `values/colors.xml` is deliberately NOT reused: it is still the untouched
+     Android Studio purple template, and nothing in this app has ever drawn from
+     it. -->
+<resources>
+    <color name="widget_surface">#FFFFFFFF</color>
+    <color name="widget_ink">#FF1C1A17</color>
+    <color name="widget_muted">#FF57524A</color>
+    <!-- The tappable row's own ground. The `sunken` token, which is what the
+         app uses for a surface that sits inside another one. -->
+    <color name="widget_row">#FFF4F2EE</color>
+
+    <dimen name="widget_pad">10dp</dimen>
+    <!-- The `r-lg` radius token, fixed here because the system's own widget
+         radius is API 31 — see drawable-v31/widget_background.xml. -->
+    <dimen name="widget_corner">16dp</dimen>
+    <dimen name="widget_row_corner">8dp</dimen>
+    <!-- 44dp is the app's own floor for anything a finger has to hit
+         (src/styles.css). A widget row is not exempt from it. -->
+    <dimen name="widget_row_min">44dp</dimen>
+    <dimen name="widget_amount">20sp</dimen>
+    <dimen name="widget_row_text">14sp</dimen>
+    <dimen name="widget_small">11sp</dimen>
+
+    <string name="widget_aggregate_label">TrackIt · the last 30 days</string>
+    <string name="widget_quickadd_label">TrackIt · add a food</string>
+    <string name="widget_aggregate_description">A middle day and the range most days fall in, with the reference figure named beside it.</string>
+    <string name="widget_quickadd_description">The foods you log most, each one tap from the weight field. Nothing is logged without confirming an amount.</string>
+
+    <!-- Not "no data". Nothing has been published yet, which is a fact about
+         this file rather than about the person, and the only useful thing to
+         say about it is where to go. -->
+    <string name="widget_unwritten">Open TrackIt</string>
+    <string name="widget_quick_empty">Nothing to show yet</string>
+    <string name="widget_add_food">Add food</string>
+    <string name="widget_log_water">Log water</string>
+</resources>

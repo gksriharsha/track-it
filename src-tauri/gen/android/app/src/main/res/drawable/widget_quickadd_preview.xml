@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The picker's hint for the quick-add tile on API 24 to 30. Three rows over a
+    two-button bar, in the same proportions the real layout uses. Nothing here is
+    a figure and nothing here is a name: a preview that showed real food names
+    would be showing the developer's lunch to every user of the app.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="86dp"
+    android:viewportWidth="120"
+    android:viewportHeight="86">
+    <path
+        android:pathData="M0,8 A8,8 0 0 1 8,0 H112 A8,8 0 0 1 120,8 V78 A8,8 0 0 1 112,86 H8 A8,8 0 0 1 0,78 Z"
+        android:fillColor="@color/widget_surface" />
+    <path android:pathData="M10,10 H110 V26 H10 Z" android:fillColor="@color/widget_row" />
+    <path android:pathData="M10,29 H110 V45 H10 Z" android:fillColor="@color/widget_row" />
+    <path android:pathData="M10,48 H110 V64 H10 Z" android:fillColor="@color/widget_row" />
+    <path android:pathData="M10,68 H58 V78 H10 Z" android:fillColor="@color/widget_row" />
+    <path android:pathData="M62,68 H110 V78 H62 Z" android:fillColor="@color/widget_row" />
+</vector>

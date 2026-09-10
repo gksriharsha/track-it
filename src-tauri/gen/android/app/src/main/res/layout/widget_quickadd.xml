@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The quick-add tile, 4x3.
+
+    Up to three food rows over a permanent two-button bar. Each row is a name and
+    nothing else: no amount, no date, no nutrition, and no count of how often the
+    food was logged. A tap opens Add food with that food chosen and its last
+    portion in the weight field, and stops there — the tile has no way to send a
+    weight and could not log anything if it wanted to.
+
+    The bar is drawn before the snapshot is even opened, which is what makes the
+    tile useful on the day it is installed and after a data wipe.
+
+    Every row is at least `widget_row_min` tall. That is the app's own floor for
+    anything a finger has to hit (src/styles.css), and a widget row is not exempt
+    from it — a mis-tap here opens the wrong food's weight field, which is the one
+    place in this app where a slip could put a number against the wrong dish.
+
+    The plain sans throughout, deliberately. The serif in this app marks an
+    aggregate figure worth dwelling on, and there is not a figure on this tile.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_quick_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="@dimen/widget_pad">
+
+    <!-- Weighted alongside the rows below, so whichever of the two is visible
+         fills the space the other would have had. -->
+    <TextView
+        android:id="@+id/widget_quick_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fontFamily="sans-serif"
+        android:textSize="@dimen/widget_row_text"
+        android:textColor="@color/widget_muted"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/widget_quick_rows"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_quick_row0"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:minHeight="@dimen/widget_row_min"
+            android:layout_marginBottom="4dp"
+            android:background="@drawable/widget_row"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:gravity="center_vertical"
+            android:fontFamily="sans-serif"
+            android:textSize="@dimen/widget_row_text"
+            android:textColor="@color/widget_ink"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_quick_row1"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:minHeight="@dimen/widget_row_min"
+            android:layout_marginBottom="4dp"
+            android:background="@drawable/widget_row"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:gravity="center_vertical"
+            android:fontFamily="sans-serif"
+            android:textSize="@dimen/widget_row_text"
+            android:textColor="@color/widget_ink"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_quick_row2"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:minHeight="@dimen/widget_row_min"
+            android:layout_marginBottom="4dp"
+            android:background="@drawable/widget_row"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:gravity="center_vertical"
+            android:fontFamily="sans-serif"
+            android:textSize="@dimen/widget_row_text"
+            android:textColor="@color/widget_ink"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <TextView
+            android:id="@+id/widget_quick_add"
+            android:layout_width="0dp"
+            android:layout_height="@dimen/widget_row_min"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/widget_row"
+            android:gravity="center"
+            android:fontFamily="sans-serif"
+            android:textSize="@dimen/widget_row_text"
+            android:textColor="@color/widget_ink"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_quick_water"
+            android:layout_width="0dp"
+            android:layout_height="@dimen/widget_row_min"
+            android:layout_weight="1"
+            android:background="@drawable/widget_row"
+            android:gravity="center"
+            android:fontFamily="sans-serif"
+            android:textSize="@dimen/widget_row_text"
+            android:textColor="@color/widget_ink"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+</LinearLayout>

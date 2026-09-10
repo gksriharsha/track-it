@@ -48,6 +48,47 @@
             </intent-filter>
         </activity>
 
+        <!-- The two home-screen widgets.
+
+             `exported="false"`: the only broadcasts either of these answers are
+             the system's own widget lifecycle, which is delivered regardless, and
+             this app's explicit same-UID refresh. Nothing else has any business
+             telling a tile to redraw.
+
+             Neither receiver reads an extra it trusts, and neither opens the log
+             database — they read two files of already-formatted strings that Rust
+             wrote into `no_backup/`, which is the directory Android documents as
+             never automatically backed up.
+
+             No `allowBackup`, `fullBackupContent` or `dataExtractionRules`
+             attribute is added here. The snapshot needs none — `no_backup/` is
+             excluded by the framework itself — and the wider question of what
+             else in this app's data directory is eligible for Google Drive
+             belongs to the encryption work, which owns those three attributes. -->
+        <receiver
+            android:name=".widget.AggregateWidgetProvider"
+            android:label="@string/widget_aggregate_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_aggregate_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.QuickAddWidgetProvider"
+            android:label="@string/widget_quickadd_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quickadd_info" />
+        </receiver>
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"

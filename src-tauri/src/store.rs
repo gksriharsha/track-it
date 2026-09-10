@@ -5387,6 +5387,43 @@ pub fn days_ago_iso(conn: &Connection, days: u32) -> Result<String, String> {
         [format!("-{days} days")],
         |r| r.get(0),
     )
+    .map_err(|e| format!("reading the date {days} days ago: {e}"))
+}
+
+/// A date so many days either side of another.
+///
+/// Asked of SQLite rather than worked out in Rust, for the same reason
+/// [`today_iso`] and [`now_iso`] are: every other date in this database was
+/// produced by this calendar, and a period whose start came from a different one
+/// would quietly select a different set of days across a daylight-saving
+/// boundary. `days` is negative to go backwards.
+///
+/// Compiled everywhere so the tests below run on the Mac, and used only by the
+/// Android widget snapshots, hence the `allow`.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn shift_iso(conn: &Connection, iso: &str, days: i64) -> Result<String, String> {
+    conn.query_row(
+        "SELECT date(?1, ?2 || ' days')",
+        rusqlite::params![iso, days],
+        |r| r.get(0),
+    )
+    .map_err(|e| format!("shifting {iso} by {days} days: {e}"))
+}
+
+/// The wall-clock moment, as `YYYY-MM-DD HH:MM` on the machine's own clock.
+///
+/// Separate from [`now_iso`], which is the UTC stamp every stored row carries.
+/// This one exists to be READ by a person off a home screen, so it is local and
+/// it stops at the minute — a widget saying which second it was written is
+/// precision nobody asked for.
+///
+/// Compiled everywhere so the tests below run on the Mac, and used only by the
+/// Android widget snapshots, hence the `allow`.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn local_stamp(conn: &Connection) -> Result<String, String> {
+    conn.query_row("SELECT strftime('%Y-%m-%d %H:%M','now','localtime')", [], |r| {
+        r.get(0)
+    })
     .map_err(|e| e.to_string())
 }
 
@@ -11293,4 +11330,19 @@ mod tests {
         assert_eq!(grams_label(1200.0), "1,200 g");
         assert_eq!(grams_label(12_345.0), "12,345 g");
     }
+
+    #[test]
+    fn a_helping_you_deleted_stops_counting_towards_the_ranking() {
+        let c = db();
+        let id = add(&c, SINCE, Some("lunch"), Source::Food(1), "Rice", Quantity::Grams(200.0), None, &Tags::default()).unwrap();
+        add(&c, "2026-09-02", Some("lunch"), Source::Food(1), "Rice", Quantity::Grams(200.0), None, &Tags::default()).unwrap();
+        remove(&c, &id).unwrap();
+        let rows = frequent_foods(&c, SINCE, 5).unwrap();
+        assert_eq!(rows.len(), 1, "the food is still here, on the day that stands");
+        assert_eq!(
+            rows[0].last_grams, 200.0,
+            "and it is the surviving helping the amount step opens on"
+        );
+    }
+
 }

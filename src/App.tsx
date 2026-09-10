@@ -26,8 +26,9 @@ import Logo from "./components/Logo";
 import CommandPalette from "./components/CommandPalette";
 import type { Command } from "./components/CommandPalette";
 import { MOD, isAndroid, useHotkeys } from "./lib/desktop";
-import { getDay, humanDate, shiftIso, todayIso } from "./api";
+import { getDay, humanDate, shiftIso, takeWidgetLanding, todayIso } from "./api";
 import type { DayView, Meal } from "./types";
+import { parsePick } from "./types";
 import "./styles.css";
 
 /**
@@ -298,6 +299,16 @@ interface Route {
    */
   q: string | null;
   /**
+   * A food an Android home-screen widget handed over, as `"<kind>:<id>"` — or
+   * the literal `"water"` for the bottle tab.
+   *
+   * In the hash for the same reason `q` is: a widget tap is the fastest way
+   * into logging a staple, and a reload or a back gesture landing on a blank
+   * Add food screen would throw away the one thing the tap was for. Read by
+   * `Foods`, which parses it — never spliced into a hash by hand.
+   */
+  pick: string | null;
+  /**
    * Whether the mobile drawer is open.
    *
    * In the hash, not in state, for the reason everything else here is: on
@@ -314,6 +325,8 @@ interface Nav {
   id?: string | null;
   from?: Tab;
   q?: string;
+  /** A widget's pick token, on its way to `Foods`. See `Route.pick`. */
+  pick?: string;
   /**
    * Overwrite the current history entry instead of pushing a new one.
    *
@@ -358,6 +371,7 @@ function readRoute(): Route {
     id: params.get("id"),
     from: from !== null && ROUTES.includes(from) ? (from as Tab) : null,
     q: params.get("q"),
+    pick: params.get("pick"),
     menu: params.get("menu") === "1",
   };
 }
@@ -442,6 +456,7 @@ function useHashRoute() {
     if (nav.id) q.set("id", nav.id);
     if (nav.from) q.set("from", nav.from);
     if (nav.q) q.set("q", nav.q);
+    if (nav.pick) q.set("pick", nav.pick);
     const s = q.toString();
     const target = s ? `/${t}?${s}` : `/${t}`;
     if (nav.replace) {
@@ -503,6 +518,41 @@ function useHashRoute() {
 export default function App() {
   const [route, go, openMenu, closeMenu] = useHashRoute();
   const tab = route.tab;
+
+  /*
+    A tap on an Android home-screen widget, landed on the right screen.
+
+    Two arrivals and one destination. A COLD start's Intent exists long before
+    this component mounts, so `MainActivity` writes it to a file and this pulls
+    it here — after mount, where writing a hash always takes. A WARM relaunch
+    goes the other way: the page is already up, so `MainActivity` pokes
+    `window.__widgetTap` and we pull again. The poke carries no data at all,
+    only the news that there is something to take, which keeps the Intent's
+    untrusted strings out of JavaScript entirely.
+
+    The route is validated here as well as in Kotlin and in Rust. MainActivity
+    is exported because it carries LAUNCHER, so any installed app can start it
+    with an extra of its choosing — and `go` is given the pick as a value
+    rather than having it concatenated into a hash, so a token that got this far
+    still cannot become part of a URL it was not designed for.
+  */
+  useEffect(() => {
+    const land = async () => {
+      try {
+        const l = await takeWidgetLanding();
+        if (l === null || !ROUTES.includes(l.route)) return;
+        const pick = parsePick(l.pick);
+        go(l.route as Tab, pick === null ? {} : { pick: l.pick as string });
+      } catch {
+        // Silence, not an alert. The app has simply opened on its usual front
+        // door, which is where it opens anyway.
+      }
+    };
+    const w = window as unknown as { __widgetTap?: () => void };
+    w.__widgetTap = () => { void land(); };
+    void land();
+    return () => { delete w.__widgetTap; };
+  }, [go]);
   const [date, setDate] = useState(todayIso());
   const [meal, setMeal] = useState<Meal>(defaultMeal());
   const [day, setDay] = useState<DayView | null>(null);
@@ -962,6 +1012,7 @@ export default function App() {
               meal={meal}
               active={tab === "foods"}
               seed={route.q}
+              preselect={route.pick}
               onMealChange={setMeal}
               onLogged={onLogged}
               onManageVessels={() => go("vessels")}

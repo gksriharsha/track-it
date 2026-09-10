@@ -34,7 +34,7 @@ import type {
   Recipe,
   Vessel,
 } from "../types";
-import { MEALS, SOURCE_LABEL, describeVolume } from "../types";
+import { MEALS, SOURCE_LABEL, describeVolume, parsePick } from "../types";
 import { fmtAmount, plural } from "../lib/nutrient";
 import WeightField from "../components/WeightField";
 import TagPicker from "../components/TagPicker";
@@ -55,6 +55,20 @@ interface Props {
    * than re-running whatever was searched for last.
    */
   seed?: string | null;
+  /**
+   * A food handed over by an Android home-screen widget, as the raw token from
+   * the hash — `"food:167763"`, `"custom:<uuid>"`, or the literal `"water"`.
+   *
+   * A string rather than the parsed object on purpose. The effect below is
+   * keyed on this prop, and a freshly-allocated object would be a new value on
+   * every one of App's re-renders: the effect would re-run, `setNet` would fire
+   * again, and a plate already weighed with two katoris tared would snap back
+   * to the default portion. `seed` is a string for the same reason.
+   *
+   * The widget never logs anything and cannot: all it carries is which food.
+   * The weight is still typed or weighed here, like any other.
+   */
+  preselect?: string | null;
   onMealChange: (m: Meal) => void;
   onLogged: () => void;
   /** Through to the vessel library, from inside the weight field. */
@@ -248,6 +262,72 @@ export default function Foods(p: Props) {
     runSearch(q);
     searchRef.current?.focus();
   }, [p.seed, runSearch]);
+
+  /**
+   * A food handed over by a home-screen widget.
+   *
+   * Sets the TAB as well as the pick, which is the whole trick: this screen
+   * renders one branch of a `tab === …` chain and stays mounted across
+   * navigation, so a user whose last visit ended on the Water tab would
+   * otherwise land on the bottle list with a food invisibly picked behind it.
+   * The `seed` effect above sets the tab for exactly the same reason.
+   *
+   * Keyed on the token, so a second tap on a different food while the screen is
+   * already open replaces the pick rather than being ignored — and so an
+   * ordinary re-render of App does not reset a weight already entered.
+   */
+  useEffect(() => {
+    const target = parsePick(p.preselect ?? null);
+    if (target === null) return;
+    let live = true;
+    setError(null);
+    setPickedRecipe(null); setPickedCook(null); setWeighed(null);
+
+    if (target.kind === "water") {
+      // Water is logged from this screen's own water tab. The bottle library is
+      // an inventory screen — it is where a jug's full weight is recorded, not
+      // where a drink is — so a widget button pointed there would have looked
+      // like it worked and logged nothing.
+      setPicked(null); setPickedCustom(null);
+      setTab("water");
+      return;
+    }
+
+    setTab("foods");
+    (async () => {
+      try {
+        if (target.kind === "custom") {
+          const d = await getCustomFoodDetail(target.id as string);
+          if (!live) return;
+          setPicked(null);
+          setPickedCustom(d);
+          setShowPanel(false);
+          setNet(String(round(d.food.serving_g)));
+          await recall({ customFoodId: target.id as string });
+        } else {
+          const fdc = Number(target.id);
+          const d = await getFoodDetail(fdc);
+          if (!live) return;
+          setPickedCustom(null);
+          setPicked(d);
+          setNet(d.portions[0] ? String(round(d.portions[0].gram_weight)) : "100");
+          await recall({ fdcId: fdc });
+        }
+      } catch {
+        // A widget is a snapshot, and a food thrown away since it was written is
+        // the one case where the row outlives the thing. Say so and leave a
+        // blank search field rather than showing the backend's plumbing: the
+        // user tapped a name, and what they need to know is that it has gone.
+        if (!live) return;
+        setPicked(null); setPickedCustom(null);
+        setError("That food is no longer in your list, so it could not be opened.");
+      }
+    })();
+    return () => { live = false; };
+    // `recall` is stable and `setNet` is a plain function on this component;
+    // re-running this for either would defeat the point of keying on the token.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.preselect]);
 
   /**
    * A changed result set invalidates the highlight — row 3 of the old list is

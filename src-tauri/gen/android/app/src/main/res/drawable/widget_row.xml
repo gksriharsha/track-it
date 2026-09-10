@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A tappable row inside the tile. The `sunken` token over the `surface` one,
+     which is the same relationship a chip has to a card in the app.
+
+     No pressed state. `android:state_pressed` in a RemoteViews background is
+     drawn by the LAUNCHER's own touch handling, which differs by OEM, and a
+     selector that some launchers honour and others ignore reads as a bug on the
+     ones that ignore it. The launcher's own ripple is what the user gets. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_row" />
+    <corners android:radius="@dimen/widget_row_corner" />
+</shape>

@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The aggregate tile, 4x3.
+
+    Two measures side by side, each a stack of label / amount / named reference /
+    the range most days fell in. Under them the coverage sentence, and under that
+    the moment the figures were written.
+
+    Every string here is set by Kotlin from what Rust wrote; the `android:text`
+    attributes that would normally hold placeholder copy are absent on purpose, so
+    a tile whose snapshot failed to load shows nothing rather than a designer's
+    example figure. `@id/widget_agg_empty` is what it shows instead.
+
+    What is absent, and must stay absent: there is no ProgressBar, no ring, no arc
+    and no drawable in this project that could become one; no "%" anywhere; and no
+    view whose width is a fraction of a figure, which is the shape a fillable bar
+    would have to take. Only LinearLayout and TextView appear, both of which
+    RemoteViews supports.
+
+    The serif is on the amounts and nowhere else, which is the app's own
+    typography rule — Newsreader marks what is worth dwelling on, and a single
+    day's numbers stay in the sans. It resolves to Noto Serif here rather than to
+    Newsreader: the app fetches that face from Google's CDN (src/styles.css) and
+    RemoteViews cannot use a downloadable font, so this lands on the last item of
+    the same fallback chain the CSS declares. A deliberate near-miss rather than a
+    silent one.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_agg_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="@dimen/widget_pad">
+
+    <TextView
+        android:id="@+id/widget_agg_period"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif"
+        android:textSize="@dimen/widget_small"
+        android:textColor="@color/widget_muted"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <!-- Carries the whole tile's weight when there are no figures, which is why
+         it and the figures block are both weighted: whichever one is visible
+         fills the space the other would have had. -->
+    <TextView
+        android:id="@+id/widget_agg_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="@dimen/widget_pad"
+        android:fontFamily="sans-serif"
+        android:textSize="@dimen/widget_row_text"
+        android:textColor="@color/widget_muted"
+        android:maxLines="4"
+        android:ellipsize="end"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/widget_agg_figures"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <LinearLayout
+            android:id="@+id/widget_agg_col0"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:id="@+id/widget_agg_label0"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:textSize="@dimen/widget_small"
+                android:textColor="@color/widget_muted"
+                android:maxLines="1"
+                android:ellipsize="end" />
+            <TextView
+                android:id="@+id/widget_agg_value0"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="serif"
+                android:textSize="@dimen/widget_amount"
+                android:textColor="@color/widget_ink"
+                android:maxLines="1"
+                android:ellipsize="end" />
+            <TextView
+                android:id="@+id/widget_agg_ref0"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:textSize="@dimen/widget_small"
+                android:textColor="@color/widget_muted"
+                android:maxLines="2"
+                android:ellipsize="end" />
+            <TextView
+                android:id="@+id/widget_agg_note0"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:textSize="@dimen/widget_small"
+                android:textColor="@color/widget_muted"
+                android:maxLines="2"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_agg_col1"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+            <TextView
+                android:id="@+id/widget_agg_label1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:textSize="@dimen/widget_small"
+                android:textColor="@color/widget_muted"
+                android:maxLines="1"
+                android:ellipsize="end" />
+            <TextView
+                android:id="@+id/widget_agg_value1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="serif"
+                android:textSize="@dimen/widget_amount"
+                android:textColor="@color/widget_ink"
+                android:maxLines="1"
+                android:ellipsize="end" />
+            <TextView
+                android:id="@+id/widget_agg_ref1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:textSize="@dimen/widget_small"
+                android:textColor="@color/widget_muted"
+                android:maxLines="2"
+                android:ellipsize="end" />
+            <TextView
+                android:id="@+id/widget_agg_note1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:textSize="@dimen/widget_small"
+                android:textColor="@color/widget_muted"
+                android:maxLines="2"
+                android:ellipsize="end" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- What the figures above actually describe. It carries the date the period
+         starts from, which is the one thing that stops a window that never
+         recomputes from drifting silently: a tile written a fortnight ago still
+         says which fortnight it is talking about. -->
+    <TextView
+        android:id="@+id/widget_agg_basis"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:fontFamily="sans-serif"
+        android:textSize="@dimen/widget_small"
+        android:textColor="@color/widget_muted"
+        android:maxLines="2"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/widget_agg_asof"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif"
+        android:textSize="@dimen/widget_small"
+        android:textColor="@color/widget_muted"
+        android:maxLines="1"
+        android:ellipsize="end" />
+</LinearLayout>

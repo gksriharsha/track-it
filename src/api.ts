@@ -26,6 +26,7 @@ import type {
   PairingState,
   Profile,
   SyncOutcome,
+  WidgetLanding,
   Probe,
   RangeView,
   Cook,
@@ -802,3 +803,16 @@ export const restoreBackup = (passphrase: string) =>
 /** Open an encrypted log this session could not unlock silently. */
 export const unlockLog = (passphrase: string) =>
   invoke<BackupStatus>("unlock_log", { passphrase });
+
+/**
+ * The landing a home-screen widget parked before this app existed.
+ *
+ * Pulled rather than pushed, and pulled AFTER mount, because on a cold start the
+ * Intent arrives long before React does and a hash written then is simply
+ * dropped. Reading it also consumes it: the second call returns null, so a
+ * font-size change that rebuilds the Activity cannot replay the same tap.
+ *
+ * Null on every platform that has no home screen to be tapped from, so no
+ * caller has to ask which one it is on.
+ */
+export const takeWidgetLanding = () => invoke<WidgetLanding | null>("take_widget_landing");
