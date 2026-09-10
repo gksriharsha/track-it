@@ -70,11 +70,23 @@ The desktop app:
 pnpm tauri dev
 ```
 
-A release APK:
+A release APK. The four exports are not optional and the build fails without
+them: the log is SQLCipher-encrypted on Android, which vendors OpenSSL, and
+openssl-src looks for `aarch64-linux-android-ranlib` — a name no NDK has shipped
+since r23, where it became `llvm-ranlib`.
 
 ```bash
+export NDK_BIN="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+export RANLIB_aarch64_linux_android="$NDK_BIN/llvm-ranlib"
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
 pnpm android:apk
 ```
+
+Note that `cargo check --target aarch64-linux-android` can pass without them, so
+it is not a substitute for building the APK: a debug profile may reuse an OpenSSL
+that is already built, and the failure is release-only.
 
 ## Continuous integration
 
