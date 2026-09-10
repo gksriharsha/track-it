@@ -1517,3 +1517,62 @@ export interface RestoreOutcome {
   /** Whether an earlier restore's kept copy had to make room for this one. */
   replaced_earlier_superseded: boolean;
 }
+
+/**
+ * Where a tap on an Android home-screen widget asked the app to land.
+ *
+ * Read once from `no_backup/widget/landing.json`, which `MainActivity` wrote
+ * and Rust deleted on the way out — the file is the whole mechanism, so a tap
+ * is honoured exactly once however many times the Activity is rebuilt.
+ *
+ * Both fields have already been checked twice, in Kotlin against its own
+ * whitelist and in Rust against `WIDGET_ROUTES` and the pick grammar, and they
+ * are checked a third time here before anything touches `location.hash`.
+ * `MainActivity` is exported because it carries LAUNCHER, so any installed app
+ * can start it with an extra of its choosing, and a whitelist on one side of a
+ * bridge is not a whitelist.
+ */
+export interface WidgetLanding {
+  route: string;
+  /** `"<kind>:<id>"`, the literal `"water"`, or null for a screen alone. */
+  pick: string | null;
+}
+
+/**
+ * Which shelf a preselected food came off.
+ *
+ * Deliberately narrower than the log's own six source kinds. A pot drains, so a
+ * frequently-logged cook points at something that no longer exists by the time
+ * anybody taps it; a recipe is proportions rather than a thing with a portion;
+ * a supplement is taken by count and has no amount step to land on. `water`
+ * names the Foods screen's water tab rather than a food, because that is where
+ * a bottle is actually logged — the bottle library is an inventory screen.
+ */
+export type PickKind = "food" | "custom" | "water";
+
+export interface PickTarget {
+  kind: PickKind;
+  /** Decimal text for an FDC id, a uuid for one of the user's own foods. */
+  id: string | null;
+}
+
+/**
+ * Read a widget's pick token, or refuse it.
+ *
+ * Never a partial parse: a token with anything unexpected in it is thrown away
+ * WHOLE rather than sanitised into something that looks valid, because a
+ * half-cleaned token is how a rejected input ends up being honoured in a shape
+ * nobody designed. Returning null lands the user on a blank Add food screen,
+ * which is the right answer to a token this app did not write.
+ */
+export function parsePick(raw: string | null): PickTarget | null {
+  if (raw === null) return null;
+  if (raw === "water") return { kind: "water", id: null };
+  const cut = raw.indexOf(":");
+  if (cut === -1) return null;
+  const kind = raw.slice(0, cut);
+  const id = raw.slice(cut + 1);
+  if (kind === "food") return /^[0-9]{1,12}$/.test(id) ? { kind, id } : null;
+  if (kind === "custom") return /^[0-9a-f-]{36}$/.test(id) ? { kind, id } : null;
+  return null;
+}

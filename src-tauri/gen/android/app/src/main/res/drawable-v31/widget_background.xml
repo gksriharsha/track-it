@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- `system_app_widget_background_radius` is API 31, which is the whole reason
+     this is a second file rather than a `Build.VERSION` branch in Kotlin: the
+     radius a launcher expects is the launcher's own, and asking for it lets a
+     tile sit flush with everything beside it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_surface" />
+    <corners android:radius="@android:dimen/system_app_widget_background_radius" />
+</shape>

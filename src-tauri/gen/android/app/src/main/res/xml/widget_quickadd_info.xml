@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    4x3, sized by the same 70n-30 arithmetic as the aggregate tile, and vertical
+    resizing is refused for a harder reason than clipping: every row here is a
+    tap target held to the app's 44dp floor, and a launcher allowed to squeeze
+    four rows into two cells would hand back rows too small to hit reliably. A
+    mis-tap opens the wrong food's weight field.
+
+    `updatePeriodMillis` is zero. Nothing on this tile changes on a timer — a
+    list of names goes stale only when the log does, and the app republishes it
+    then.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="180dp"
+    android:maxResizeWidth="400dp"
+    android:maxResizeHeight="250dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_quickadd"
+    android:previewLayout="@layout/widget_quickadd"
+    android:previewImage="@drawable/widget_quickadd_preview"
+    android:description="@string/widget_quickadd_description" />

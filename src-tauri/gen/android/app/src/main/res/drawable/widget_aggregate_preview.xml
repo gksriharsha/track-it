@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What the widget picker shows on API 24 to 30, where `previewLayout` does not
+    exist. A vector rather than a screenshot PNG, for two reasons: a text file is
+    reviewable in a diff where a binary is not, and a screenshot of a tile would
+    contain whatever was on the developer's own home screen when it was taken.
+
+    It is a HINT, not a rendering. The bars below stand for lines of text, not for
+    quantities — nothing on the real tile fills toward anything, and there is
+    nothing here a reader could mistake for a figure because there is not a digit
+    in it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="86dp"
+    android:viewportWidth="120"
+    android:viewportHeight="86">
+    <path
+        android:pathData="M0,8 A8,8 0 0 1 8,0 H112 A8,8 0 0 1 120,8 V78 A8,8 0 0 1 112,86 H8 A8,8 0 0 1 0,78 Z"
+        android:fillColor="@color/widget_surface" />
+    <!-- the period line -->
+    <path android:pathData="M12,14 H48 V19 H12 Z" android:fillColor="@color/widget_muted" />
+    <!-- two amounts, in the weight the serif gives them on the tile -->
+    <path android:pathData="M12,28 H52 V41 H12 Z" android:fillColor="@color/widget_ink" />
+    <path android:pathData="M66,28 H96 V41 H66 Z" android:fillColor="@color/widget_ink" />
+    <!-- their reference and range lines -->
+    <path android:pathData="M12,47 H54 V51 H12 Z" android:fillColor="@color/widget_muted" />
+    <path android:pathData="M66,47 H100 V51 H66 Z" android:fillColor="@color/widget_muted" />
+    <path android:pathData="M12,56 H50 V60 H12 Z" android:fillColor="@color/widget_muted" />
+    <path android:pathData="M66,56 H94 V60 H66 Z" android:fillColor="@color/widget_muted" />
+    <!-- the coverage sentence -->
+    <path android:pathData="M12,70 H108 V74 H12 Z" android:fillColor="@color/widget_muted" />
+</vector>

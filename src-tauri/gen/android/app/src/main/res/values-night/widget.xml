@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Colours only, and no code anywhere switches between them: RemoteViews are
+     inflated from THIS apk but resolved against the HOST's configuration, so a
+     tile follows the launcher's dark mode by itself. `setColorInt` and
+     `setColorStateList` would have been the other way to do it and are both API
+     31, which is why this file exists instead.
+
+     Taken from the `prefers-color-scheme: dark` block in src/styles.css, which
+     desaturates rather than inverting — the same hues at full chroma glare. -->
+<resources>
+    <color name="widget_surface">#FF1E1C18</color>
+    <color name="widget_ink">#FFF2EFE9</color>
+    <color name="widget_muted">#FFB5AEA2</color>
+    <color name="widget_row">#FF262420</color>
+</resources>

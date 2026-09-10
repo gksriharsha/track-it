@@ -808,6 +808,11 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
     BACKUP.locked_note = null;
     return BACKUP;
   },
+  // No home screen in a browser tab, so nothing was ever parked. Null rather
+  // than absent: the landing effect runs on every mount, and a missing entry
+  // here would throw mock.ts's own "not in the browser fixture" on every
+  // reload of the design fixture.
+  take_widget_landing: () => null,
 };
 
 /**

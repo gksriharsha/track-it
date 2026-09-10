@@ -733,3 +733,100 @@ with the process. That is agreement with Doze and App Standby rather than a shor
 — Doze suspends network access for every app regardless of target API, so a listener that fought
 it would be an app running behind your back for no benefit. The consequence is honest and belongs
 on screen: a phone can be reached while TrackIt is open on it, and not otherwise.
+## D19 — A widget renders strings; nothing crosses to the launcher that this app did not already write down
+
+Two Android home-screen tiles: the aggregate readout and quick add. Both are plain `RemoteViews`
+fed by two JSON files of already-formatted strings, and the shape of that arrangement is where
+every decision worth recording lives.
+
+**A widget cannot read the log, so it must not try.** An `AppWidgetProvider` is a
+`BroadcastReceiver`. It runs in this app's own process — it is not a separate widget process —
+but when the system starts that process to deliver an update the app is closed: there is no
+Activity, no Tauri runtime, and none of `app.manage(…)` done. Every aggregation this app performs
+lives behind `tauri::State`. Booting a Tauri runtime inside a receiver with a ten-second budget is
+not a thing to attempt, and once `user.db` is encrypted a background receiver may have no key at
+all. So Rust computes and formats, and Kotlin renders. That is D2's rule — a nutrient value is a
+tagged union and JavaScript never does arithmetic on one — applied to a second language: a median
+belongs in `trackit_core::spread`, and a figure the data does not support arrives as the words
+"not recorded", never as a zero somebody's `?? 0` invented.
+
+**Rust writes the file itself, with no bridge of any kind.** The obvious design has Rust call a
+Tauri Android plugin to publish the snapshot. It was rejected, and the reason is worth keeping.
+Release builds set `panic = "abort"`, and `run_mobile_plugin` ends in wry's `MainPipe::send`, which
+panics once the last Activity has been destroyed. Since the publish is scheduled off the calling
+thread — a mutating command holds both database mutexes for its whole body — the sequence "log a
+dish, then swipe TrackIt out of recents" would abort the process from a thread whose only job was
+to redraw a home screen. Writing two files is `std::fs` and needs no JNI, so the panic site simply
+does not exist. Telling the launcher to redraw is left to `MainActivity`, which watches the
+directory with a `FileObserver` and, being an Activity, knows by definition that it is alive. When
+the app is closed nothing needs telling: the system re-sends its own update after a reboot, on
+placement and on resize, and the providers read whatever is on disk then.
+
+**The aggregate is the Statistics screen's own arithmetic, not a second copy of it.** `get_range`
+was a `#[tauri::command]` taking `State<'_, T>`, and a `State` cannot be constructed outside a
+running app — so a widget could only have had a middle day by reimplementing the period rollup,
+which is precisely the drift this document exists to prevent. Its body moved into
+`range_view(&db::Db, &store::Store, from, to)` and the command became a one-line delegate. The
+widget and the screen now cannot disagree about what a middle day was, and there is a test that
+says so.
+
+**The refusal is per measure, from that measure's own day count.** Energy is measured on every day
+with food on it and water only on days a bottle was logged, so an ordinary month holds
+twenty-two days of energy and three of water. Gating the whole tile on one figure would have
+printed a water median from three days — a pattern claimed from noise, and one the screen it
+transcribes explicitly refuses to print.
+
+**Nothing on either tile fills, ranks or scores.** No bar, no ring, no arc, no percentage, no run
+of days, and no word that appraises what it found. The amount is printed with its reference figure
+NAMED beside it, and where nothing publishes one — energy is in no DRI table and no Daily Value
+table — that line VANISHES rather than being invented. Coverage is stated as coverage of a sample
+and anchored to the date the period starts from, which is also what stops a window that never
+recomputes from drifting silently: a tile carries the moment it was written, with its year, so a
+fortnight-old snapshot reads as a fortnight old rather than as this evening's. The quick-add tile
+prints names and nothing else; the frequency that ordered them stays in the database that computed
+it, because how many times somebody logged a food is a figure about the person.
+
+**A tap opens the amount step and stops there.** The tile carries which food and nothing more —
+there is no weight on it and no way to send one — so nothing is ever logged without a second,
+deliberate tap inside the app. Its water button goes to the Foods screen's own water tab rather
+than to the bottle library, which is where a jug's full weight is recorded and not where a drink
+is.
+
+**The Intent is treated as hostile at three boundaries.** `MainActivity` is
+`android:exported="true"` because it carries LAUNCHER, so any installed app can start it with
+extras of its choosing. Kotlin checks the route against its own two-entry whitelist and the pick
+token against a three-shape grammar before writing anything; Rust checks both again as it reads;
+TypeScript checks the route a third time against the router's own table and parses the token
+before either reaches `location.hash`. A whitelist on one side of a bridge is not a whitelist, and
+a bad token is thrown away WHOLE rather than trimmed into something that looks valid.
+
+**The parked tap is a file, and reading it deletes it.** `launchMode` is `singleTask`, so a warm
+relaunch arrives at `onNewIntent` — and neither the generated `WryActivity` nor `TauriActivity`
+calls `setIntent`, so without an override every later read of `intent` would replay the previous
+tap. `MainActivity` now calls it. That fix opens the opposite hole: `android:configChanges` lists
+neither `density` nor `fontScale`, so a font-size change rebuilds the Activity, `onCreate` re-reads
+`getIntent()` and would offer the same tap again. Two guards close it — the offer is made only when
+there is no saved instance state, and the file is gone the moment Rust reads it.
+
+**The snapshot lives in `no_backup/`.** Android documents `getNoBackupFilesDir()` as never
+automatically backed up. `SharedPreferences` would have been the obvious home and is exactly
+wrong: it IS swept into Auto Backup by default, which would put a person's figures on a Google
+server because their phone was set up with backup on. The files are plaintext and become the
+softest target in the app the day the database is encrypted, which is why the aggregate file holds
+no food name and neither file holds anything per nutrient or per entry — what is not in them
+cannot leak from them.
+
+**`RemoteViews`, not Glance, and no new Gradle dependency at all.** Glance is a 1.21 MiB AAR
+carrying 913 generated layouts that `isShrinkResources` cannot prune, plus the Compose runtime and
+four DataStore artifacts, and at this project's Kotlin 1.9.25 it forces either a compiler that
+stopped shipping in August 2024 or a Kotlin bump inside a Tauri-generated root Gradle file. What it
+would buy is nothing: both tiles are static text with a few tap targets. The practical consequence
+is the one that matters most here — this feature touches only `AndroidManifest.xml` and
+`MainActivity.kt`, both already hand-edited and both tracked, so a future `tauri android init`
+cannot silently undo it.
+
+**The serif is a deliberate near-miss.** The app fetches Newsreader from Google's CDN and there is
+no font file in the tree, and `RemoteViews` cannot use a downloadable font. The amounts are set in
+`serif`, which resolves to Noto Serif — the last item of the same fallback chain the CSS declares.
+Committing a TTF and its licence into a hand-maintained Android project for one 20sp figure is a
+poor trade; discovering the difference on a home screen would have been worse than choosing it.

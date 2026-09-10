@@ -7,6 +7,7 @@ mod store;
 mod sync;
 mod vault;
 mod vision;
+mod widgets;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -353,6 +354,7 @@ fn add_log_entry(
     vessel_ids: Option<Vec<String>>,
     origin: Option<String>,
     cuisine: Option<String>,
+    app: AppHandle,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<String, String> {
@@ -390,16 +392,19 @@ fn add_log_entry(
         if grams.is_some() || gross_g.is_some() {
             return Err("a supplement is taken by count, not weighed".into());
         }
-        return add_frozen(
-            &refconn,
-            &mut conn,
-            &logged_on,
-            Some(&meal),
-            source,
-            &description,
-            store::Quantity::Units(u),
-            None,
-            &tags,
+        return after_write(
+            &app,
+            add_frozen(
+                &refconn,
+                &mut conn,
+                &logged_on,
+                Some(&meal),
+                source,
+                &description,
+                store::Quantity::Units(u),
+                None,
+                &tags,
+            ),
         );
     }
 
@@ -408,16 +413,19 @@ fn add_log_entry(
             Err("a log entry takes either a net weight or a scale reading, not both".into())
         }
         (None, None) => Err("a log entry needs either a net weight or a scale reading".into()),
-        (Some(grams), None) => add_frozen(
-            &refconn,
-            &mut conn,
-            &logged_on,
-            Some(&meal),
-            source,
-            &description,
-            store::Quantity::Grams(grams),
-            None,
-            &tags,
+        (Some(grams), None) => after_write(
+            &app,
+            add_frozen(
+                &refconn,
+                &mut conn,
+                &logged_on,
+                Some(&meal),
+                source,
+                &description,
+                store::Quantity::Grams(grams),
+                None,
+                &tags,
+            ),
         ),
         (None, Some(gross_g)) => {
             // No vessels with a scale reading is a legitimate case: an untared
@@ -455,6 +463,7 @@ fn add_log_entry(
             // Only after the row is written, so a rejected entry does not
             // reorder the picker.
             store::touch_vessels(&conn, &ids)?;
+            republish_widgets(&app);
             Ok(id)
         }
     }
@@ -472,6 +481,7 @@ fn log_water(
     logged_on: String,
     bottle_id: String,
     current_g: f64,
+    app: AppHandle,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<String, String> {
@@ -509,6 +519,7 @@ fn log_water(
     // Only after the row is written, so a rejected entry does not reorder the
     // picker.
     store::touch_bottle(&conn, &bottle_id)?;
+    republish_widgets(&app);
     Ok(id)
 }
 
@@ -702,9 +713,17 @@ fn get_goals(refdb: State<'_, db::Db>, user: State<'_, store::Store>) -> Result<
 
 /// Replace the profile. Every field is sent every time — see `store::save_profile`.
 #[tauri::command]
-fn save_profile(profile: store::Profile, user: State<'_, store::Store>) -> Result<(), String> {
+fn save_profile(
+    profile: store::Profile,
+    app: AppHandle,
+    user: State<'_, store::Store>,
+) -> Result<(), String> {
     let conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::save_profile(&conn, &profile)
+    // The profile is where an energy figure of the person's own comes from, and
+    // that figure is the reference the aggregate widget prints beside its middle
+    // day. Setting one has to reach the home screen, or the line would appear
+    // there only after the next meal was logged.
+    after_write(&app, store::save_profile(&conn, &profile))
 }
 
 /// Set one nutrient's target, or clear it by passing no amount.
@@ -713,10 +732,14 @@ fn set_nutrient_target(
     nutrient_id: i64,
     amount: Option<f64>,
     note: Option<String>,
+    app: AppHandle,
     user: State<'_, store::Store>,
 ) -> Result<(), String> {
     let conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::set_target(&conn, nutrient_id, amount, note.as_deref())
+    after_write(
+        &app,
+        store::set_target(&conn, nutrient_id, amount, note.as_deref()),
+    )
 }
 
 #[tauri::command]
@@ -924,9 +947,13 @@ fn delete_bottle(id: String, user: State<'_, store::Store>) -> Result<(), String
 }
 
 #[tauri::command]
-fn delete_log_entry(id: String, user: State<'_, store::Store>) -> Result<(), String> {
+fn delete_log_entry(
+    id: String,
+    app: AppHandle,
+    user: State<'_, store::Store>,
+) -> Result<(), String> {
     let conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::remove(&conn, &id)
+    after_write(&app, store::remove(&conn, &id))
 }
 
 #[tauri::command]
@@ -1052,9 +1079,16 @@ fn save_custom_food(
 /// stays. Its photos are left on disk rather than unlinked, but nothing shows
 /// them once the food is deleted — what a past day keeps is its values.
 #[tauri::command]
-fn delete_custom_food(id: String, user: State<'_, store::Store>) -> Result<(), String> {
+fn delete_custom_food(
+    id: String,
+    app: AppHandle,
+    user: State<'_, store::Store>,
+) -> Result<(), String> {
     let conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::delete_custom_food(&conn, &id)
+    // A quick-add row may be pointing at this food. Republishing takes it off
+    // the home screen; without this, tapping the row would open the app on a
+    // food its owner has thrown away.
+    after_write(&app, store::delete_custom_food(&conn, &id))
 }
 
 /// One nutrient value read off a spreadsheet row, already resolved to a
@@ -1253,6 +1287,7 @@ fn import_one_row(
 #[tauri::command]
 fn import_log_rows(
     rows: Vec<ImportRowInput>,
+    app: AppHandle,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<ImportSummary, String> {
@@ -1272,6 +1307,15 @@ fn import_log_rows(
         }
     }
 
+    // ONCE, here, and never inside the loop above. A three-hundred-row
+    // spreadsheet is one import, and republishing per row would spend three
+    // hundred thirty-day aggregations to arrive at the figure the last one
+    // computes anyway. The `after_write` gate is not used because a partial
+    // import is still an import: rows that landed have changed the period even
+    // when others were refused.
+    if imported > 0 {
+        republish_widgets(&app);
+    }
     Ok(ImportSummary { imported, failed })
 }
 
@@ -2681,6 +2725,7 @@ fn correct_entry_amount(
     entry_id: String,
     grams: Option<f64>,
     units: Option<f64>,
+    app: AppHandle,
     user: State<'_, store::Store>,
 ) -> Result<(), String> {
     let quantity = match (grams, units) {
@@ -2689,7 +2734,10 @@ fn correct_entry_amount(
         _ => return Err("a correction sets either a weight or a count, not both".into()),
     };
     let mut conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::correct_amount(&mut conn, &entry_id, quantity)
+    after_write(
+        &app,
+        store::correct_amount(&mut conn, &entry_id, quantity),
+    )
 }
 
 /// Correct one recorded value on one part of an entry.
@@ -2701,6 +2749,7 @@ fn correct_entry_value(
     kind: String,
     amount: Option<f64>,
     upper: Option<f64>,
+    app: AppHandle,
     user: State<'_, store::Store>,
 ) -> Result<(), String> {
     if !CORRECTABLE_KINDS.contains(&kind.as_str()) {
@@ -2733,7 +2782,10 @@ fn correct_entry_value(
         }
     };
     let mut conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::correct_value(&mut conn, &entry_id, ordinal, nutrient_id, value)
+    after_write(
+        &app,
+        store::correct_value(&mut conn, &entry_id, ordinal, nutrient_id, value),
+    )
 }
 
 /// Value an entry again from what is known now.
@@ -2745,6 +2797,7 @@ fn correct_entry_value(
 #[tauri::command]
 fn refreeze_entry(
     entry_id: String,
+    app: AppHandle,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<(), String> {
@@ -2752,7 +2805,7 @@ fn refreeze_entry(
     let mut conn = user.0.lock().map_err(|e| e.to_string())?;
     let entry = store::entry_by_id(&conn, &entry_id)?;
     let snap = resolve_entry(&refconn, &conn, &entry, store::SnapBasis::Corrected)?;
-    store::recorrect_entry(&mut conn, &entry_id, snap)
+    after_write(&app, store::recorrect_entry(&mut conn, &entry_id, snap))
 }
 
 /// Resolve what a log entry contributes, against the data as it stands NOW.
@@ -3489,6 +3542,27 @@ fn get_range(
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<RangeView, String> {
+    range_view(&refdb, &user, from, to)
+}
+
+/// The body of [`get_range`], reachable without a running Tauri app.
+///
+/// Split out so the Android home-screen widget's snapshot can be built from the
+/// SAME aggregation the Statistics screen reads. A `#[tauri::command]` takes
+/// `State<'_, T>`, and a `State` cannot be constructed outside a live `App` — so
+/// with the rollup trapped inside the command there were only two ways to give a
+/// widget a middle day, and both were worse: a second implementation of the
+/// period aggregation, which is exactly the drift this file spends its comments
+/// preventing, or one that no test could ever reach. This signature takes the
+/// two databases by reference, which `State` derefs to, so the command is a
+/// one-line delegate and the widget and the screen cannot disagree about what a
+/// middle day was.
+fn range_view(
+    refdb: &db::Db,
+    user: &store::Store,
+    from: String,
+    to: String,
+) -> Result<RangeView, String> {
     if from > to {
         return Err("the start of the range must not be after its end".into());
     }
@@ -3918,6 +3992,192 @@ fn unlock_log(
     vault::unlock(&app, &dir, &user, &vault, &passphrase)
 }
 
+// ---------------------------------------------------------------------------
+// The two Android home-screen widgets
+// ---------------------------------------------------------------------------
+
+/// How far back the quick-add shortcut looks for what somebody eats often.
+///
+/// Three months rather than all of history. A food logged forty times two years
+/// ago would otherwise sit permanently above this month's staples, and a
+/// shortcut that offers what you used to eat is not a shortcut. Wider than the
+/// aggregate widget's thirty days on purpose: a habit is a slower thing than a
+/// period's figures, and a fortnight away from home should not empty the list.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+const QUICK_WINDOW_DAYS: i64 = 90;
+
+/// Build both widget snapshots.
+///
+/// Everything a home screen will show is decided here and in `widgets.rs`, in
+/// Rust, and crosses to Kotlin as finished strings. The aggregate goes through
+/// [`range_view`] — the same function `get_range` serves the Statistics screen
+/// from — so the widget and the screen cannot disagree about what a middle day
+/// was. See `docs/decisions.md` D19.
+///
+/// See the note at the top of `widgets.rs` for why this carries an `allow`.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn widget_payloads(
+    refdb: &db::Db,
+    user: &store::Store,
+) -> Result<(widgets::Aggregate, widgets::QuickAdd), String> {
+    let want = widgets::QUICK_ROWS as u32;
+    let (from, to, stamp, candidates, overridden) = {
+        let uc = user.0.lock().map_err(|e| e.to_string())?;
+        let to = store::today_iso(&uc)?;
+        let from = store::shift_iso(&uc, &to, -(widgets::PERIOD_DAYS - 1))?;
+        let since = store::shift_iso(&uc, &to, -(QUICK_WINDOW_DAYS - 1))?;
+        let stamp = widgets::stamp(&store::local_stamp(&uc)?);
+        // The SAME query the Quick add section on the Foods screen is built
+        // from, asked for the same oversized pool, and finished through the
+        // same `resolve_frequent`. Not a tidiness point: that second half is
+        // where a food the dataset has dropped stops being offered and where a
+        // reference food the user has replaced with their own pack is removed.
+        // A widget with a ranking of its own would keep offering both — a tile
+        // whose tap dies in an error, and a tile whose tap logs USDA's figures
+        // for a category the person has a transcribed pack for. Two definitions
+        // of "the foods you log most" is the kind of pair that drifts silently,
+        // and the home screen is where nobody would notice it had.
+        let candidates =
+            store::frequent_foods(&uc, &since, want.saturating_mul(FREQUENT_POOL_FACTOR))?;
+        let overridden = store::overridden_fdc_ids(&uc)?;
+        (from, to, stamp, candidates, overridden)
+    };
+    // The user lock is dropped by the block above, and it has to be: `range_view`
+    // takes both databases for itself and would wait forever behind a guard this
+    // function was still holding.
+    let view = range_view(refdb, user, from, to)?;
+    // And the reference lock only after `range_view` has given both back.
+    let frequent = {
+        let rc = refdb.0.lock().map_err(|e| e.to_string())?;
+        resolve_frequent(&rc, candidates, &overridden, want)
+    };
+    Ok((
+        widgets::aggregate_from(&view, widgets::PERIOD_DAYS, &stamp),
+        widgets::quickadd_from(&frequent, &stamp),
+    ))
+}
+
+/// How long a burst of writes is allowed to settle into one snapshot.
+///
+/// A spreadsheet import is one command and publishes once, but twenty helpings
+/// typed in one sitting are twenty commands, and each snapshot is a thirty-day
+/// aggregation over `collect_day`. Without this the last of them would be
+/// competing with the first for both database mutexes.
+#[cfg(target_os = "android")]
+const WIDGET_SETTLE: std::time::Duration = std::time::Duration::from_millis(600);
+
+/// Whether a snapshot is already waiting to be written.
+#[cfg(target_os = "android")]
+static WIDGET_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Recompute both snapshots, off the calling thread and never in its way.
+///
+/// Best-effort BY CONTRACT. A widget that failed to redraw must never fail the
+/// log entry that triggered it, which is the same posture `init_state` takes
+/// toward a failed backfill — so nothing in here returns a `Result` to a caller
+/// and nothing in here can panic a logging path. That last part is why the
+/// snapshot is written with `std::fs` and not through the mobile-plugin bridge:
+/// release builds set `panic = "abort"` (src-tauri/Cargo.toml), and a JNI call
+/// made from a detached thread whose Activity has just been swiped out of
+/// recents would take the whole process down rather than merely fail to repaint.
+/// Telling the launcher to redraw is left to `MainActivity`, which knows by
+/// definition that it is alive.
+///
+/// `spawn_blocking` is not tidiness either. The caller is a mutating command
+/// still holding one or both database mutexes for the whole of its body, so
+/// publishing inline would deadlock on the first lock this function takes; the
+/// spawned thread takes them afresh a moment later, which is a wait and not a
+/// cycle.
+#[cfg(target_os = "android")]
+fn republish_widgets(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+
+    if WIDGET_PENDING.swap(true, Ordering::SeqCst) {
+        // Somebody is already asleep on the settle. Their write will see this
+        // entry too, because it reads the database rather than a payload handed
+        // to it when it was scheduled.
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        std::thread::sleep(WIDGET_SETTLE);
+        // Cleared BEFORE the work rather than after. A helping logged while the
+        // snapshot is being written has to be able to schedule another one, or
+        // the last entry of a burst would be the one the widget never showed.
+        WIDGET_PENDING.store(false, Ordering::SeqCst);
+
+        let dir = match app.path().app_data_dir() {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("widget snapshot not written: no data directory: {e}");
+                return;
+            }
+        };
+        let refdb = app.state::<db::Db>();
+        let user = app.state::<store::Store>();
+        match widget_payloads(&refdb, &user).and_then(|(a, q)| widgets::write(&dir, &a, &q)) {
+            Ok(()) => {}
+            Err(e) => eprintln!("widget snapshot not written: {e}"),
+        }
+    });
+}
+
+/// A no-op everywhere there is no widget host, so no caller has to branch.
+///
+/// Not merely unnecessary off Android — actively wrong. Writing a snapshot into
+/// `no_backup/` on a Mac would leave a file nothing on that machine ever reads,
+/// and the desktop build's whole claim is that it carries none of the mobile
+/// stack.
+#[cfg(not(target_os = "android"))]
+fn republish_widgets(_app: &AppHandle) {}
+
+/// Republish the widgets when a write actually succeeded, and pass the result
+/// straight through.
+///
+/// A combinator rather than one line at the end of each mutating command,
+/// because half of them END in a tail call whose `Result` is returned directly
+/// and have no final `Ok(...)` to put a statement in front of. `add_log_entry`
+/// is the clearest case: it has two `Err` exits, a tail call to `add_frozen` and
+/// one `Ok(id)`, so "add a line before the final Ok" would have landed only in
+/// the scale-reading arm and the commonest path — a typed net weight — would
+/// never have republished at all.
+///
+/// Gating on `is_ok` matters as much. A refused entry — a supplement with a
+/// weight on it, a scale reading swallowed by its own tare — changed nothing,
+/// and repainting a home screen for it would spend a thirty-day aggregation to
+/// print exactly what was already there.
+///
+/// What deliberately does NOT go through here is worth naming, because the
+/// absence looks like an oversight otherwise. `set_entry_tags` writes an origin
+/// and a cuisine, and neither widget shows either: the aggregate prints energy,
+/// water and coverage, and the quick-add prints names. Saving a recipe, a
+/// vessel, a bottle or a supplement changes the kitchen rather than the record,
+/// and `frequent_foods` admits none of those shelves. Adding them would cost a
+/// thirty-day rollup to redraw two strings that cannot have changed.
+fn after_write<T>(app: &AppHandle, out: Result<T, String>) -> Result<T, String> {
+    if out.is_ok() {
+        republish_widgets(app);
+    }
+    out
+}
+
+/// Where a home-screen widget asked the app to land, if it did.
+///
+/// Pulled by the front end once after mount rather than pushed at it. On a cold
+/// start the Intent exists long before React has mounted, and a hash written
+/// then is simply dropped; by the time this is called the app is up, so writing
+/// the hash always takes.
+///
+/// A plain synchronous command, and worth saying why given how much of this
+/// feature is arranged around threading: there is no bridge here at all. Kotlin
+/// wrote a file and this reads it, which is one small `std::fs` read and no
+/// mutex, so there is nothing for `(async)` to keep off the IPC thread.
+#[tauri::command]
+fn take_widget_landing(app: AppHandle) -> Result<Option<widgets::Landing>, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    widgets::take_landing(&dir)
+}
+
 fn init_state(app: &AppHandle) -> Result<(), String> {
     let ref_path = db::resolve(app)?;
     let ref_conn = db::open(&ref_path)?;
@@ -4022,6 +4282,13 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
             eprintln!("this device cannot be reached by the rest of the household: {e}");
         }
     }
+
+    // After the state is managed, because the snapshot is built by reading it.
+    // Here rather than only after a mutation so that a fresh install and a
+    // restored one both fill their widgets before the user opens a screen —
+    // otherwise a widget placed on the home screen of a phone whose owner has
+    // been logging for months would say "Open TrackIt" until they next ate.
+    republish_widgets(app);
     Ok(())
 }
 
@@ -4184,7 +4451,8 @@ pub fn run() {
             set_auto_reseal,
             remove_sealed_backup,
             restore_backup,
-            unlock_log
+            unlock_log,
+            take_widget_landing
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -5487,7 +5755,7 @@ mod tests {
                     "Milk chocolate bar",
                     store::Quantity::Grams(BAR),
                     None,
-                    &no_tags(),
+                    &store::Tags::default(),
                 )
                 .unwrap();
             }
@@ -6449,5 +6717,129 @@ mod tests {
         let candidates = store::frequent_foods(&uc, "2026-08-01", 18).unwrap();
         assert!(candidates.len() >= 2, "the pool holds all of them");
         assert_eq!(resolve_frequent(&rc, candidates, &[], 1).len(), 1);
+    }
+
+    /// The two Android home-screen widgets, tested where their figures are
+    /// decided rather than where they are drawn.
+    ///
+    /// Nothing here renders anything. What these check is the one thing a
+    /// RemoteViews layout cannot: that the strings crossing to Kotlin came out
+    /// of the same aggregation the Statistics screen reads, and that a period
+    /// with nothing in it produces sentences rather than zeroes.
+    mod widget_snapshots {
+        use super::*;
+
+        /// A food declaring 200 kcal per 100 g and nothing else, so a day's
+        /// energy is exactly twice its grams and the arithmetic under test is
+        /// the period's rather than the food's.
+        fn energy_food() -> store::CustomFood {
+            store::CustomFood {
+                id: String::new(),
+                name: "Rice, as cooked here".into(),
+                brand: None,
+                overrides_fdc_id: None,
+                serving_g: 100.0,
+                serving_label: None,
+                ingredients: None,
+                barcode: None,
+                photo_label: None,
+                photo_ingredients: None,
+                nutrients: vec![nutrient(1008, "measured", Some(200.0), None)],
+                import_only: false,
+            }
+        }
+
+        #[test]
+        fn the_widget_and_the_period_agree_about_the_middle_day() {
+            let Some(rc) = refdb() else { return };
+            let mut uc = user_db();
+            let food = saved(&mut uc, &energy_food());
+            let today = store::today_iso(&uc).unwrap();
+            // Six days, so a spread exists and its middle is the average of the
+            // two central days rather than one of the days themselves — which is
+            // the case a mean would silently agree with and a median would not.
+            for (back, grams) in [
+                (5i64, 100.0),
+                (4, 150.0),
+                (3, 200.0),
+                (2, 250.0),
+                (1, 300.0),
+                (0, 350.0),
+            ] {
+                let on = store::shift_iso(&uc, &today, -back).unwrap();
+                store::add(
+                    &uc,
+                    &on,
+                    Some("lunch"),
+                    store::Source::Custom(&food.id),
+                    "Rice",
+                    store::Quantity::Grams(grams),
+                    None,
+                    &store::Tags::default(),
+                )
+                .unwrap();
+            }
+            let refdb = db::Db(Mutex::new(rc));
+            let user = store::Store(Mutex::new(uc));
+
+            let from = {
+                let uc = user.0.lock().unwrap();
+                store::shift_iso(&uc, &today, -(widgets::PERIOD_DAYS - 1)).unwrap()
+            };
+            let view = range_view(&refdb, &user, from, today.clone()).unwrap();
+            let kcal: Vec<f64> = view
+                .days
+                .iter()
+                .filter(|d| d.food_items > 0)
+                .filter_map(|d| d.kcal)
+                .collect();
+            assert_eq!(kcal.len(), 6, "six days of food, six figures to average");
+            let middle = trackit_core::spread::summarise(&kcal).unwrap().median;
+            assert_eq!(middle, 450.0, "the middle of 200..700 by fifties");
+
+            let (aggregate, quick) = widget_payloads(&refdb, &user).unwrap();
+            assert_eq!(
+                aggregate.rows[0].value, "450 kcal",
+                "the home screen prints the period's own middle day"
+            );
+            assert_eq!(
+                aggregate.rows[0].note.as_deref(),
+                Some("Half your days: 300 kcal – 600 kcal")
+            );
+            // Energy is in none of the DRI tables and in none of the Daily Value
+            // tables, so with no profile behind it there is nothing published to
+            // print — and the line is absent rather than guessed at.
+            assert!(aggregate.rows[0].r#ref.is_none());
+            // Not one bottle was logged, so water refuses instead of reading as
+            // a person who drank nothing.
+            assert_eq!(aggregate.rows[1].value, "—");
+
+            assert_eq!(quick.foods.len(), 1, "one food, logged six times");
+            assert_eq!(quick.foods[0].kind, "custom");
+            assert_eq!(quick.foods[0].id, food.id);
+        }
+
+        #[test]
+        fn widget_payloads_over_an_empty_database_offer_no_figures_and_no_names() {
+            let Some(rc) = refdb() else { return };
+            let refdb = db::Db(Mutex::new(rc));
+            let user = store::Store(Mutex::new(user_db()));
+
+            let (aggregate, quick) = widget_payloads(&refdb, &user).unwrap();
+            assert!(aggregate.rows.is_empty(), "no rows rather than rows of zeroes");
+            assert!(aggregate.note.is_some(), "and a sentence in their place");
+            assert!(quick.foods.is_empty());
+            assert_eq!(quick.note.as_deref(), Some("Nothing to show yet"));
+
+            // Both files parse, and neither carries a figure that scores anybody.
+            for json in [
+                serde_json::to_string(&aggregate).unwrap(),
+                serde_json::to_string(&quick).unwrap(),
+            ] {
+                for forbidden in ["%", "streak", "goal", "on track"] {
+                    assert!(!json.contains(forbidden), "{forbidden:?} in {json}");
+                }
+            }
+        }
     }
 }

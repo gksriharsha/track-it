@@ -17,6 +17,7 @@ pub mod barcode;
 pub mod ingredients;
 pub mod label;
 pub mod panel;
+pub mod spread;
 pub mod supplement;
 pub mod suppanel;
 pub mod targets;

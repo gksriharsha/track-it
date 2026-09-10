@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    4x3. `minWidth`/`minHeight` follow the launcher's 70n-30 cell arithmetic and
+    are what API 24 to 30 reads; `targetCellWidth`/`targetCellHeight`,
+    `maxResizeWidth`/`maxResizeHeight`, `description` and `previewLayout` are all
+    API 31 and are simply ignored below it — which is exactly why
+    `previewImage` is also here. Without it the widget picker on those releases
+    shows a blank tile.
+
+    `resizeMode` is horizontal only, and `minResizeHeight` matches `minHeight`.
+    The tile holds two figures with their reference and their range under them and
+    it does not reflow: allowing a vertical shrink would let a launcher hand it
+    half the height it needs and clip the coverage sentence, which is the one line
+    that says what everything above it describes. Narrower is fine — every
+    TextView in the layout ellipsises.
+
+    `updatePeriodMillis` is zero on purpose, and it is not a battery
+    optimisation. A provider cannot recompute an aggregate: the arithmetic lives
+    behind a database it must not open, and a timer would only redraw the same
+    strings. What makes that honest is that the tile prints the moment it was
+    written, with its year, and the date its period starts from — so a snapshot
+    that has sat here for a fortnight says so rather than being quietly wrong.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="180dp"
+    android:maxResizeWidth="400dp"
+    android:maxResizeHeight="250dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_aggregate"
+    android:previewLayout="@layout/widget_aggregate"
+    android:previewImage="@drawable/widget_aggregate_preview"
+    android:description="@string/widget_aggregate_description" />
