@@ -5,6 +5,8 @@ import android.os.Bundle
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.kgundu1.trackit.widget.WidgetLanding
 import com.kgundu1.trackit.widget.WidgetWatch
 
@@ -113,7 +115,11 @@ class MainActivity : TauriActivity() {
   override fun onResume() {
     super.onResume()
     ScreenAwake.attach(this)
-    page?.let { ScreenAwake.restoreFrom(it) }
+    page?.let {
+      ScreenAwake.restoreFrom(it)
+      // Re-ask for the insets now the page is certainly up. See [publishInsets].
+      ViewCompat.requestApplyInsets(it)
+    }
   }
 
   /**
@@ -141,6 +147,7 @@ class MainActivity : TauriActivity() {
    */
   override fun onWebViewCreate(webView: WebView) {
     page = webView
+    publishInsets(webView)
     onBackPressedDispatcher.addCallback(
       this,
       object : OnBackPressedCallback(true) {
@@ -163,6 +170,56 @@ class MainActivity : TauriActivity() {
         }
       },
     )
+  }
+
+  /**
+   * Tell the page how much of it the system bars are covering.
+   *
+   * `enableEdgeToEdge()` above makes this Activity draw behind the status bar
+   * and the navigation bar, which is what a modern Android app should do — and
+   * it means the WebView is the full height of the screen with two bands of it
+   * under system chrome. CSS has a standard way to describe exactly that,
+   * `env(safe-area-inset-*)`, and on Android it does not answer: WebView maps
+   * those to the DISPLAY CUTOUT only, never to the system bars, so on a phone
+   * with no notch all four read 0px however the window is configured. Measured
+   * on the emulator, with and without `viewport-fit=cover`: 0px both ways.
+   *
+   * So the real figures are read here, where Android does report them, and set
+   * as custom properties the stylesheet reads (`--sys-top`, `--sys-bottom`, …)
+   * — see the `--safe-*` tokens in styles.css, which take whichever of the two
+   * sources is larger and therefore stay correct on iOS and in a browser, where
+   * `env()` is the one that answers.
+   *
+   * Insets are converted to CSS pixels: Android reports physical pixels and
+   * the page is laid out in density-independent ones.
+   *
+   * Applied more than once on purpose. The listener fires at layout, which can
+   * land before the WebView has a document to run script in — that call is
+   * silently dropped — so the request is repeated once the first frame has had
+   * time to arrive and again on every resume. Setting the same four properties
+   * twice costs nothing; missing them entirely puts the bottom bar under the
+   * navigation pill.
+   */
+  private fun publishInsets(webView: WebView) {
+    ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
+      val bars = insets.getInsets(
+        WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+      )
+      val d = resources.displayMetrics.density
+      fun css(px: Int) = if (d > 0f) (px / d).toInt() else px
+      webView.evaluateJavascript(
+        "(function(){try{var s=document.documentElement.style;" +
+          "s.setProperty('--sys-top','${css(bars.top)}px');" +
+          "s.setProperty('--sys-right','${css(bars.right)}px');" +
+          "s.setProperty('--sys-bottom','${css(bars.bottom)}px');" +
+          "s.setProperty('--sys-left','${css(bars.left)}px');}catch(e){}})()",
+        null,
+      )
+      // Passed on rather than consumed: this is a measurement, not a claim to
+      // have handled the insets.
+      insets
+    }
+    webView.postDelayed({ ViewCompat.requestApplyInsets(webView) }, 600)
   }
 
   override fun onDestroy() {

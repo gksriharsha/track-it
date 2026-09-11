@@ -33,17 +33,64 @@ import "./styles.css";
 
 /**
  * Add food is not here: it is an action wanted from every one of these places,
- * not a place of its own, so it is drawn as a floating button on mobile (see
- * `.fab`) and the sidebar's own primary button on desktop — never a tab that
- * would sit at equal weight beside five things you actually navigate *to*.
+ * not a place of its own, so it is drawn as the bottom bar's raised centre
+ * button on mobile (see `.bar__add`) and the sidebar's own primary button on
+ * desktop — never a tab that would sit at equal weight beside things you
+ * actually navigate *to*.
+ *
+ * Desktop's list. The phone's is `BAR_LEFT`/`BAR_RIGHT` below, and it is
+ * deliberately shorter: five equal slots on a 390pt screen leaves no room for
+ * the one control that matters most.
  */
 const TABS = [
   { id: "today", label: "Today" },
   { id: "nutrients", label: "Nutrients" },
-  { id: "history", label: "History" },
+  { id: "history", label: "Days" },
   { id: "library", label: "Library" },
   { id: "you", label: "You" },
 ] as const;
+
+/**
+ * The phone's bottom bar: three places, one action, and the way to everything
+ * else — in the row a thumb already rests in.
+ *
+ * This replaced a hamburger drawer that WAS the whole of the mobile
+ * navigation. Eleven destinations behind one button cost three interactions to
+ * reach any of them, gave no standing sense of where you were, and — because
+ * the app opens on Trends, which is an aside rather than a tab — left the
+ * screen every cold start lands on with no way to log food at all.
+ *
+ * Split around the add button rather than listed beside it, because the action
+ * belongs in the middle: it is the thing the thumb finds without looking, and
+ * putting it at one end would make it the fourth or the fifth item in a row
+ * the eye reads left to right.
+ */
+const BAR_LEFT = [
+  { id: "statistics", label: "Trends" },
+  { id: "today", label: "Today" },
+] as const;
+const BAR_RIGHT = [{ id: "history", label: "Days" }] as const;
+
+/** The three ids the bar carries, for the checks that ask "is this a root?". */
+const BAR_IDS: readonly string[] = [...BAR_LEFT, ...BAR_RIGHT].map((t) => t.id);
+
+/**
+ * Where the bar itself does not belong.
+ *
+ * Each of these is a task rather than a place — a search being typed into, a
+ * pack being transcribed, a pot being weighed, a spreadsheet being read. Every
+ * one carries its own primary action at the foot of the screen, and a second
+ * bar under it would be two rows of controls arguing about which is the way
+ * out. They are left by finishing them, or by the system back gesture.
+ */
+const BAR_HIDDEN: readonly string[] = [
+  "foods",
+  "custom-food",
+  "supplement",
+  "cook",
+  "import",
+  "export",
+];
 
 /**
  * Desktop only (see `.sidebar` in styles.css — none of this renders below
@@ -64,10 +111,14 @@ const NAV_ICON: Record<string, ReactNode> = {
     </>
   ),
   nutrients: <path d="M4.5 7.5h9M4.5 12h14M4.5 16.5h6" strokeLinecap="round" />,
+  /* A calendar, not a clock. The screen is a month you tap a date in; a clock
+     face promises elapsed time, which is what the row was called back when it
+     said "History" and nobody could tell it from "Statistics". */
   history: (
     <>
-      <circle cx="12" cy="12" r="8" />
-      <path d="M12 8v4l3 2" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="3.8" y="5.2" width="16.4" height="15" rx="2.2" strokeLinejoin="round" />
+      <path d="M3.8 9.6h16.4" strokeLinecap="round" />
+      <path d="M8.4 3.2v3.6M15.6 3.2v3.6" strokeLinecap="round" />
     </>
   ),
   library: (
@@ -158,6 +209,26 @@ const NAV_ICON: Record<string, ReactNode> = {
       <path d="M5 17v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2" strokeLinecap="round" />
     </>
   ),
+  /* A cloud with the arrow going up into it. The screen is about one sealed
+     file leaving the phone and coming back; a shield would promise a security
+     panel and a database cylinder would describe the implementation. */
+  backup: (
+    <>
+      <path d="M7.2 18.5a4 4 0 0 1-.3-8 5.4 5.4 0 0 1 10.3 1.1 3.5 3.5 0 0 1-.5 6.9" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 20.5v-7.8M9.2 15l2.8-2.8 2.8 2.8" strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  ),
+  /* Three dots, not a hamburger. A hamburger is the idiom for a panel that
+     slides in from the screen's edge; this one rises out of the bar the button
+     sits in, and the glyph should say "the rest of it" rather than "a drawer
+     lives over there". */
+  more: (
+    <>
+      <circle cx="5.6" cy="12" r="1.7" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" />
+      <circle cx="18.4" cy="12" r="1.7" fill="currentColor" stroke="none" />
+    </>
+  ),
   /* Sliders, not a cogwheel. A six-spoke gear at 20px reads as a sunburst,
      and two tracks with a knob each say "settings" at any size. */
   settings: (
@@ -170,43 +241,40 @@ const NAV_ICON: Record<string, ReactNode> = {
 };
 
 /**
- * The mobile drawer: every destination in the app, in one list.
+ * What "More" opens: everything the bottom bar does not carry.
  *
- * It lists the three bar shortcuts as well, so the menu reads as a complete map
- * rather than an overflow bin. The two headings are what USED to be
- * destinations — Library and You were hub screens whose only job was to hold a
- * list of links, and the drawer holds those lists instead. That is what the
- * drawer is actually for: eleven places do not fit five slots, and the six that
- * did not fit were costing a screen you had to walk through to reach a recipe.
+ * It no longer repeats the bar's own destinations. While the drawer WAS the
+ * navigation it had to list them, so the menu read as a complete map rather
+ * than an overflow bin; now that Trends, Today and Days are permanently on
+ * screen, listing them again would be four rows telling you about buttons you
+ * can already see. Nutrients has gone too — it is a view of the day, reached
+ * by the switch at the top of Today, not a place of its own.
+ *
+ * What is left is eleven things you go looking for deliberately, in the two
+ * groups they divide into: the kitchen you have built up, and the app's
+ * settings. Each is named for what you would say out loud. "Vessels" and
+ * "Bottles" were this app's own words for a weighed-empty bowl and a
+ * weighed-full bottle; nobody opens a menu looking for a vessel.
  */
 const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: string; label: string }[] }[] = [
   {
-    heading: null,
-    items: [
-      { id: "statistics", label: "Statistics" },
-      { id: "today", label: "Today" },
-      { id: "history", label: "History" },
-      { id: "nutrients", label: "Nutrients" },
-    ],
-  },
-  {
-    heading: "Your library",
+    heading: "Your kitchen",
     items: [
       { id: "recipes", label: "Recipes" },
-      { id: "custom-foods", label: "Your foods" },
+      { id: "custom-foods", label: "Foods you added" },
       { id: "supplements", label: "Supplements" },
-      { id: "vessels", label: "Vessels" },
-      { id: "bottles", label: "Bottles" },
+      { id: "vessels", label: "Bowls & plates" },
+      { id: "bottles", label: "Water bottles" },
     ],
   },
   {
-    heading: "You",
+    heading: "Your account",
     items: [
-      { id: "profile", label: "Profile & reference figures" },
-      { id: "household", label: "Household" },
-      { id: "import", label: "Import a spreadsheet" },
-      { id: "export", label: "Export your log" },
-      { id: "settings", label: "Settings" },
+      { id: "profile", label: "About you" },
+      { id: "settings", label: "Targets & goals" },
+      { id: "household", label: "Your devices" },
+      { id: "import", label: "Import" },
+      { id: "export", label: "Export" },
       // Android only. SQLCipher is compiled into the Android build alone and
       // Google's Auto Backup exists nowhere else, so on a desktop this is not
       // a destination that is merely empty — it is one that does not exist.
@@ -214,6 +282,9 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
     ],
   },
 ];
+
+/** Every id the drawer can reach — what lights "More" while you are on one. */
+const DRAWER_IDS: readonly string[] = DRAWER_GROUPS.flatMap((g) => g.items.map((i) => i.id));
 
 /**
  * Routable, but deliberately not tabs. Add food is wanted from everywhere, not
@@ -249,7 +320,7 @@ const TAB_HINT: Record<string, string> = {
   statistics: "how the last few weeks have gone",
   today: "what you have eaten today",
   nutrients: "every nutrient, and what was not measured",
-  history: "a day, or a period",
+  history: "pick a day, or average a period",
   library: "recipes, your foods, vessels",
   you: "profile, targets, import and export",
 };
@@ -309,6 +380,15 @@ interface Route {
    */
   pick: string | null;
   /**
+   * A barcode read off a pack, on its way to the custom-food editor.
+   *
+   * In the hash for the reason `q` and `pick` are: reading a code off a packet
+   * is work the user has already done, and a reload or a back gesture landing
+   * on an editor that had thrown it away would ask them to hold the pack up
+   * twice for one food.
+   */
+  code: string | null;
+  /**
    * Whether the mobile drawer is open.
    *
    * In the hash, not in state, for the reason everything else here is: on
@@ -327,6 +407,8 @@ interface Nav {
   q?: string;
   /** A widget's pick token, on its way to `Foods`. See `Route.pick`. */
   pick?: string;
+  /** A scanned barcode, on its way to the custom-food editor. See `Route.code`. */
+  code?: string;
   /**
    * Overwrite the current history entry instead of pushing a new one.
    *
@@ -372,6 +454,7 @@ function readRoute(): Route {
     from: from !== null && ROUTES.includes(from) ? (from as Tab) : null,
     q: params.get("q"),
     pick: params.get("pick"),
+    code: params.get("code"),
     menu: params.get("menu") === "1",
   };
 }
@@ -457,6 +540,7 @@ function useHashRoute() {
     if (nav.from) q.set("from", nav.from);
     if (nav.q) q.set("q", nav.q);
     if (nav.pick) q.set("pick", nav.pick);
+    if (nav.code) q.set("code", nav.code);
     const s = q.toString();
     const target = s ? `/${t}?${s}` : `/${t}`;
     if (nav.replace) {
@@ -607,13 +691,12 @@ export default function App() {
     tab === "supplement";
 
   /**
-   * Whether the floating "Add food" button belongs on screen. It stands in
-   * for the desktop sidebar's own CTA on the five places you actually
-   * navigate to; every aside already has its own primary action or its own
-   * way back, and floating a second button over an editor's Save or over
-   * Foods itself would be clutter rather than a shortcut.
+   * Whether the phone's bottom bar belongs on screen — everywhere except the
+   * handful of screens that are a task rather than a place. See `BAR_HIDDEN`.
    */
-  const showFab = TABS.some((t) => t.id === tab);
+  const showBar = !BAR_HIDDEN.includes(tab);
+  /** Lights "More" while you are on one of the places it leads to. */
+  const inDrawer = DRAWER_IDS.includes(tab);
 
   // Shared by Today's own props and the desktop toolbar's date-stepper, so
   // the two surfaces can never disagree about what "today" or "forward" mean.
@@ -636,6 +719,7 @@ export default function App() {
    * four nav rows and its one primary button.
    */
   const commands: Command[] = [
+    { id: "go-statistics", label: "Trends", hint: TAB_HINT.statistics, group: "Go to", run: () => go("statistics") },
     ...TABS.map((t) => ({
       id: `go-${t.id}`,
       label: t.label,
@@ -652,17 +736,16 @@ export default function App() {
       ? [{ id: "back-today", label: "Back to today", hint: humanDate(todayIso()), group: "Do", run: () => { setDate(todayIso()); go("today"); } }]
       : []),
     { id: "recipes", label: "Recipes", hint: "dishes you cook repeatedly", group: "Library", run: () => go("recipes", { from: "library" }) },
-    { id: "own", label: "Your foods", hint: "transcribed from a pack", group: "Library", run: () => go("custom-foods", { from: "library" }) },
+    { id: "own", label: "Foods you added", hint: "transcribed from a pack", group: "Library", run: () => go("custom-foods", { from: "library" }) },
     { id: "sups", label: "Supplements", hint: "taken by count, not by weight", group: "Library", run: () => go("supplements", { from: "library" }) },
-    { id: "vessels", label: "Vessels", hint: "weighed empty once", group: "Library", run: () => go("vessels", { from: "library" }) },
-    { id: "bottles", label: "Bottles", hint: "weighed full once", group: "Library", run: () => go("bottles", { from: "library" }) },
+    { id: "vessels", label: "Bowls & plates", hint: "weighed empty once", group: "Library", run: () => go("vessels", { from: "library" }) },
+    { id: "bottles", label: "Water bottles", hint: "weighed full once", group: "Library", run: () => go("bottles", { from: "library" }) },
     { id: "new-own", label: "Transcribe a new food", hint: "from the pack in front of you", group: "Library", run: () => go("custom-food", { from: "custom-foods" }) },
-    { id: "profile", label: "Profile", hint: "who the targets are for", group: "Settings", run: () => go("profile", { from: "you" }) },
-    { id: "targets", label: "Reference figures", hint: "what every figure is read against", group: "Settings", run: () => go("settings", { from: "you" }) },
-    { id: "import", label: "Import a spreadsheet", hint: "a log you kept elsewhere", group: "Settings", run: () => go("import", { from: "you" }) },
-    { id: "export", label: "Export your log", hint: "a spreadsheet you keep", group: "Settings", run: () => go("export", { from: "you" }) },
-    { id: "household", label: "Household", hint: "the other devices in this kitchen", group: "Settings", run: () => go("household", { from: "you" }) },
-    { id: "statistics", label: "Statistics", hint: "how you have been eating", group: "Settings", run: () => go("statistics", { from: "history" }) },
+    { id: "profile", label: "About you", hint: "who the figures are for", group: "Settings", run: () => go("profile", { from: "you" }) },
+    { id: "targets", label: "Targets & goals", hint: "what every figure is read against", group: "Settings", run: () => go("settings", { from: "you" }) },
+    { id: "import", label: "Import", hint: "a log you kept elsewhere", group: "Settings", run: () => go("import", { from: "you" }) },
+    { id: "export", label: "Export", hint: "a spreadsheet you keep", group: "Settings", run: () => go("export", { from: "you" }) },
+    { id: "household", label: "Your devices", hint: "the others in this kitchen", group: "Settings", run: () => go("household", { from: "you" }) },
     // Filtered out rather than disabled off Android, for the same reason the
     // drawer item is: a palette entry that cannot go anywhere is worse than an
     // absent one.
@@ -839,45 +922,17 @@ export default function App() {
       </aside>
 
       <div className="shell">
-        <header className="topbar">
-          <div className="topbar__inner">
-            {/* Mobile only — see `.menubtn`. On desktop the sidebar IS this
-                drawer, permanently open, so a button to reveal it would be a
-                control for something already on screen. */}
-            <button className="menubtn" onClick={openMenu} aria-label="Open the menu"
-              aria-expanded={route.menu}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round">
-                <path d="M4 7h16M4 12h16M4 17h16" />
-              </svg>
-            </button>
-            <span className="brand">
-              <Logo size={22} />
-              <span className="brand__word">TrackIt</span>
-            </span>
-            {/* Desktop only. On a phone this row is hidden entirely and the
-                drawer is the whole of the navigation — see `.nav` in the mobile
-                block of styles.css. */}
-            <nav className="nav" aria-label="Main">
-              {TABS.map((t) => (
-                <button
-                  key={t.id}
-                  className="nav__link"
-                  aria-current={tab === t.id ? "page" : undefined}
-                  onClick={() => go(t.id)}
-                >
-                  <span className="nav__icon" aria-hidden>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
-                      {NAV_ICON[t.id]}
-                    </svg>
-                  </span>
-                  <span className="nav__label">{t.label}</span>
-                </button>
-              ))}
-            </nav>
-          </div>
-        </header>
+        {/*
+          There is no top bar on a phone, and that is the point.
 
+          It held a wordmark and a hamburger. The wordmark told you which app
+          you had opened, which you knew, and the hamburger opened the menu
+          that is now a button in the bottom bar — so between them they spent
+          64px of every screen, the most valuable band on a phone, saying
+          nothing you could act on. Each screen already renders its own title
+          through `ScreenHead`, which lands in that space instead and tells you
+          where you actually are.
+        */}
         {/* The drawer and its scrim. Both stay mounted so opening and closing
             transition rather than cut, and both are inert when closed. */}
         <div
@@ -886,11 +941,12 @@ export default function App() {
           aria-hidden
         />
         <aside className={route.menu ? "drawer drawer--on" : "drawer"}
-          aria-label="All destinations" aria-hidden={!route.menu}>
-          <div className="drawer__brand">
-            <Logo size={18} />
-            <span className="drawer__word">TrackIt</span>
-          </div>
+          aria-label="Everything else" aria-hidden={!route.menu}>
+          {/* A grab handle, because on a phone this panel now rises out of the
+              bottom bar rather than sliding in from the left edge. The left
+              drawer was the hamburger's shape; this one should come from where
+              the finger pressed. */}
+          <div className="drawer__grip" aria-hidden />
           <nav className="drawer__nav">
             {DRAWER_GROUPS.map((group, gi) => (
               <div className="drawer__group" key={group.heading ?? `g${gi}`}>
@@ -909,7 +965,7 @@ export default function App() {
                       // an aside such as the cook sheet needs an id in the
                       // hash, and sending a Back button to `#/cook` without
                       // one would land on an error instead of a screen.
-                      const home = TABS.some((t) => t.id === tab) ? (tab as Tab) : undefined;
+                      const home = BAR_IDS.includes(tab) ? (tab as Tab) : undefined;
                       go(item.id as Tab, { from: home, replace: true });
                     }}
                   >
@@ -984,9 +1040,11 @@ export default function App() {
               date={date}
               label={humanDate(date)}
               canGoForward={canGoForward}
+              meal={meal}
               onPrev={goPrevDay}
               onNext={goNextDay}
               onToday={goToday}
+              onPickDate={setDate}
               onRemoved={() => refresh(date)}
               onSeeAll={() => go("nutrients")}
               onAddFood={() => go("foods")}
@@ -1018,7 +1076,12 @@ export default function App() {
               onManageVessels={() => go("vessels")}
               onEditCook={(id) => go("cook", { id, from: "foods" })}
               onManageCustomFoods={() => go("custom-foods", { from: "foods" })}
-              onCreateCustomFood={() => go("custom-food", { from: "foods" })}
+              /* The digits travel in the hash, like every other thing a screen
+                 needs to survive a reload or a back gesture. A barcode read off
+                 a pack and then dropped on the way to the editor would be asked
+                 for twice for one food. */
+              onCreateCustomFood={(code) => go("custom-food", { from: "foods", code })}
+              onCreateSupplement={() => go("supplement", { from: "foods" })}
               onManageSupplements={() => go("supplements", { from: "foods" })}
               onManageBottles={() => go("bottles")}
             />
@@ -1026,7 +1089,8 @@ export default function App() {
         )}
 
         {tab === "nutrients" && (
-          <Nutrients day={day} loading={loading} label={humanDate(date)} />
+          <Nutrients day={day} loading={loading} label={humanDate(date)}
+            onDay={() => go("today")} />
         )}
 
         {tab === "history" && (
@@ -1192,23 +1256,87 @@ export default function App() {
           <CustomFoodEditor
             key={route.id ?? "new"}
             id={route.id}
+            barcode={route.code}
             onDone={() => go(route.from ?? "custom-foods")}
             onCancel={() => go(route.from ?? "custom-foods")}
           />
         )}
         </main>
 
-        {/* Mobile only — see `.fab` in styles.css. Desktop already has the
-            sidebar's own "Add food" button, which needs no floating twin. */}
-        {showFab && (
-          <button className="fab" onClick={() => go("foods")} aria-label="Add food">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
+        {/* Mobile only — see `.bar` in styles.css. Desktop has the sidebar,
+            which is this bar's job done with a pointer's precision and a
+            window's room. */}
+        {showBar && (
+          <nav className="bar" aria-label="Main">
+            {BAR_LEFT.map((t) => (
+              <BarLink key={t.id} id={t.id} label={t.label}
+                /* Nutrients keeps Today lit. It is not a destination of its
+                   own on a phone — it is the same day counted differently, and
+                   the bar should not go blank because you looked at it that
+                   way. See DayTabs. */
+                current={tab === t.id || (t.id === "today" && tab === "nutrients")}
+                onClick={() => go(t.id)} />
+            ))}
+
+            {/*
+              Not a tab, and shaped so that it cannot be read as one: raised
+              off the bar, filled, and the only accent-coloured thing in the
+              row. Adding food is the one thing you do here that is not going
+              somewhere, and it is wanted from every screen — including the one
+              the app opens on, which until now had no way to reach it at all.
+            */}
+            <button className="bar__add" onClick={() => go("foods")} aria-label="Add food">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+
+            {BAR_RIGHT.map((t) => (
+              <BarLink key={t.id} id={t.id} label={t.label}
+                current={tab === t.id} onClick={() => go(t.id)} />
+            ))}
+            <BarLink id="more" label="More" current={route.menu || inDrawer}
+              onClick={openMenu} expanded={route.menu} />
+          </nav>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * One destination in the phone's bottom bar.
+ *
+ * Tone rather than inversion for the selected row — a wash behind the glyph
+ * and the accent on the word, the same restraint the drawer and the desktop
+ * sidebar already spend. A solid filled pill is the heaviest mark a warm,
+ * near-white screen can carry, and it belongs to the add button alone.
+ */
+function BarLink({
+  id, label, current, onClick, expanded,
+}: {
+  id: string;
+  label: string;
+  current: boolean;
+  onClick: () => void;
+  expanded?: boolean;
+}) {
+  return (
+    <button
+      className="bar__link"
+      aria-current={current ? "page" : undefined}
+      aria-expanded={expanded}
+      onClick={onClick}
+    >
+      <span className="bar__icon" aria-hidden>
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth={current ? 2.1 : 1.8}>
+          {NAV_ICON[id]}
+        </svg>
+      </span>
+      <span className="bar__label">{label}</span>
+    </button>
   );
 }
 

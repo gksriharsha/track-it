@@ -258,6 +258,10 @@ export default function PhotoSlot(p: Props) {
           scanKind={p.scanKind}
           onCapture={captured}
           onCancel={() => setCamera(false)}
+          /* This slot has always had a picker; the failure panel simply never
+             had a way to reach it, so its own advice made the user go and find
+             the button themselves. */
+          onPickInstead={() => { setCamera(false); file.current?.click(); }}
         />
       )}
 

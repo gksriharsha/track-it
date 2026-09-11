@@ -836,3 +836,68 @@ with the process. That is agreement with Doze and App Standby rather than a shor
 — Doze suspends network access for every app regardless of target API, so a listener that fought
 it would be an app running behind your back for no benefit. The consequence is honest and belongs
 on screen: a phone can be reached while TrackIt is open on it, and not otherwise.
+
+---
+
+## D21 — On a phone the navigation is a bar, a camera is a route, and the insets come from Kotlin
+
+**Defect.** The whole of the mobile navigation was one drawer behind a hamburger: eleven
+destinations, three interactions to reach any of them, and no standing indication of where you
+were. Because the app opens on Trends — an *aside* rather than a tab — the floating add button
+was suppressed on exactly the screen every cold start lands on, so a new session had no way to
+log food at all without opening the menu. Separately, every capability the camera provides
+(barcode, nutrition panel, ingredient list) was reachable only from inside the custom-food
+editor, whose own doors were a text link that appeared *after* a search returned results, a
+library two levels down that menu, and a desktop-only keyboard shortcut.
+
+**Decision — three contracts, in the order a future change is most likely to break them.**
+
+**1. The bottom bar carries places; the centre button carries the one action.**
+`Trends | Today | [ + ] | Days | More`. Add food is not a tab and must not become one: it is
+wanted *from* every destination rather than navigated to. `BAR_HIDDEN` names the screens that
+are a task rather than a place — they hide the bar and are left by finishing them or by the
+system back gesture. Nutrients is not a destination; it is the same day counted differently,
+reached by the switch on Today (`DayTabs`), and Today stays lit in the bar while it is showing.
+
+**2. A camera is a hash route, never component state.** `useCameraRoute` in
+`src/lib/camera.ts`. Every screen change in this app is a hash change precisely so the Android
+back gesture works (D19's sibling concern); a lens held in `useState` is invisible to that, so
+the gesture navigates the screen out from under an open camera instead of closing it. On the
+editors that was merely jarring, because the screen unmounts and takes the `MediaStream` with
+it. On Add food it would be a leak: `Foods` is deliberately kept **mounted** behind its asides
+(`hidden`, not unmounted) to preserve an in-progress search, so a backed-out-of lens would go on
+holding the camera open, indicator light and all, behind a hidden div. A reload carrying `cam=`
+strips it rather than handing back a live lens at depth zero, where the gesture that closes the
+sheet would close the app.
+
+**3. Window insets are measured in Kotlin, not read from `env(safe-area-inset-*)`.**
+Measured on the emulator: with `enableEdgeToEdge()` set and with and without
+`viewport-fit=cover`, all four CSS insets report `0px`. Android WebView maps those values to the
+**display cutout** alone and never to the status or navigation bar, so every inset rule in the
+stylesheet had been a silent no-op on the platform it mattered on — a bar pinned to the bottom of
+the screen lands underneath the navigation pill. `MainActivity.publishInsets` reads the real
+`systemBars() | displayCutout()` insets and sets them as `--sys-*`; the `--safe-*` tokens take
+`max()` of the two sources, so iOS and a browser keep using `env()` and neither platform needs to
+know about the other.
+
+**Consequences that are not optional.**
+
+- **One tap may log a repeat food, because the write is visible before it happens and reversible
+  after.** This overturns the stance previously argued in `pickFrequent`'s own comment — that a
+  one-tap row would be "a button that writes to somebody's history out of a list they never asked
+  to have built". The objection is answered rather than overruled: the weight is printed *on* the
+  control, and an Undo stands over the bottom bar for eight seconds (`QuickLog.tsx`). A shortcut
+  still carries a weight and never a count, a rank or a streak.
+- **A barcode is a search, not a lookup.** There is no product database on the device and nothing
+  leaves it, so no control may imply scan-and-it-is-identified. A read fills the search field
+  over the user's own transcribed foods and deliberately does not pick anything — an auto-pick
+  would be a write the back gesture cannot undo. Where it matches nothing the screen says so
+  plainly, including that the digits were looked up nowhere.
+- **Every camera surface offers a photo instead.** `scan_barcode` passes the same `decode_photo`
+  gate a stored photo does and never cared whether the bytes came from a live frame, so a denied
+  permission is not a dead end. The failure panel's standing advice to "pick a photo you already
+  have" is now a button (`onPickInstead`) wherever the caller can honour it, and is not printed
+  where it cannot.
+- **`canStream()` is a function.** As a module-level constant it was evaluated once at import, so
+  a WebView that gained `getUserMedia` after the bundle loaded hid every camera control until a
+  reload.

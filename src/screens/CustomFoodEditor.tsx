@@ -33,6 +33,12 @@ interface Props {
    * hash, so a reload and the Android back gesture both land on the same food.
    */
   id: string | null;
+  /**
+   * Digits already read off this pack, when the user got here by scanning one
+   * that matched nothing. Only ever seeds a NEW food: an existing food has a
+   * barcode of its own and a route param must not overwrite it.
+   */
+  barcode?: string | null;
   /** Saved — back to the list. */
   onDone: () => void;
   /** Left without saving. The draft is cleared first. */
@@ -53,7 +59,10 @@ export default function CustomFoodEditor(p: Props) {
 
   const [name, setName] = useState(first?.name ?? "");
   const [brand, setBrand] = useState(first?.brand ?? "");
-  const [barcode, setBarcode] = useState(first?.barcode ?? "");
+  /* `p.barcode` only where there is no saved food to take one from. A scanned
+     code is a starting point for a food being created, never a correction to
+     one already stored. */
+  const [barcode, setBarcode] = useState(first?.barcode ?? (p.id === null ? (p.barcode ?? "") : ""));
   const [overridesFdcId, setOverridesFdcId] = useState<number | null>(first?.overridesFdcId ?? null);
   const [servingG, setServingG] = useState(first?.servingG ?? "");
   const [servingLabel, setServingLabel] = useState(first?.servingLabel ?? "");
@@ -719,6 +728,47 @@ export default function CustomFoodEditor(p: Props) {
         </p>
       </section>
 
+      {/*
+        Second, not fifth.
+
+        The two cameras that read this pack used to sit below three cards of
+        form fields, which put them off the bottom of a phone screen on a
+        screen whose whole point is that you photograph the pack instead of
+        typing it. They do not go FIRST either: the serving weight above is
+        what every figure on this food is per, and burying that would make
+        every transcribed number wrong by the same factor.
+      */}
+      <section className="card">
+        <div className="card__head">
+          <h2>Photos of the pack</h2>
+          <span className="card__note">so you only hold it once</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "var(--s4)" }}>
+          <PhotoSlot
+            scanKind="nutrition"
+            label="Nutrition panel"
+            hint="The numbers you are about to type. It stays beside the form while you transcribe, and the app has a go at reading it."
+            name={photoLabel}
+            /* A reading belongs to one photo. Drop the panel photo and the
+               suggestions taken off it go with it, rather than lingering over a
+               form that no longer has anything to check them against. */
+            onChange={(n) => { setPhotoLabel(n); if (n === null) forgetScan(); }}
+            onScan={runScan}
+          />
+          <PhotoSlot
+            scanKind="ingredients"
+            label="Ingredient list"
+            hint="Kept as it was printed, and the app has a go at reading it out for you."
+            name={photoIngredients}
+            /* As with the panel: the reading belongs to this photo, so dropping
+               the photo drops what was read off it rather than leaving the text
+               on offer with nothing left to check it against. */
+            onChange={(n) => { setPhotoIngredients(n); if (n === null) forgetIngredientScan(); }}
+            onScan={runIngredientScan}
+          />
+        </div>
+      </section>
+
       <section className="card">
         <div className="card__head">
           <h2>Does this replace a generic entry?</h2>
@@ -849,36 +899,6 @@ export default function CustomFoodEditor(p: Props) {
         </p>
       </section>
 
-      <section className="card">
-        <div className="card__head">
-          <h2>Photos of the pack</h2>
-          <span className="card__note">so you only hold it once</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "var(--s4)" }}>
-          <PhotoSlot
-            scanKind="nutrition"
-            label="Nutrition panel"
-            hint="The numbers you are about to type. It stays beside the form while you transcribe, and the app has a go at reading it."
-            name={photoLabel}
-            /* A reading belongs to one photo. Drop the panel photo and the
-               suggestions taken off it go with it, rather than lingering over a
-               form that no longer has anything to check them against. */
-            onChange={(n) => { setPhotoLabel(n); if (n === null) forgetScan(); }}
-            onScan={runScan}
-          />
-          <PhotoSlot
-            scanKind="ingredients"
-            label="Ingredient list"
-            hint="Kept as it was printed, and the app has a go at reading it out for you."
-            name={photoIngredients}
-            /* As with the panel: the reading belongs to this photo, so dropping
-               the photo drops what was read off it rather than leaving the text
-               on offer with nothing left to check it against. */
-            onChange={(n) => { setPhotoIngredients(n); if (n === null) forgetIngredientScan(); }}
-            onScan={runIngredientScan}
-          />
-        </div>
-      </section>
 
       <section className="card">
         <div className="card__head">

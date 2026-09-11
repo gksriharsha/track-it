@@ -1,4 +1,5 @@
 import { useState } from "react";
+import DayTabs from "../components/DayTabs";
 import NutrientRow from "../components/NutrientRow";
 import type { DayView, NutrientTotal, TargetBasis } from "../types";
 import { read } from "../lib/nutrient";
@@ -22,10 +23,13 @@ export default function Nutrients({
   day,
   loading,
   label,
+  onDay,
 }: {
   day: DayView | null;
   loading: boolean;
   label: string;
+  /** Back to the list this panel counts. See DayTabs — on a phone they are one screen. */
+  onDay: () => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const totals = day?.totals ?? [];
@@ -55,9 +59,17 @@ export default function Nutrients({
 
   return (
     <div className="screen">
+      {/* Phone only: this panel and Today's list are two readings of one day,
+          and the switch is what says so. */}
+      <DayTabs current="nutrients" onDay={onDay} onNutrients={() => {}} />
+
+      {/* The day is the title, exactly as it is on Today — these are two
+          readings of one day and the heading should not change between them.
+          It used to read "Nutrients" over a switch whose selected half already
+          said Nutrients, with the date demoted to a caption; which day you are
+          reading is the thing the heading has to carry. */}
       <ScreenHead
-        title="Nutrients"
-        sub={label}
+        title={label}
         action={
           <div className="chips">
             {FILTERS.map((f) => (

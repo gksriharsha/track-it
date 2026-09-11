@@ -96,8 +96,12 @@ export default function Statistics(p: Props) {
   return (
     <div className="screen">
       <ScreenHead
-        title="Statistics"
-        sub="how you have been eating"
+        /* "Statistics" named the method; this names the question. Beside a
+           row called "Days" in the same bar, a person could not tell which of
+           the two held the last month — one sounded like a spreadsheet and the
+           other like a list. */
+        title="Trends"
+        sub="how the last few weeks have gone"
         onBack={p.onBack}
       />
 
@@ -317,11 +321,20 @@ function Spread(props: {
         <b className="num">{write(s.q1)}</b> and{" "}
         <b className="num">{write(s.q3)}</b>.
         {reference && (
-          <> {reference.label.replace(/^y/, "Y")} is <b className="num">{write(reference.value)}</b>.</>
+          /* Capitalised as a sentence, not by matching a word. This read
+             `.replace(/^y/, "Y")`, written when the label was "your target";
+             once the label became "for reference" the hack matched nothing and
+             the screen printed "…2,176 kcal. for reference is 2,240 kcal." */
+          <> {sentence(reference.label)} is <b className="num">{write(reference.value)}</b>.</>
         )}
       </p>
     </section>
   );
+}
+
+/** A label that has to start a sentence, given its capital. */
+function sentence(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 /** One nutrient's daily average, with its reference figure beside it. */

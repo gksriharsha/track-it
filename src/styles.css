@@ -22,6 +22,11 @@
   --accent: #4a7c59;
   --accent-ink: #3c6449;
   --accent-wash: #edf3ee;
+  /* What sits ON the accent fill. White here, and deliberately NOT white in
+     dark mode: the dark palette lightens the accent to #85b393 to stop it
+     glaring, and white on that is 2.4:1 — under the 3:1 a control's glyph
+     needs to be legible at all. */
+  --on-accent: #ffffff;
   --over: #b4553a;
   --over-wash: #f8ede9;
 
@@ -44,11 +49,36 @@
   --measure: 62ch;
   --shell: 940px;
 
-  /* The height the sticky topbar occupies, border included. Anything else that
-     sticks has to start below it — the topbar is opaque and sits on z-index 20,
-     so a lower sticky element scrolls underneath it and loses its first rows.
-     `.topbar__inner` is held to this figure so the two cannot drift apart. */
-  --topbar-h: 64px;
+  /* There is no top bar on either platform any more — the phone's was a
+     wordmark and a hamburger over every screen, and the desktop replaced its
+     own with the sidebar. Kept as a token, at zero, because two sticky
+     elements measure their offset from it (the custom-food editor's photo
+     panel, for one) and a bar that no longer renders must contribute nothing
+     rather than a 64px gap. */
+  --topbar-h: 0px;
+
+  /* The phone's bottom bar, and the smallest row a thumb should have to hit.
+     48px is the floor Material and the WCAG target-size rule agree on. */
+  --bar-h: 58px;
+  --tap: 48px;
+
+  /* How much of the window the system is covering, from whichever of the two
+     sources can actually answer.
+
+     `env(safe-area-inset-*)` is the standard, and on iOS and in a browser it
+     is the one that works. On Android it is not: WebView maps those values to
+     the display cutout alone and never to the status or navigation bar, so on
+     an edge-to-edge Android window — which this app is, see `enableEdgeToEdge`
+     in MainActivity.kt — all four read 0px and a bar pinned to the bottom of
+     the screen lands underneath the navigation pill. `--sys-*` is the real
+     figure, measured in Kotlin and set on the document; it is 0px everywhere
+     else. `max()` means neither platform needs to know about the other. */
+  --sys-top: 0px;
+  --sys-right: 0px;
+  --sys-bottom: 0px;
+  --sys-left: 0px;
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--sys-top));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--sys-bottom));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -64,6 +94,7 @@
     --accent: #85b393;
     --accent-ink: #9cc5a8;
     --accent-wash: #222e26;
+    --on-accent: #15140f;
     --over: #d98a6f;
     --over-wash: #302019;
     --focus: #85b393;
@@ -111,20 +142,6 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
 /* No backdrop-filter here. It creates a containing block for position:fixed
    descendants, which pinned the mobile bottom nav to the bottom of THIS
    element instead of the viewport. The blur was decoration; the bug was not. */
-.topbar {
-  position: sticky; top: 0; z-index: 20;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-  padding-top: env(safe-area-inset-top, 0px);
-}
-.topbar__inner {
-  max-width: var(--shell); margin: 0 auto;
-  padding: var(--s3) var(--s5);
-  /* Minus the 1px border below, so the bar occupies exactly --topbar-h and the
-     sticky elements that offset themselves by it clear it. */
-  min-height: calc(var(--topbar-h) - 1px);
-  display: flex; align-items: center; gap: var(--s5);
-}
 .brand { display: flex; align-items: center; gap: var(--s2); }
 .logo { color: var(--accent); }
 /* The wordmark reuses Newsreader — the app's one distinctive typographic
@@ -134,28 +151,6 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
   font-size: 19px; font-weight: 500; letter-spacing: -0.025em;
 }
 
-.nav { display: flex; align-items: center; gap: var(--s1); margin-left: auto; }
-.nav__link {
-  display: flex; align-items: center; gap: var(--s2);
-  padding: var(--s2) var(--s3); border-radius: var(--r-pill);
-  color: var(--ink-2); font-size: 14px; font-weight: 500;
-  transition: color 140ms ease-out;
-}
-/* Guarded, because a tap on Android leaves :hover stuck on the element until
-   something else is tapped — so an unguarded hover wash reads as a second
-   selected item sitting next to the real one. The device reports
-   `hover: none` honestly; it is the sticky :hover that lies. */
-@media (hover: hover) {
-  .nav__link:hover { color: var(--ink); }
-}
-.nav__icon { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-pill); transition: background-color 140ms ease-out; }
-/* Tone, not inversion: the selected destination gets a wash behind its icon
-   and the accent on its label, the same restraint the sidebar already spends
-   on its own selected link — a solid ink pill is the heaviest thing a warm,
-   near-white screen can show, and a bottom bar is not where that belongs. */
-.nav__link[aria-current="page"] { color: var(--accent-ink); font-weight: 600; }
-.nav__link[aria-current="page"] .nav__icon { background: var(--accent-wash); }
-
 .main { flex: 1; width: 100%; max-width: var(--shell); margin: 0 auto; padding: var(--s6) var(--s5) var(--s8); }
 .screen { display: flex; flex-direction: column; gap: var(--s6); }
 /* Only `.daybar` uses this now — Today's mobile date stepper, which is a
@@ -163,24 +158,165 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
    `.head`; see ScreenHead.tsx. */
 .screen__head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
 .screen__head h1 { font-size: 22px; }
-.daybar { align-items: center; gap: var(--s1); }
-.daybar h1 { min-width: 132px; text-align: center; }
 .screen__sub { color: var(--ink-3); font-size: 14px; }
 
-/* Hidden by default; the media query right below turns it on. Declared here,
-   BEFORE that query rather than after: an unconditional rule of equal
-   specificity always beats an earlier conditional one in the cascade, so this
-   rule has to come first or it would always win and the button would never
-   show — which is exactly the bug this comment exists to stop someone
-   reintroducing. */
-.fab { display: none; }
+/* ─────────────────────────────────────────────────────────────
+   The day, and the week around it.
+
+   This block replaced `‹ Thursday 11 September ›` — two bare
+   chevrons in 34px icon buttons, the left of which sat in the
+   corner Back lives in, in a title row, pointing the way Back
+   points. Every reader took it for a Back arrow, and reaching
+   Monday took four presses with the date moving under you each
+   time. Seven dates, one tap each, and nothing that could be
+   mistaken for a way out of the screen.
+   ───────────────────────────────────────────────────────────── */
+.daybar { display: flex; flex-direction: column; gap: var(--s3); }
+.daybar__row { display: flex; align-items: baseline; gap: var(--s3); }
+.daybar__row h1 { font-size: 22px; }
+.daybar__today { flex: none; }
+.daybar__count { margin-left: auto; flex: none; }
+
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s1); }
+.week__day {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: var(--s2) 0 7px; border-radius: var(--r-md);
+  color: var(--ink-2);
+  border: 1px solid transparent;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
+}
+.week__day:disabled { opacity: 0.32; cursor: default; }
+.week__wd { font-size: 11px; font-weight: 550; color: var(--ink-3); }
+.week__n { font-size: 15px; font-weight: 550; line-height: 1.1; }
+/* A mark that a day exists in the record — never how well it went. The dot has
+   one state and one colour, so there is nothing here to fill or to beat. */
+.week__dot { width: 4px; height: 4px; border-radius: var(--r-pill); background: transparent; }
+.week__dot.is-on { background: var(--ink-3); }
+.week__day[aria-current="date"] {
+  background: var(--accent-wash); border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.week__day[aria-current="date"] .week__wd { color: var(--accent-ink); }
+.week__day[aria-current="date"] .week__dot.is-on { background: var(--accent-ink); }
+@media (hover: hover) {
+  .week__day:hover:not(:disabled):not([aria-current="date"]) { background: var(--sunken); }
+}
 
 /* ─────────────────────────────────────────────────────────────
-   The menu button and the drawer — mobile only
+   Two readings of one day. Phone only — a wide window runs the
+   nutrient panel in two columns beside a two-column Today, and
+   both earn a destination of their own there.
    ───────────────────────────────────────────────────────────── */
+.dayviews {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 3px;
+  padding: 3px; border-radius: var(--r-pill); background: var(--sunken);
+}
+.dayviews__tab {
+  min-height: 38px; border-radius: var(--r-pill);
+  font-size: 13.5px; font-weight: 550; color: var(--ink-2);
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+.dayviews__tab[aria-current="page"] {
+  background: var(--surface); color: var(--ink);
+  box-shadow: var(--lift);
+}
 
-/* Hidden on desktop, where the sidebar is this drawer, permanently open. */
-.menubtn { display: none; }
+/* ─────────────────────────────────────────────────────────────
+   Log again — the foods you have most days, as buttons that log
+   them. One tap, and the weight is printed on the control before
+   it is pressed. See QuickLog.tsx for why that is the whole of
+   the argument for it.
+   ───────────────────────────────────────────────────────────── */
+.again { display: flex; flex-direction: column; gap: var(--s3); }
+.again__head { display: flex; align-items: baseline; gap: var(--s3); }
+.again__head h2 { font-size: 15px; }
+.again__note { color: var(--ink-3); font-size: 12px; }
+/* Scrolls rather than wraps: a second row of tiles would push the day itself
+   below the fold to show a shortcut. Edge padding restored inside the
+   scroller so the first and last tiles are not clipped by the screen edge. */
+.again__strip {
+  display: flex; gap: var(--s2); overflow-x: auto;
+  padding-bottom: var(--s1);
+  /* Bled to the screen edge so a half-tile at the right says there is more
+     beside it, with the gutter restored inside as padding so the first tile
+     still lines up with the heading above it. No scroll-snap: `proximity`
+     snapping treated that restored padding as slack and parked the scroller
+     16px in, which put the first tile hard against the screen edge and out of
+     line with everything else on the page. */
+  margin: 0 calc(var(--s4) * -1); padding-left: var(--s4); padding-right: var(--s4);
+  scrollbar-width: none;
+}
+.again__strip::-webkit-scrollbar { display: none; }
+.again__tile {
+  flex: none; width: 146px;
+  display: flex; flex-direction: column; justify-content: space-between; gap: var(--s2);
+  min-height: 76px; padding: var(--s3);
+  border-radius: var(--r-md); border: 1px solid var(--line);
+  background: var(--surface); text-align: left;
+  transition: border-color 140ms ease-out, transform 120ms ease-out;
+}
+.again__tile:active:not(:disabled) { transform: scale(0.97); }
+.again__tile:disabled { opacity: 0.55; cursor: default; }
+.again__tile[aria-busy="true"] { border-color: var(--accent); }
+.again__name {
+  font-size: 13px; font-weight: 550; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.again__amt {
+  display: inline-flex; align-items: center; gap: 3px; align-self: flex-start;
+  padding: 3px var(--s2); border-radius: var(--r-pill);
+  background: var(--accent-wash); color: var(--accent-ink);
+  font-size: 12px; font-weight: 600;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   What was just written, and the way back out of it. Sits ABOVE
+   the bottom bar rather than over it: the bar is how you leave
+   this screen, and covering it to announce a success would trap
+   someone who wanted to be somewhere else.
+   ───────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; left: var(--s4); right: var(--s4); z-index: 32;
+  bottom: calc(var(--bar-h) + var(--s3) + var(--safe-bottom));
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s3) var(--s3) var(--s3) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--ink); color: var(--bg);
+  box-shadow: var(--lift-hi), 0 8px 24px -8px rgba(0, 0, 0, 0.4);
+  animation: toast-in 220ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.toast__text {
+  flex: 1; min-width: 0; font-size: 13px; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.toast__undo {
+  flex: none; min-height: 36px; padding: 0 var(--s3);
+  border-radius: var(--r-sm); color: var(--accent);
+  font-size: 13.5px; font-weight: 650;
+}
+
+/* Desktop keeps Nutrients as a destination of its own, so the switch that
+   makes them one screen is a phone control. Declared unconditionally so it
+   beats nothing and is beaten by nothing — see `.bar`'s comment. */
+@media (min-width: 721px) {
+  .dayviews { display: none; }
+  .toast { left: auto; right: var(--s6); bottom: var(--s6); width: min(420px, 40vw); }
+}
+
+/* Hidden by default; the media query further down turns it on. Declared here,
+   BEFORE that query rather than after: an unconditional rule of equal
+   specificity always beats an earlier conditional one in the cascade, so this
+   rule has to come first or it would always win and the bar would never show —
+   which is exactly the bug this comment exists to stop someone reintroducing. */
+.bar { display: none; }
+
+/* ─────────────────────────────────────────────────────────────
+   "More" — mobile only
+   ───────────────────────────────────────────────────────────── */
 
 /* Both stay in the DOM so the panel can transition. Above the bottom bar
    (z 30) and the floating button (z 31): the scrim dims the whole screen,
@@ -193,34 +329,39 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
 }
 .scrim--on { opacity: 0.32; pointer-events: auto; }
 
+/* A sheet that rises out of the bottom bar, not a panel that slides in from
+   the left edge. The left drawer was the hamburger's shape, and the hamburger
+   is gone: a panel should arrive from where the finger pressed, and the rows
+   it carries should land under the thumb rather than at the top of a 6in
+   screen. Capped at 82vh so a live sliver of the page stays visible above it —
+   that is what says this is OVER the screen rather than being a screen. */
 .drawer {
-  position: fixed; top: 0; bottom: 0; left: 0; z-index: 41;
-  /* 300px of a 390pt phone leaves a live sliver of the page behind it, which
-     is what says the drawer is OVER this screen rather than being a screen of
-     its own. Capped against the viewport for a 320px device. */
-  width: min(300px, 86vw);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
+  max-height: 82vh;
   display: flex; flex-direction: column;
-  background: var(--surface); border-right: 1px solid var(--line);
-  box-shadow: 4px 0 24px -6px rgba(28, 26, 23, 0.18);
-  padding-top: env(safe-area-inset-top, 0px);
-  transform: translateX(-101%);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -4px 28px -6px rgba(28, 26, 23, 0.22);
+  transform: translateY(101%);
   /* Material's emphasized-decelerate curve; the scrim above is slightly
      faster, so the page is already dimming as the panel lands. */
   transition: transform 240ms cubic-bezier(0.05, 0.7, 0.1, 1);
   visibility: hidden;
 }
-.drawer--on { transform: translateX(0); visibility: visible; }
-.drawer__brand {
-  display: flex; align-items: center; gap: var(--s2);
-  padding: var(--s5) var(--s5) 0; flex: none;
+.drawer--on { transform: translateY(0); visibility: visible; }
+/* The one affordance that says "this came up and can go back down". */
+.drawer__grip {
+  flex: none; width: 34px; height: 4px; border-radius: var(--r-pill);
+  background: var(--line); margin: 10px auto 0;
 }
-.drawer__word {
-  font-size: 12.5px; letter-spacing: 0.04em;
-  color: var(--ink-2); font-weight: 600; text-transform: uppercase;
-}
+/* No wordmark at the head of this sheet. It told you the name of the app you
+   were already inside, and it cost a row out of eleven on a panel that is
+   capped at 82vh — which put the last destination under the navigation pill.
+   The grab handle is the only chrome the sheet needs. */
 .drawer__nav {
-  flex: 1; min-height: 0; overflow-y: auto;
-  padding: var(--s4) var(--s3) calc(var(--s5) + env(safe-area-inset-bottom, 0px));
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--s3) var(--s3) calc(var(--s5) + var(--safe-bottom));
 }
 .drawer__group + .drawer__group { margin-top: var(--s3); }
 .drawer__heading {
@@ -228,11 +369,11 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
   color: var(--ink-3); font-weight: 600;
   padding: var(--s3) var(--s4) var(--s1);
 }
-/* 48px rather than the 40 a desktop list would take: this is the only way to
-   reach eleven places on a phone, so the thumb room is worth the height. */
+/* --tap rather than the 40px a desktop list would take: eleven rows under a
+   thumb, on a panel that is reached one-handed. */
 .drawer__link {
   display: flex; align-items: center; gap: 14px;
-  width: 100%; height: 48px; padding: 0 var(--s4);
+  width: 100%; height: var(--tap); padding: 0 var(--s4);
   border-radius: var(--r-pill); text-align: left;
   color: var(--ink); font-size: 14.5px; font-weight: 500;
   transition: background-color 140ms ease-out, color 140ms ease-out;
@@ -246,38 +387,83 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
 .drawer__link[aria-current="page"] { background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; }
 .drawer__link[aria-current="page"] .drawer__icon { color: var(--accent-ink); }
 
-/* Mobile: navigation moves to the bottom, where a thumb is. */
-@media (max-width: 720px) {
-  .topbar__inner { padding: var(--s3) var(--s4); }
-  .menubtn {
-    display: grid; place-items: center;
-    width: 44px; height: 44px; margin-left: calc(var(--s3) * -1);
-    border-radius: var(--r-pill); color: var(--ink-2);
-  }
-  @media (hover: hover) {
-    .menubtn:hover { background: var(--sunken); color: var(--ink); }
-  }
-  /* No bottom bar on a phone. The drawer is the whole of the navigation, which
-     is what the menu button is for, and the bottom edge goes back to the day's
-     own content. */
-  .nav { display: none; }
-  .main { padding: var(--s5) var(--s4) calc(88px + env(safe-area-inset-bottom, 0px)); }
+/* ─────────────────────────────────────────────────────────────
+   The bottom bar — mobile only.
 
-  /* Mobile only: the desktop sidebar's "Add food" button is this button's
-     twin. Add food is an action rather than a destination, so it stays on the
-     screen in the corner a thumb rests in, and never goes in the drawer. */
-  .fab {
-    display: flex; align-items: center; justify-content: center;
-    position: fixed; right: var(--s5);
-    /* Drops to the ordinary inset now there is no bar above which to float. */
-    bottom: calc(var(--s5) + env(safe-area-inset-bottom, 0px));
-    z-index: 31;
-    width: 56px; height: 56px; border-radius: var(--r-pill);
-    background: var(--accent); color: #fff;
-    box-shadow: 0 4px 14px -2px rgba(74, 124, 89, 0.45), var(--lift);
-    transition: background-color 140ms ease-out;
+   Three places, one action, and the way to everything else. It
+   replaced a hamburger drawer that was the ENTIRE mobile
+   navigation: every move cost three interactions, no screen said
+   where you were, and the screen the app opens on carried no way
+   to log food at all.
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .main {
+    padding: calc(var(--s5) + var(--safe-top)) var(--s4)
+             calc(var(--bar-h) + var(--s7) + var(--safe-bottom));
   }
-  .fab:hover { background: var(--accent-ink); }
+
+  /* A band of the page's own colour behind the status bar.
+
+     The Android window is edge-to-edge, so the page is the full height of the
+     screen and scrolls UNDER the clock and the battery icon. With no top bar
+     left to be opaque, a heading scrolling away passed straight through them.
+     This is not chrome and carries nothing: it is the page's background,
+     pinned, so content leaves the screen behind the status bar instead of
+     through it. Above the content and below everything that covers the whole
+     screen — the bar (30), the sheet and its scrim (40/41), the camera (50+). */
+  body::before {
+    content: ""; position: fixed; inset: 0 0 auto 0; z-index: 25;
+    height: var(--safe-top); background: var(--bg);
+    pointer-events: none;
+  }
+
+  .bar {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    align-items: stretch;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    /* Opaque, not blurred. A backdrop-filter here creates a containing block
+       for position:fixed descendants — which is what once pinned this bar to
+       an ancestor instead of the viewport. The blur was decoration; the bug
+       was not. */
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+    padding-bottom: var(--safe-bottom);
+  }
+
+  .bar__link {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; min-height: var(--bar-h); padding: var(--s2) 2px;
+    color: var(--ink-3);
+    transition: color 140ms ease-out;
+  }
+  .bar__icon {
+    display: grid; place-items: center;
+    width: 46px; height: 26px; border-radius: var(--r-pill);
+    transition: background-color 160ms ease-out;
+  }
+  .bar__label { font-size: 11px; font-weight: 550; letter-spacing: 0.005em; }
+  /* Tone, not inversion: a wash behind the glyph and the accent on the word.
+     A solid filled pill is the heaviest mark a warm, near-white screen can
+     carry, and on this bar it belongs to the add button alone. */
+  .bar__link[aria-current="page"] { color: var(--accent-ink); }
+  .bar__link[aria-current="page"] .bar__icon { background: var(--accent-wash); }
+
+  /* Raised out of the bar, and the only accent fill in the row — so it reads
+     as the thing you DO here rather than a fourth place to go. */
+  .bar__add {
+    display: flex; align-items: center; justify-content: center;
+    justify-self: center; align-self: center;
+    width: 54px; height: 54px; margin-top: -18px;
+    border-radius: 18px;
+    background: var(--accent); color: var(--on-accent);
+    border: 3px solid var(--bg);
+    box-shadow: 0 6px 16px -4px rgba(74, 124, 89, 0.5);
+    transition: transform 120ms ease-out, background-color 140ms ease-out;
+  }
+  .bar__add:active { transform: scale(0.94); }
+  @media (hover: hover) {
+    .bar__add:hover { background: var(--accent-ink); }
+  }
 }
 
 
@@ -294,6 +480,40 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
 }
 .iconbtn:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
 .iconbtn:disabled { opacity: 0.3; cursor: default; }
+
+/* ─────────────────────────────────────────────────────────────
+   A bounded stepper: two segments and the value between them.
+
+   The shape is the point. A lone “‹” floating in a header is the
+   glyph every phone uses for Back, and readers took Today's date
+   row for one — so wherever something is genuinely stepped
+   rather than left, the arrows are drawn inside one bordered
+   control that reads as "adjust a value". Used by the desktop
+   date-stepper and by the month nav on Days, at every width.
+   ───────────────────────────────────────────────────────────── */
+.stepper {
+  display: flex; align-items: stretch; height: 40px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--surface); overflow: hidden;
+}
+.stepper__seg { width: 34px; display: grid; place-items: center; color: var(--ink-2); transition: background-color 120ms ease-out; }
+.stepper__seg:hover:not(:disabled) { background: var(--sunken); }
+.stepper__seg:disabled { opacity: 0.35; }
+.stepper__mid {
+  display: flex; align-items: center; gap: 8px; padding: 0 var(--s4);
+  min-width: 168px; justify-content: center;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+}
+.stepper__label { font-size: 15px; font-weight: 500; white-space: nowrap; }
+/* The month nav has a whole card head to itself and no room to spare on a
+   phone, so it takes the same control one size down. */
+.stepper--sm { height: 36px; }
+.stepper--sm .stepper__mid { min-width: 0; flex: 1; padding: 0 var(--s3); }
+.monthnav { align-items: center; gap: var(--s3); }
+.monthnav .stepper { flex: 1; min-width: 0; }
+.monthnav__label { font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+.monthnav__note { margin: var(--s2) 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+@media (min-width: 721px) { .monthnav .stepper { flex: none; min-width: 230px; } }
 
 /* ─────────────────────────────────────────────────────────────
    Hero. Floats on the page: no card, no border. It is the anchor.
@@ -380,7 +600,10 @@ button.row:hover { background: var(--sunken); }
 .search-hero .field { font-size: 17px; padding: var(--s4) var(--s5); border-radius: var(--r-lg); box-shadow: var(--lift); border-color: transparent; }
 .search-hero .field:focus { box-shadow: var(--lift-hi); }
 
-.btn { padding: var(--s3) var(--s5); border-radius: var(--r-md); background: var(--accent); color: #fff; font-weight: 600; transition: background-color 140ms ease-out; }
+/* --on-accent, not #fff: the dark palette lightens the accent to stop it
+   glaring, and white sitting on that is 2.4:1 — every primary button in the
+   app was failing to be legible in dark mode. */
+.btn { padding: var(--s3) var(--s5); border-radius: var(--r-md); background: var(--accent); color: var(--on-accent); font-weight: 600; transition: background-color 140ms ease-out; }
 .btn:hover { background: var(--accent-ink); }
 .btn--quiet { background: transparent; color: var(--ink-2); border: 1px solid var(--line); }
 .btn--quiet:hover { background: var(--sunken); color: var(--ink); }
@@ -548,6 +771,16 @@ button.row:hover { background: var(--sunken); }
 .entryrow { grid-template-columns: 1fr auto auto; }
 .entryrow__main { text-align: left; min-width: 0; display: block; width: 100%; }
 .entryrow__main:disabled { cursor: default; }
+/* Remove is the one destructive control on this screen and it sat as a 34px
+   “×” directly beside a 15px chevron, on a row a thumb opens by tapping. On a
+   phone it gets the full target size and a gap wide enough that the two are
+   not one blur — a mis-tap here deletes a logged entry, and nothing puts it
+   back. */
+@media (max-width: 720px) {
+  .entryrow { gap: var(--s2); }
+  .entryrow > .iconbtn { width: var(--tap); height: var(--tap); margin-right: calc(var(--s2) * -1); }
+  .entryrow .row__chev { padding-left: var(--s1); }
+}
 .row__chev { transition: transform 160ms ease-out; }
 .row__chev.is-open { transform: rotate(90deg); }
 
@@ -739,7 +972,7 @@ button.row:hover { background: var(--sunken); }
   position: fixed; inset: 0; z-index: 50;
   display: flex; flex-direction: column;
   background: var(--bg);
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: var(--safe-top);
 }
 .pview__bar {
   display: flex; align-items: center; gap: var(--s2);
@@ -749,7 +982,7 @@ button.row:hover { background: var(--sunken); }
 .pview__btn { padding: var(--s2) var(--s4); min-height: 44px; white-space: nowrap; }
 .pview__body {
   flex: 1; overflow: auto; display: grid; place-items: center;
-  padding: var(--s3) var(--s3) calc(var(--s3) + env(safe-area-inset-bottom, 0px));
+  padding: var(--s3) var(--s3) calc(var(--s3) + var(--safe-bottom));
 }
 .pview__body img { max-width: 100%; }
 /* Actual size: the pane pans instead of shrinking the print. */
@@ -960,7 +1193,7 @@ button.row:hover { background: var(--sunken); }
   position: fixed; inset: 0; z-index: 60;
   display: flex; flex-direction: column;
   background: var(--bg);
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: var(--safe-top);
 }
 .cam__top {
   display: flex; align-items: center; gap: var(--s3);
@@ -993,10 +1226,11 @@ button.row:hover { background: var(--sunken); }
 }
 .cam__snagh { font-size: 16px; color: var(--ink); }
 .cam__snagp { margin: 0; font-size: 14px; max-width: var(--measure); }
+.cam__snagbtn { margin-top: var(--s4); }
 
 .cam__bar {
   display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
-  padding: var(--s3) var(--s4) calc(var(--s3) + env(safe-area-inset-bottom, 0px));
+  padding: var(--s3) var(--s4) calc(var(--s3) + var(--safe-bottom));
   background: var(--surface); border-top: 1px solid var(--line);
 }
 .cam__read { flex: 1; min-width: 0; }
@@ -1064,7 +1298,10 @@ button.row:hover { background: var(--sunken); }
   }
 
   .app { flex-direction: row; }
-  .topbar, .daybar { display: none; }
+  /* The phone's date strip. Desktop steps the day from its own toolbar
+     instead — see `.toolbar`. There is no top bar left to hide on either
+     platform. */
+  .daybar { display: none; }
 
   .sidebar {
     display: flex; flex-direction: column;
@@ -1085,7 +1322,7 @@ button.row:hover { background: var(--sunken); }
   .sidebar__cta {
     display: flex; align-items: center; justify-content: center; gap: 8px;
     min-height: 44px; margin: 0 4px 18px; padding: 0 var(--s4);
-    border-radius: var(--r-md); background: var(--accent); color: #fff;
+    border-radius: var(--r-md); background: var(--accent); color: var(--on-accent);
     font-size: 14.5px; font-weight: 600; box-shadow: var(--lift);
     transition: background-color 140ms ease-out;
   }
@@ -1121,20 +1358,6 @@ button.row:hover { background: var(--sunken); }
     border-bottom: 1px solid var(--line); background: var(--surface);
     position: sticky; top: 0; z-index: 10;
   }
-  .stepper {
-    display: flex; align-items: stretch; height: 40px;
-    border: 1px solid var(--line); border-radius: var(--r-md);
-    background: var(--surface); overflow: hidden;
-  }
-  .stepper__seg { width: 34px; display: grid; place-items: center; color: var(--ink-2); transition: background-color 120ms ease-out; }
-  .stepper__seg:hover:not(:disabled) { background: var(--sunken); }
-  .stepper__seg:disabled { opacity: 0.35; }
-  .stepper__mid {
-    display: flex; align-items: center; gap: 8px; padding: 0 var(--s4);
-    min-width: 168px; justify-content: center;
-    border-left: 1px solid var(--line); border-right: 1px solid var(--line);
-  }
-  .stepper__label { font-size: 15px; font-weight: 500; white-space: nowrap; }
   .toolbar__today { height: 40px; padding: 0 var(--s4); }
   .toolbar__today:disabled { opacity: 0.4; }
   .toolbar__count { margin-left: auto; color: var(--ink-3); font-size: 13px; }
@@ -1833,7 +2056,7 @@ button.row:hover { background: var(--sunken); }
   .sidebar__link:hover .sidebar__key,
   .sidebar__link[aria-current="page"] .sidebar__key { opacity: 1; }
   .sidebar__link[aria-current="page"] .sidebar__key { color: var(--accent-ink); }
-  .sidebar__cta .kbd { margin-left: auto; background: rgba(255, 255, 255, 0.18); color: #fff; }
+  .sidebar__cta .kbd { margin-left: auto; background: rgba(127, 127, 127, 0.22); color: var(--on-accent); }
 
   /* The footnote sits at the bottom; the nav no longer needs `margin-top:auto`
      fighting it for the same space. */
@@ -1856,6 +2079,11 @@ button.row:hover { background: var(--sunken); }
    Fine-pointer only. On a phone there is no cursor to carry —
    a tap picks the row it landed on — and a permanent rule down
    the first result would be claiming a selection nobody made. */
+/* Desktop only. It reads "↑ ↓ to move, ↵ to pick", which on a phone describes
+   keys the on-screen keyboard does not have — and it was sitting directly under
+   the search field, in the space the first result wants. */
+.search-hero__hint { display: none; }
+@media (min-width: 721px) { .search-hero__hint { display: block; } }
 .hits__hint { color: var(--ink-3); font-size: 11.5px; }
 
 @media (min-width: 721px) and (pointer: fine) {
@@ -1871,8 +2099,68 @@ button.row:hover { background: var(--sunken); }
    Centred over a single narrow column, and left-aligned once
    the workbench splits at 1080px and the search field below
    them stops being centred with them. */
-.foodtabs { justify-content: center; }
-@media (min-width: 1080px) { .foodtabs { justify-content: flex-start; } }
+/* Left-aligned and scrolling, at every width.
+
+   It used to centre below 1080px and wrap — five labels on a 390pt screen put
+   "Water" alone on a second line, centred under the other four, which read as
+   a stray fragment rather than as a fifth tab. A row that scrolls says there
+   is more beside it; a row that wraps says the layout gave up. */
+.foodtabs {
+  justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto;
+  margin: 0 calc(var(--s4) * -1); padding: 0 var(--s4);
+  scrollbar-width: none;
+}
+.foodtabs::-webkit-scrollbar { display: none; }
+.foodtabs .chip { flex: none; }
+@media (min-width: 721px) { .foodtabs { margin: 0; padding: 0; } }
+
+.search-hero__hint { margin-top: var(--s2); }
+
+/* ─────────────────────────────────────────────────────────────
+   "Had it before" — two controls on one row, because there are
+   two things a tap on a food you have had before can mean: log
+   it as last time, or start from last time and change it.
+   ───────────────────────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────
+   The two doors to the camera, on Add food.
+
+   `--tap` rather than `.row`'s 44px: these are the first thing
+   a person holding a packet reaches for, often one-handed and
+   often in a shop, and 48px is the floor Material and the WCAG
+   target-size rule agree on.
+   ───────────────────────────────────────────────────────────── */
+.packrow { grid-template-columns: 1fr auto; min-height: var(--tap); align-items: center; }
+.packrow .row__sub { white-space: normal; }
+.packrow__icon {
+  display: grid; place-items: center; flex: none;
+  width: 38px; height: 38px; border-radius: var(--r-md);
+  background: var(--accent-wash); color: var(--accent-ink);
+}
+.packrow:disabled { opacity: 0.6; cursor: default; }
+.packrow__note { color: var(--over); }
+@media (hover: hover) {
+  button.packrow:hover .packrow__icon { background: var(--accent); color: var(--on-accent); }
+}
+
+.quickrow { display: flex; align-items: center; gap: var(--s2); }
+.quickrow__open {
+  flex: 1; min-width: 0; text-align: left;
+  min-height: var(--tap); display: flex; flex-direction: column; justify-content: center;
+  border-radius: var(--r-sm);
+}
+.quickrow__log {
+  flex: none; display: inline-flex; align-items: center; gap: 3px;
+  min-height: 38px; padding: 0 var(--s3);
+  border-radius: var(--r-pill);
+  background: var(--accent-wash); color: var(--accent-ink);
+  font-size: 12.5px; font-weight: 650;
+  transition: background-color 140ms ease-out, transform 120ms ease-out;
+}
+.quickrow__log:active:not(:disabled) { transform: scale(0.94); }
+.quickrow__log:disabled { opacity: 0.5; cursor: default; }
+@media (hover: hover) {
+  .quickrow__log:hover:not(:disabled) { background: var(--accent); color: var(--on-accent); }
+}
 
 /* ── the full nutrient panel, on a wide window ───────────────
    Twenty-four one-line rows down a 1,100px column puts half a
@@ -1945,7 +2233,7 @@ button.row:hover { background: var(--sunken); }
 
    Declared display:none FIRST, before the query that turns it on: an
    unconditional rule of equal specificity beats an earlier conditional one,
-   so the order matters — the same trap `.fab` carries a comment about. */
+   so the order matters — the same trap `.bar` carries a comment about. */
 .head__back { display: none; }
 
 @media (min-width: 721px) {
