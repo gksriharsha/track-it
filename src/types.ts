@@ -564,8 +564,20 @@ export const CONFIDENCE_THRESHOLD = 0.8;
 export interface RecipeIngredient {
   id: string;
   position: number;
-  /** null when no composition data exists for this ingredient. */
+  /**
+   * A reference food. Null when this line is one of your own foods instead, or
+   * when it has no composition data at all.
+   */
   fdc_id: number | null;
+  /**
+   * One of the user's own transcribed foods. Never set alongside `fdc_id`.
+   *
+   * Both exist because a generic entry is often not the thing in the kitchen:
+   * USDA has forty-two rows matching "tofu" and none of them is the block you
+   * actually buy. A pack you transcribed yourself is better data about your own
+   * dinner than any of them.
+   */
+  custom_food_id: string | null;
   description: string;
   /**
    * Weighed before it goes in — the one weight an ingredient has.
@@ -639,6 +651,8 @@ export interface CookIngredient {
   id: string;
   position: number;
   fdc_id: number | null;
+  /** One of your own foods. Never set alongside `fdc_id`. */
+  custom_food_id: string | null;
   description: string;
   /**
    * The raw weight the recipe called for at this cook's scale, frozen when the

@@ -227,7 +227,17 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
   id          TEXT PRIMARY KEY,
   recipe_id   TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
   position    INTEGER NOT NULL,
-  fdc_id      INTEGER,            -- NULL = no composition data for this ingredient
+  -- What this line is made of: a reference food, one of the user's own foods,
+  -- or -- when both are NULL -- a line with no composition data at all, which
+  -- still counts its mass against the day's coverage.
+  --
+  -- Both, because a generic entry is often not the thing in the kitchen. USDA
+  -- has forty-two rows matching "tofu", eight of them one American brand and
+  -- none of them the block from Costco; a person who has transcribed their own
+  -- pack has better data about their own dinner than any of them, and refusing
+  -- it here would have sent them to pick a stranger's brand instead. See D23.
+  fdc_id      INTEGER,
+  custom_food_id TEXT REFERENCES custom_foods(id),
   description TEXT NOT NULL,
   -- What goes in, weighed before it is cooked. The only weight an ingredient
   -- has, and deliberately so: raw is the one state in which a single
@@ -244,7 +254,10 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
   -- stove, telling them which lines they may skip without having made
   -- something else. Leaving a line out is recorded on the cook, never here:
   -- a recipe that omits its own ingredient is just a different recipe.
-  optional    INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0,1))
+  optional    INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0,1)),
+  -- One or the other, or neither. A line naming both would have two answers
+  -- for what it is made of, and nothing downstream could choose between them.
+  CHECK (fdc_id IS NULL OR custom_food_id IS NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_ri_recipe ON recipe_ingredients(recipe_id, position);
 
@@ -339,7 +352,12 @@ CREATE TABLE IF NOT EXISTS cook_ingredients (
   id          TEXT PRIMARY KEY,
   cook_id     TEXT NOT NULL REFERENCES cooks(id) ON DELETE CASCADE,
   position    INTEGER NOT NULL,
-  fdc_id      INTEGER,            -- NULL = no composition data, as on a recipe
+  -- A reference food, one of the user's own, or neither -- as on a recipe, and
+  -- for the same reasons. A swap at the stove may go either way round: the
+  -- recipe's generic paneer replaced by the brand actually in the fridge, or
+  -- the other way when the usual one ran out.
+  fdc_id      INTEGER,
+  custom_food_id TEXT REFERENCES custom_foods(id),
   description TEXT NOT NULL,
   -- The raw weight the recipe called for at this cook's scale, frozen when the
   -- cook was opened. It is what the dial is centred on, and it keeps "what
@@ -355,7 +373,8 @@ CREATE TABLE IF NOT EXISTS cook_ingredients (
   -- What this stood in for, when it was a substitution. Both are kept: the
   -- substitute is what was eaten, the original is what the dish was meant to
   -- be, and collapsing them would lose the reason the numbers differ.
-  substituted_for TEXT
+  substituted_for TEXT,
+  CHECK (fdc_id IS NULL OR custom_food_id IS NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_ci_cook ON cook_ingredients(cook_id, position);
 
@@ -1010,9 +1029,16 @@ pub struct Tare {
 pub struct RecipeIngredient {
     pub id: String,
     pub position: i64,
-    /// `None` when no composition data exists for this ingredient. The recipe
-    /// still records it, so the gap stays visible instead of vanishing.
+    /// A reference food. `None` when this line is one of the user's own foods,
+    /// or when it has no composition data at all — the recipe still records it
+    /// either way, so a gap stays visible instead of vanishing.
     pub fdc_id: Option<i64>,
+    /// One of the user's own transcribed foods. Never set alongside `fdc_id`.
+    ///
+    /// `#[serde(default)]` so a builder draft written before own foods could be
+    /// ingredients still deserializes.
+    #[serde(default)]
+    pub custom_food_id: Option<String>,
     pub description: String,
     /// Weighed before it went in — the one weight an ingredient has. See the
     /// `recipe_ingredients` table comment and D22.
@@ -1039,6 +1065,9 @@ pub struct CookIngredient {
     pub id: String,
     pub position: i64,
     pub fdc_id: Option<i64>,
+    /// One of the user's own foods. Never set alongside `fdc_id`.
+    #[serde(default)]
+    pub custom_food_id: Option<String>,
     pub description: String,
     /// The raw weight the recipe called for at this cook's scale. The dial's
     /// centre.
@@ -1173,7 +1202,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -2795,6 +2824,88 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
+    // v16 -> v17: an ingredient may be one of the user's own foods.
+    //
+    // A recipe line could only ever be a reference food, and the ingredient
+    // search filtered the user's own out and said so in a footnote. That was
+    // backwards. USDA has forty-two rows matching "tofu" -- eight of them one
+    // American brand, several of them dishes that merely contain tofu, none of
+    // them the block this user actually buys -- so the effect was to make
+    // somebody who had transcribed their own pack pick a stranger's brand
+    // instead, and then carry that guess through every dish built on it.
+    //
+    // Added as a sibling column rather than a polymorphic `kind` + `id` pair:
+    // `fdc_id` is an INTEGER with an index behind it and a custom id is a TEXT
+    // uuid, so one column could hold either only by giving up both. The CHECK
+    // is what makes "one or the other, or neither" unrepresentable rather than
+    // merely discouraged; neither remains legal, and still means a line with no
+    // composition data.
+    //
+    // Nothing existing moves: every line written before this is a reference
+    // food and stays one, with the new column NULL.
+    for table in ["recipe_ingredients", "cook_ingredients"] {
+        if columns(conn, table)?.iter().any(|c| c == "custom_food_id") {
+            continue;
+        }
+        conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        // Rebuilt rather than ALTERed because the pairing is a CHECK, and
+        // SQLite cannot add one in place. `ADD COLUMN` would leave the column
+        // there with nothing stopping a row from setting both.
+        let sql = if table == "recipe_ingredients" {
+            r#"
+            CREATE TABLE recipe_ingredients_migrating (
+              id          TEXT PRIMARY KEY,
+              recipe_id   TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+              position    INTEGER NOT NULL,
+              fdc_id      INTEGER,
+              custom_food_id TEXT REFERENCES custom_foods(id),
+              description TEXT NOT NULL,
+              raw_g       REAL NOT NULL CHECK (raw_g > 0),
+              optional    INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0,1)),
+              CHECK (fdc_id IS NULL OR custom_food_id IS NULL)
+            );
+            INSERT INTO recipe_ingredients_migrating
+              (id, recipe_id, position, fdc_id, custom_food_id, description, raw_g, optional)
+            SELECT id, recipe_id, position, fdc_id, NULL, description, raw_g, optional
+            FROM recipe_ingredients;
+            DROP TABLE recipe_ingredients;
+            ALTER TABLE recipe_ingredients_migrating RENAME TO recipe_ingredients;
+            CREATE INDEX IF NOT EXISTS idx_ri_recipe ON recipe_ingredients(recipe_id, position);
+            "#
+        } else {
+            r#"
+            CREATE TABLE cook_ingredients_migrating (
+              id          TEXT PRIMARY KEY,
+              cook_id     TEXT NOT NULL REFERENCES cooks(id) ON DELETE CASCADE,
+              position    INTEGER NOT NULL,
+              fdc_id      INTEGER,
+              custom_food_id TEXT REFERENCES custom_foods(id),
+              description TEXT NOT NULL,
+              planned_g   REAL NOT NULL CHECK (planned_g >= 0),
+              raw_g       REAL NOT NULL CHECK (raw_g >= 0),
+              substituted_for TEXT,
+              CHECK (fdc_id IS NULL OR custom_food_id IS NULL)
+            );
+            INSERT INTO cook_ingredients_migrating
+              (id, cook_id, position, fdc_id, custom_food_id, description, planned_g, raw_g,
+               substituted_for)
+            SELECT id, cook_id, position, fdc_id, NULL, description, planned_g, raw_g,
+                   substituted_for
+            FROM cook_ingredients;
+            DROP TABLE cook_ingredients;
+            ALTER TABLE cook_ingredients_migrating RENAME TO cook_ingredients;
+            CREATE INDEX IF NOT EXISTS idx_ci_cook ON cook_ingredients(cook_id, position);
+            "#
+        };
+        tx.execute_batch(sql)
+            .map_err(|e| format!("migrating {table} to v17: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+    }
+
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
     // column this indexes does not exist yet and the whole batch would fail.
@@ -3301,6 +3412,18 @@ pub fn save_recipe(
     if ingredients.is_empty() {
         return Err("a recipe needs at least one ingredient".into());
     }
+    // The column CHECK forbids it too. Rejecting it here is what turns a
+    // constraint violation into a sentence, and says which line went wrong.
+    if let Some(bad) = ingredients
+        .iter()
+        .find(|i| i.fdc_id.is_some() && i.custom_food_id.is_some())
+    {
+        return Err(format!(
+            "“{}” names both a reference food and one of your own; an ingredient is one or \
+             the other",
+            bad.description
+        ));
+    }
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let id = new_id(&tx)?;
     let now = now_iso(&tx)?;
@@ -3325,13 +3448,14 @@ pub fn save_recipe(
         let iid = new_id(&tx)?;
         tx.execute(
             "INSERT INTO recipe_ingredients
-               (id,recipe_id,position,fdc_id,description,raw_g,optional)
-             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+               (id,recipe_id,position,fdc_id,custom_food_id,description,raw_g,optional)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
             rusqlite::params![
                 iid,
                 id,
                 i as i64,
                 ing.fdc_id,
+                ing.custom_food_id,
                 ing.description,
                 ing.raw_g,
                 ing.optional as i64
@@ -3390,7 +3514,7 @@ fn get_recipe_inner(conn: &Connection, id: &str, include_deleted: bool) -> Resul
 
     let mut istmt = conn
         .prepare(
-            "SELECT id, position, fdc_id, description, raw_g, optional
+            "SELECT id, position, fdc_id, custom_food_id, description, raw_g, optional
              FROM recipe_ingredients WHERE recipe_id = ?1 ORDER BY position",
         )
         .map_err(|e| e.to_string())?;
@@ -3400,9 +3524,10 @@ fn get_recipe_inner(conn: &Connection, id: &str, include_deleted: bool) -> Resul
                 id: r.get(0)?,
                 position: r.get(1)?,
                 fdc_id: r.get(2)?,
-                description: r.get(3)?,
-                raw_g: r.get(4)?,
-                optional: r.get::<_, i64>(5)? != 0,
+                custom_food_id: r.get(3)?,
+                description: r.get(4)?,
+                raw_g: r.get(5)?,
+                optional: r.get::<_, i64>(6)? != 0,
             })
         })
         .map_err(|e| e.to_string())?
@@ -3556,6 +3681,13 @@ pub fn save_cook(
     // NaN would sail past the column CHECK on the NaN and mean nothing on the
     // negative.
     for ing in &input.ingredients {
+        if ing.fdc_id.is_some() && ing.custom_food_id.is_some() {
+            return Err(format!(
+                "“{}” names both a reference food and one of your own; an ingredient is one \
+                 or the other",
+                ing.description
+            ));
+        }
         for (what, v) in [("planned", ing.planned_g), ("raw", ing.raw_g)] {
             if !(v.is_finite() && v >= 0.0) {
                 return Err(format!(
@@ -3654,13 +3786,15 @@ pub fn save_cook(
         let iid = new_id(&tx)?;
         tx.execute(
             "INSERT INTO cook_ingredients
-               (id,cook_id,position,fdc_id,description,planned_g,raw_g,substituted_for)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+               (id,cook_id,position,fdc_id,custom_food_id,description,planned_g,raw_g,
+                substituted_for)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             rusqlite::params![
                 iid,
                 id,
                 i as i64,
                 ing.fdc_id,
+                ing.custom_food_id,
                 ing.description,
                 ing.planned_g,
                 ing.raw_g,
@@ -3726,7 +3860,8 @@ fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<
 
     let mut istmt = conn
         .prepare(
-            "SELECT id, position, fdc_id, description, planned_g, raw_g, substituted_for
+            "SELECT id, position, fdc_id, custom_food_id, description, planned_g, raw_g,
+                    substituted_for
              FROM cook_ingredients WHERE cook_id = ?1 ORDER BY position",
         )
         .map_err(|e| e.to_string())?;
@@ -3736,10 +3871,11 @@ fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<
                 id: r.get(0)?,
                 position: r.get(1)?,
                 fdc_id: r.get(2)?,
-                description: r.get(3)?,
-                planned_g: r.get(4)?,
-                raw_g: r.get(5)?,
-                substituted_for: r.get(6)?,
+                custom_food_id: r.get(3)?,
+                description: r.get(4)?,
+                planned_g: r.get(5)?,
+                raw_g: r.get(6)?,
+                substituted_for: r.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -6770,12 +6906,60 @@ fn missing_dependency(tx: &rusqlite::Transaction, r: &Incoming) -> Result<Option
             .map_err(|e| e.to_string())?;
         Ok((!here).then(|| waiting.to_string()))
     };
+
+    // The same test, but for a dependency that lives on a CHILD row rather than
+    // on the parent. A recipe's ingredients may name one of the author's own
+    // foods, and that food is a shared row of its own that may not have arrived
+    // yet — so the dish has to wait for it.
+    //
+    // Without this the child INSERT would fail its foreign key, abort the whole
+    // apply batch, and stick the sync on one row for ever: `replace_aggregate`
+    // explains at length why that is unrecoverable rather than merely annoying.
+    let need_child = |child: &str, column: &str, parent: &str, waiting: &str|
+     -> Result<Option<String>, String> {
+        let Some(rows) = r.body.get(child).and_then(|v| v.as_array()) else {
+            return Ok(None);
+        };
+        for row in rows {
+            let Some(v) = row.get(column).and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let here: bool = tx
+                .query_row(
+                    &format!("SELECT EXISTS (SELECT 1 FROM {parent} WHERE id = ?1)"),
+                    [v],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if !here {
+                return Ok(Some(waiting.to_string()));
+            }
+        }
+        Ok(None)
+    };
+
     match r.table.as_str() {
-        "cooks" => need(
-            "recipes",
-            "recipe_id",
-            "waiting for the recipe this pot was cooked from",
+        "recipes" => need_child(
+            "recipe_ingredients",
+            "custom_food_id",
+            "custom_foods",
+            "waiting for one of your household's own foods that this recipe is built on",
         ),
+        "cooks" => {
+            if let Some(reason) = need(
+                "recipes",
+                "recipe_id",
+                "waiting for the recipe this pot was cooked from",
+            )? {
+                return Ok(Some(reason));
+            }
+            need_child(
+                "cook_ingredients",
+                "custom_food_id",
+                "custom_foods",
+                "waiting for one of your household's own foods that went into this pot",
+            )
+        }
         "cook_draws" => need(
             "cooks",
             "cook_id",
@@ -7545,6 +7729,7 @@ mod tests {
             id: String::new(),
             position: 0,
             fdc_id: fdc,
+            custom_food_id: None,
             description: desc.into(),
             raw_g: raw,
             optional: false,
@@ -7892,6 +8077,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: Some(16033),
+                    custom_food_id: None,
                     description: "Kidney beans, dry".into(),
                     planned_g: 300.0,
                     raw_g: 300.0,
@@ -7907,6 +8093,150 @@ mod tests {
             pot.ingredients.iter().map(|i| i.raw_g).sum::<f64>(),
             300.0,
             "and the lines still add to the 300 g of dry bean that went in"
+        );
+    }
+
+    #[test]
+    fn a_recipe_line_may_be_one_of_the_users_own_foods() {
+        // The generic reference data does not stock everybody's kitchen. USDA
+        // has forty-two rows matching "tofu" and none of them is the block this
+        // user actually buys, so a recipe has to be able to name the pack they
+        // transcribed themselves.
+        let mut c = db();
+        let tofu = save_custom_food(
+            &mut c,
+            None,
+            &pack("Costco extra-firm tofu", 85.0, vec![measured(1008, 90.0)]),
+        )
+        .unwrap();
+
+        let rid = save_recipe(
+            &mut c, "Tofu bhurji", 600.0, None, None,
+            &[
+                RecipeIngredient {
+                    id: String::new(), position: 0, fdc_id: None,
+                    custom_food_id: Some(tofu.clone()),
+                    description: "Costco extra-firm tofu".into(),
+                    raw_g: 400.0, optional: false,
+                },
+                ing("Onions, raw", Some(170000), 120.0),
+            ],
+            &[], &Tags::default(),
+        )
+        .unwrap();
+
+        let r = get_recipe(&c, &rid).unwrap();
+        assert_eq!(r.ingredients[0].custom_food_id.as_deref(), Some(&tofu[..]));
+        assert_eq!(
+            r.ingredients[0].fdc_id, None,
+            "a line is one kind of food or the other, never both at once"
+        );
+        assert_eq!(
+            r.ingredients[1].custom_food_id, None,
+            "and a reference line is untouched by the new column"
+        );
+    }
+
+    #[test]
+    fn an_ingredient_naming_both_kinds_of_food_is_refused_with_the_line_named() {
+        // Two answers for what a line is made of, and nothing downstream could
+        // choose between them. Refused in Rust as well as by the column CHECK,
+        // so the message says which line rather than quoting a constraint.
+        let mut c = db();
+        let own = save_custom_food(&mut c, None, &pack("Costco extra-firm tofu", 85.0, vec![]))
+            .unwrap();
+        let both = RecipeIngredient {
+            id: String::new(), position: 0, fdc_id: Some(170000),
+            custom_food_id: Some(own.clone()),
+            description: "Tofu".into(), raw_g: 400.0, optional: false,
+        };
+        let err = save_recipe(
+            &mut c, "Confused", 600.0, None, None, &[both.clone()], &[], &Tags::default(),
+        )
+        .unwrap_err();
+        assert!(err.contains("Tofu"), "the message must name the line: {err}");
+
+        // And the same on a pot, which takes its lines by a different path.
+        let err = save_cook(
+            &mut c,
+            None,
+            &CookInput {
+                recipe_id: None, name: "Confused".into(), cooked_on: "2026-09-12".into(),
+                scale: 1.0, gross_g: None, vessel_ids: Vec::new(), weighed_yield_g: None,
+                expected_yield_g: 600.0, notes: None, defaults: Tags::default(),
+                ingredients: vec![CookIngredient {
+                    id: String::new(), position: 0, fdc_id: Some(170000),
+                    custom_food_id: Some(own),
+                    description: "Tofu".into(), planned_g: 400.0, raw_g: 400.0,
+                    substituted_for: None,
+                }],
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("Tofu"), "the message must name the line: {err}");
+    }
+
+    #[test]
+    fn migrates_a_v16_recipe_and_leaves_every_line_the_reference_food_it_was() {
+        // Nothing existing moves: every line written before own foods could be
+        // ingredients is a reference food and stays one.
+        let mut c = Connection::open_in_memory().unwrap();
+        c.pragma_update(None, "foreign_keys", "ON").unwrap();
+        c.execute_batch(SCHEMA).unwrap();
+        c.execute_batch(
+            r#"
+            DROP TABLE recipe_ingredients;
+            CREATE TABLE recipe_ingredients (
+              id TEXT PRIMARY KEY,
+              recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+              position INTEGER NOT NULL, fdc_id INTEGER, description TEXT NOT NULL,
+              raw_g REAL NOT NULL, optional INTEGER NOT NULL DEFAULT 0
+            );
+            DROP TABLE cook_ingredients;
+            CREATE TABLE cook_ingredients (
+              id TEXT PRIMARY KEY,
+              cook_id TEXT NOT NULL REFERENCES cooks(id) ON DELETE CASCADE,
+              position INTEGER NOT NULL, fdc_id INTEGER, description TEXT NOT NULL,
+              planned_g REAL NOT NULL, raw_g REAL NOT NULL, substituted_for TEXT
+            );
+            INSERT INTO recipes (id,name,yield_g,notes,created_at,updated_at)
+              VALUES ('r1','Rajma',900,NULL,'t','t');
+            INSERT INTO recipe_ingredients
+              (id,recipe_id,position,fdc_id,description,raw_g,optional)
+              VALUES ('ri1','r1',0,16033,'Kidney beans, dry',300,0);
+            INSERT INTO cooks
+              (id,recipe_id,name,cooked_on,cooked_at,scale,expected_yield_g,created_at,updated_at)
+              VALUES ('c1','r1','Rajma','2026-09-04','t',1,900,'t','t');
+            INSERT INTO cook_ingredients
+              (id,cook_id,position,fdc_id,description,planned_g,raw_g,substituted_for)
+              VALUES ('ci1','c1',0,16033,'Kidney beans, dry',300,300,NULL);
+            "#,
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 16).unwrap();
+
+        migrate(&mut c).unwrap();
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+
+        let r = get_recipe(&c, "r1").unwrap();
+        assert_eq!(r.ingredients[0].fdc_id, Some(16033));
+        assert_eq!(r.ingredients[0].custom_food_id, None);
+        assert_eq!(r.ingredients[0].raw_g, 300.0);
+        let pot = get_cook(&c, "c1").unwrap();
+        assert_eq!(pot.ingredients[0].fdc_id, Some(16033));
+        assert_eq!(pot.ingredients[0].custom_food_id, None);
+
+        // And the pairing is enforced from here on, not merely declared.
+        assert!(
+            c.execute(
+                "INSERT INTO recipe_ingredients
+                   (id,recipe_id,position,fdc_id,custom_food_id,description,raw_g,optional)
+                 VALUES ('ri2','r1',1,16033,'whatever','Both',10,0)",
+                [],
+            )
+            .is_err(),
+            "a line naming both kinds of food must be unrepresentable"
         );
     }
 
@@ -8144,6 +8474,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: Some(16033),
+                    custom_food_id: None,
                     description: "kidney beans".into(),
                     planned_g: 900.0,
                     raw_g: 300.0,
@@ -9860,6 +10191,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: None,
+                    custom_food_id: None,
                     description: "Toor dal".into(),
                     planned_g: weighed_g,
                     raw_g: weighed_g,
@@ -10664,6 +10996,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: Some(16033),
+                    custom_food_id: None,
                     description: "kidney beans".into(),
                     planned_g: 900.0,
                     raw_g: 300.0,
@@ -11247,6 +11580,79 @@ mod tests {
     }
 
     #[test]
+    fn a_recipe_built_on_one_of_your_own_foods_waits_for_that_food_to_arrive() {
+        // An ingredient may now be a food the author transcribed themselves,
+        // and that food is a shared row of its own that travels separately. A
+        // dish arriving first would insert a child line pointing at a food this
+        // device has never seen — a foreign key failure that aborts the whole
+        // apply batch and sticks the sync on one row permanently, which is the
+        // failure `replace_aggregate` exists to explain.
+        let (mut a, mut b) = paired();
+        let a_id = device_id(&a).unwrap();
+        let tofu = save_custom_food(
+            &mut a,
+            None,
+            &pack("Costco extra-firm tofu", 85.0, vec![measured(1008, 90.0)]),
+        )
+        .unwrap();
+        save_recipe(
+            &mut a, "Tofu bhurji", 600.0, None, None,
+            &[RecipeIngredient {
+                id: String::new(), position: 0, fdc_id: None,
+                custom_food_id: Some(tofu.clone()),
+                description: "Costco extra-firm tofu".into(),
+                raw_g: 400.0, optional: false,
+            }],
+            &[], &Tags::default(),
+        )
+        .unwrap();
+
+        // Send the dish and nothing else.
+        let (rows, upto, _) = feed_since(&a, 0, 1000).unwrap();
+        let dish = rows.iter().find(|r| r.table == "recipes").unwrap();
+        let text = serde_json::to_string(&serde_json::json!({
+            "table": dish.table, "id": dish.id, "version": dish.version,
+            "device_id": dish.device_id, "seq": dish.seq,
+            "changed_at": dish.changed_at, "body": dish.body,
+        }))
+        .unwrap();
+        let out = apply_batch(
+            &mut b, &a_id, &[Incoming::from_envelope(&text).unwrap()], upto, None,
+        )
+        .unwrap();
+
+        assert_eq!(out.held, 1);
+        assert_eq!(out.taken, 0);
+        let dishes: i64 = b
+            .query_row("SELECT COUNT(*) FROM recipes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(dishes, 0, "half a recipe is worse than no recipe");
+        let reason: String = b
+            .query_row("SELECT reason FROM sync_pending", [], |r| r.get(0))
+            .unwrap();
+        assert!(
+            reason.contains("own foods"),
+            "the sentence has to say what it is waiting for: {reason}"
+        );
+
+        // And now the food turns up.
+        let food = rows.iter().find(|r| r.table == "custom_foods").unwrap();
+        let text = serde_json::to_string(&serde_json::json!({
+            "table": food.table, "id": food.id, "version": food.version,
+            "device_id": food.device_id, "seq": food.seq,
+            "changed_at": food.changed_at, "body": food.body,
+        }))
+        .unwrap();
+        let out = apply_batch(
+            &mut b, &a_id, &[Incoming::from_envelope(&text).unwrap()], upto, None,
+        )
+        .unwrap();
+        assert_eq!(out.still_held, 0, "the dish must be released by the food arriving");
+        let r = get_recipe(&b, &dish.id).unwrap();
+        assert_eq!(r.ingredients[0].custom_food_id.as_deref(), Some(&tofu[..]));
+    }
+
+    #[test]
     fn a_pot_that_arrives_before_its_recipe_is_held_whole_not_applied_in_part() {
         let (mut a, mut b) = paired();
         let (rid, cid) = kitchen(&mut a);
@@ -11429,6 +11835,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: Some(16033),
+                    custom_food_id: None,
                     description: "kidney beans".into(),
                     planned_g: 600.0,
                     raw_g: 200.0,
@@ -11930,6 +12337,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: Some(172421),
+                    custom_food_id: None,
                     description: "Lentils".into(),
                     planned_g: 900.0,
                     raw_g: 300.0,
