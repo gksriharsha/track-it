@@ -5,8 +5,7 @@
       "name": "trackit-web",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite"],
-      "port": 5173,
-      "autoPort": true
+      "port": 1420
     }
   ]
 }

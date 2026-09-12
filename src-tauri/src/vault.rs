@@ -864,18 +864,24 @@ pub fn enable(
 
     match crate::store::open_encrypted(&db, &key) {
         Ok(conn) => {
+            /*
+              The identity is KEPT here, and that is the point of this comment.
+
+              This function encrypts the log this phone already had, in place.
+              Same installation, same database, same household — nothing has
+              arrived from anywhere else, so there is nothing to disown. A
+              `forget_household_identity` call sat here and emptied
+              `this_device` every time somebody turned encryption on, which
+              left all fourteen change-tracking triggers selecting NULL into
+              `row_version.device_id NOT NULL`: from then on saving or editing
+              a recipe, cook, custom food, supplement, vessel or bottle failed
+              a constraint, and nothing ever re-minted an id. It was added by
+              af06b07 ("stop a restore stealing an identity") and the diff
+              header shows it landing on `pub fn enable` — the right call put
+              in the wrong function. It now lives in `restore`, which is the
+              one that adopts another phone's sealed log.
+            */
             *guard = conn;
-            // The sealed file was `user.db` whole, so it arrived carrying the
-            // household identity of the phone that sealed it. This is a second
-            // installation, not that one, and two devices answering to one id
-            // drain every pot at double speed without saying so — see
-            // `store::forget_household_identity`. Never fatal: the log is
-            // already back, and a duplicate identity is something the user can
-            // undo by pairing again, whereas failing here would leave them
-            // holding a restore that reported an error.
-            if let Err(e) = crate::store::forget_household_identity(&guard) {
-                eprintln!("the restored log kept its old household identity: {e}");
-            }
         }
         Err(e) => {
             // The encrypted log will not open. Put the plaintext one back —
@@ -1253,6 +1259,18 @@ pub fn restore(
     match crate::store::open_encrypted(&db, &key) {
         Ok(conn) => {
             *guard = conn;
+            // The sealed file was `user.db` whole, so it arrived carrying the
+            // household identity of the phone that sealed it. This is a second
+            // installation, not that one, and two devices answering to one id
+            // drain every pot at double speed without saying so — see
+            // `store::forget_household_identity`, which disowns the pairings
+            // and mints this installation an id of its own. Never fatal: the
+            // log is already live, and a household you have to join again is
+            // one visible step, whereas failing here would leave the user
+            // holding a restore that reported an error.
+            if let Err(e) = crate::store::forget_household_identity(&guard) {
+                eprintln!("the restored log kept its old household identity: {e}");
+            }
         }
         Err(e) => {
             // Put back what was there. This is the whole reason `swap_in` keeps

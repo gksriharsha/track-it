@@ -2476,15 +2476,40 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
     // reader will worry about it: all fourteen change-tracking triggers read
     // `(SELECT device_id FROM this_device)`. Dropping and renaming that table
     // does not drop them -- they hang off `recipes`, `cooks` and the rest, not
-    // off `this_device` -- and they resolve the name at fire time, so they keep
-    // working across this arm.
+    // off `this_device`.
+    //
+    // They keep working across this arm, but NOT for the reason this comment
+    // used to give. "They resolve the name at fire time" is true of firing and
+    // false of renaming: since SQLite 3.25 `ALTER TABLE ... RENAME TO` re-parses
+    // every trigger body in the schema so it can rewrite references to the old
+    // name, and at that point in the batch `this_device` has just been dropped.
+    // The re-parse then fails on the first trigger that names it and the whole
+    // migration errors with
+    //
+    //     error in trigger trg_ver_recipes_ins: no such table: main.this_device
+    //
+    // which on a phone means the app does not start AT ALL. `legacy_alter_table`
+    // is the documented switch for exactly this: it makes RENAME move the table
+    // and leave every other schema object alone, which is what is wanted here
+    // because the table ends the batch under the name those triggers already
+    // use. Set around the transaction rather than inside it, next to the
+    // `foreign_keys` pragma that cannot be changed inside one.
+    //
+    // This was invisible to the suite for a real reason, fixed alongside it:
+    // `install_sync_triggers` runs in `open` AFTER `migrate`, so a fixture built
+    // in memory and handed straight to `migrate` carries no triggers, while
+    // every phone in the world has had them sitting in `sqlite_master` since
+    // build 11's first launch. See
+    // `migrates_a_v14_database_that_already_carries_the_sync_triggers`.
     if !columns(conn, "this_device")?.iter().any(|c| c == "static_pk") {
         conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "legacy_alter_table", "ON")
             .map_err(|e| e.to_string())?;
         let tx = conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| e.to_string())?;
-        tx.execute_batch(
+        let result = tx.execute_batch(
             "CREATE TABLE this_device_migrating (
                id         INTEGER PRIMARY KEY CHECK (id = 1),
                device_id  TEXT NOT NULL,
@@ -2498,11 +2523,22 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
              SELECT id, device_id, name, created_at FROM this_device;
              DROP TABLE this_device;
              ALTER TABLE this_device_migrating RENAME TO this_device;",
-        )
-        .map_err(|e| format!("migrating this_device to v15: {e}"))?;
-        tx.commit().map_err(|e| e.to_string())?;
+        );
+        // The transaction is finished BEFORE the pragmas are put back, because
+        // `tx` borrows the connection and neither pragma can be set while it
+        // lives. A failed batch is rolled back by dropping it.
+        match &result {
+            Ok(()) => tx.commit().map_err(|e| e.to_string())?,
+            Err(_) => drop(tx),
+        }
+        // Restored whether the batch worked or not: leaving a connection in
+        // legacy rename mode would silently change the behaviour of every arm
+        // added after this one.
+        conn.pragma_update(None, "legacy_alter_table", "OFF")
+            .map_err(|e| e.to_string())?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| e.to_string())?;
+        result.map_err(|e| format!("migrating this_device to v15: {e}"))?;
     }
 
     if !columns(conn, "peers")?.iter().any(|c| c == "acked_through") {
@@ -7043,13 +7079,37 @@ pub fn set_static_keypair(conn: &Connection, pk: &[u8], sk: &[u8]) -> Result<(),
 /// converges because a tiebreak only needs both sides to compare the same two
 /// strings.
 pub fn forget_household_identity(conn: &Connection) -> Result<(), String> {
-    conn.execute_batch(
-        "BEGIN IMMEDIATE;
-         DELETE FROM peers;
-         DELETE FROM this_device;
-         COMMIT;",
-    )
-    .map_err(|e| format!("giving up the restored device identity: {e}"))
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("giving up the restored device identity: {e}"))?;
+    tx.execute_batch("DELETE FROM peers; DELETE FROM this_device;")
+        .map_err(|e| format!("giving up the restored device identity: {e}"))?;
+
+    /*
+      And immediately mint a new one, in the SAME transaction.
+
+      Leaving `this_device` empty is not a resting state this database has —
+      it is a broken one. `ensure_device_identity` says why in its own doc:
+      "without an identity every trigger writes a NULL `device_id` and every
+      cook-sourced helping fails its NOT NULL". All fourteen change-tracking
+      triggers read `(SELECT device_id FROM this_device)`, and `row_version`
+      declares `device_id TEXT NOT NULL`, so with the table empty every write
+      to a recipe, cook, custom food, supplement, vessel or bottle fails a
+      constraint. Nothing re-mints afterwards either: the only other production
+      mint is inside the v12 -> v13 migration arm, which never runs again once
+      `user_version` has passed 13.
+
+      What this function is FOR is giving up the household — the pairings, and
+      the sealing phone's claim to be this phone. That is served by a fresh id:
+      this installation is a stranger to the old household and has to be paired
+      again, which is the one visible step the doc above argues for, and it can
+      still write to its own kitchen in the meantime.
+    */
+    let minted = ensure_device_identity(&tx)?;
+    debug_assert!(minted, "the row was just deleted, so one must have been minted");
+
+    tx.commit()
+        .map_err(|e| format!("giving up the restored device identity: {e}"))
 }
 
 /// A peer as the dialler needs it.
@@ -10030,6 +10090,67 @@ mod tests {
         vec![fill; 32]
     }
 
+    /// A v14 database with the sync triggers ALREADY ON IT, which is what every
+    /// installed build 11 actually has and what no other test here had.
+    ///
+    /// `install_sync_triggers` is called from `open` AFTER `migrate`, so a test
+    /// that builds its fixture in memory and calls `migrate` directly has no
+    /// triggers on it and the v15 arms rebuild `this_device` against an empty
+    /// schema. A phone does not: build 11 installed those fourteen triggers on
+    /// its own first launch and they have been sitting in `sqlite_master` ever
+    /// since. `ALTER TABLE ... RENAME TO` re-parses every trigger body in the
+    /// schema, and at that moment `this_device` has just been dropped — so the
+    /// rename fails with "error in trigger trg_ver_recipes_ins: no such table:
+    /// main.this_device" and the app cannot start at all.
+    ///
+    /// Found by installing the real build-11 APK on an emulator, logging food,
+    /// and upgrading in place. The suite could not have found it: the arm's own
+    /// comment argued the triggers "resolve the name at fire time, so they keep
+    /// working across this arm", which is true of firing and false of renaming.
+    #[test]
+    fn migrates_a_v14_database_that_already_carries_the_sync_triggers() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch(V14_HOUSEHOLD).unwrap();
+        c.execute_batch(SCHEMA).unwrap();
+        // The half a real phone has and the fixtures did not.
+        install_sync_triggers(&c).unwrap();
+        c.execute(
+            "INSERT INTO this_device (id, device_id, name, created_at)
+             VALUES (1, 'phone-11', 'Pixel', '2026-09-07T09:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO log_entries (id, logged_on, meal, source_kind, fdc_id, description, grams, created_at, updated_at)
+             VALUES ('e1', '2026-09-07', 'lunch', 'food', 2708346, 'Idli', 120.0, '2026-09-07T12:00:00Z', '2026-09-07T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 14).unwrap();
+
+        migrate(&mut c).unwrap();
+
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION, "the database must end up current");
+        // The identity survived the rebuild rather than being dropped with the table.
+        let id: String = c
+            .query_row("SELECT device_id FROM this_device", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(id, "phone-11");
+        // And the eating is untouched, which is the whole point of the upgrade.
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM log_entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1, "the log must come through the household migration");
+        // The triggers still work afterwards: a write must find this_device.
+        c.execute(
+            "INSERT INTO recipes (id, name, yield_g, created_at, updated_at)
+             VALUES ('r1', 'Sambar', 800.0, '2026-09-07T12:00:00Z', '2026-09-07T12:00:00Z')",
+            [],
+        )
+        .expect("a recipe must be writable once the migration is done");
+    }
+
     #[test]
     fn migrates_a_v14_database_to_a_household_key_and_a_remembered_address() {
         let mut c = Connection::open_in_memory().unwrap();
@@ -10366,6 +10487,61 @@ mod tests {
         );
     }
 
+    /// Disowning a household must leave this installation able to write.
+    ///
+    /// `forget_household_identity` used to `DELETE FROM this_device` and stop
+    /// there, which is not a state this database has a name for: every one of
+    /// the fourteen change-tracking triggers selects `device_id` out of that
+    /// table into `row_version.device_id NOT NULL`, so an empty table means the
+    /// next write to any shared kitchen table fails a constraint — and nothing
+    /// re-mints, because the only other production mint is the v13 arm, which
+    /// never runs again.
+    #[test]
+    fn giving_up_a_household_leaves_this_device_able_to_write() {
+        let c = db();
+        let before = device_id(&c).expect("a fresh database has an identity");
+        save_vessel(&c, None, "katori", 62.0).unwrap();
+
+        forget_household_identity(&c).unwrap();
+
+        let after = device_id(&c).expect("disowning a household must not leave it with none");
+        assert_ne!(
+            before, after,
+            "the point of disowning is to stop answering to the old id"
+        );
+        // The real assertion: the kitchen still writes. This is what broke.
+        save_vessel(&c, None, "tumbler", 88.0)
+            .expect("a vessel must still be writable after giving up a household");
+        let v: String = c
+            .query_row(
+                "SELECT device_id FROM row_version WHERE table_name = 'vessels'
+                 ORDER BY rowid DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v, after, "the new write is authored by the new identity");
+    }
+
+    /// The pairings go, which is the half that was always right.
+    #[test]
+    fn giving_up_a_household_drops_every_peer() {
+        let c = db();
+        c.execute(
+            "INSERT INTO peers (device_id, name, static_pk, paired_at)
+             VALUES ('mac-1', 'Kitchen Mac', ?1, '2026-08-02T18:20:00Z')",
+            [vec![9u8; 32]],
+        )
+        .unwrap();
+
+        forget_household_identity(&c).unwrap();
+
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM peers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "a restored log must not keep the other phone's pairings");
+    }
+
     #[test]
     fn calibrating_a_bottle_travels() {
         // The v13 -> v14 arm added `empty_g` and `volume_ml` and the version
@@ -10465,20 +10641,25 @@ mod tests {
 
         forget_household_identity(&a).unwrap();
 
-        assert!(
-            device_id(&a).is_err(),
-            "the identity is gone rather than reused"
-        );
-        assert!(static_keypair(&a).unwrap().is_none(), "and so is the key");
+        // REPLACED, not merely dropped.
+        //
+        // This used to assert `device_id(&a).is_err()` and then call
+        // `ensure_device_identity` by hand under the comment "the next launch
+        // mints a fresh one". No launch did: `ensure_device_identity` has no
+        // production caller at all, and the only other mint is the v13
+        // migration arm, which never runs again once `user_version` is past 13.
+        // So the state this asserted was one the app could not get out of, and
+        // in it every write to a shared kitchen table fails
+        // `row_version.device_id NOT NULL`. The mint now happens inside
+        // `forget_household_identity`, which is what makes the old comment true.
+        let now = device_id(&a).expect("disowning a household must not leave it with no id");
+        assert_ne!(now, was, "and it is not the id it arrived wearing");
+        assert!(static_keypair(&a).unwrap().is_none(), "the key is gone");
         assert!(
             list_peers(&a).unwrap().is_empty(),
             "the inherited pairings go too — they describe a household this \
              installation has not joined"
         );
-
-        // The next launch mints a fresh one, and it is not the old one.
-        ensure_device_identity(&a).unwrap();
-        assert_ne!(device_id(&a).unwrap(), was);
         // Nothing was done to the other device, which still holds its own.
         assert_eq!(list_peers(&b).unwrap().len(), 1);
     }

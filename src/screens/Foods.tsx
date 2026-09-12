@@ -10,6 +10,7 @@ import {
   listOpenCooks,
   finishCook,
   frequentFoods,
+  scanBarcode,
   humanDate,
   listSupplements,
   listVessels,
@@ -38,6 +39,9 @@ import { MEALS, SOURCE_LABEL, describeVolume, parsePick } from "../types";
 import { fmtAmount, plural } from "../lib/nutrient";
 import WeightField from "../components/WeightField";
 import TagPicker from "../components/TagPicker";
+import { UndoToast, useQuickLog } from "../components/QuickLog";
+import CameraCapture from "../components/CameraCapture";
+import { bare, canStream, readBarcodeFromFile, useCameraRoute } from "../lib/camera";
 import type { Weighed } from "../components/WeightField";
 
 interface Props {
@@ -77,8 +81,16 @@ interface Props {
   onEditCook: (cookId: string) => void;
   /** The list of the user's own foods. */
   onManageCustomFoods: () => void;
-  /** The custom-food editor, on a food that does not exist yet. */
-  onCreateCustomFood: () => void;
+  /**
+   * The custom-food editor, on a food that does not exist yet.
+   *
+   * Takes the digits when the user got here by scanning a pack nothing matched,
+   * so the one thing they have already done for this food is not thrown away
+   * and asked for again.
+   */
+  onCreateCustomFood: (barcode?: string) => void;
+  /** The supplement editor, on a supplement that does not exist yet. */
+  onCreateSupplement: () => void;
   /** The supplement library. */
   onManageSupplements: () => void;
   /** The bottle library. */
@@ -106,6 +118,107 @@ export default function Foods(p: Props) {
    * shortcut, and the screen then looks exactly as it did before this existed.
    */
   const [quick, setQuick] = useState<FrequentFood[]>([]);
+  /* One tap writes the food at the weight printed on its button, and the way
+     back out sits over the screen for eight seconds. `p.onLogged` is
+     deliberately NOT called: that navigates to Today, and a person logging
+     three staples in a row should stay in the list they are working down. The
+     day behind this screen is re-read when they leave it. */
+  const qlog = useQuickLog(p.date, p.meal, () => {});
+
+  /* ── reading a pack ───────────────────────────────────────────────────────
+     The lens is held open by the hash, not by state, so the Android back
+     gesture closes it instead of navigating this screen out from under it —
+     which matters more here than anywhere else, because `Foods` stays MOUNTED
+     behind its asides (`hidden`, not unmounted), so a backed-out-of camera
+     would keep a live stream and the indicator light running behind a hidden
+     div. See `useCameraRoute`. */
+  const barCam = useCameraRoute("barcode");
+  /** The digits last read, so the no-match state knows a scan is why it is showing. */
+  const [scanCode, setScanCode] = useState<string | null>(null);
+  const [scanNote, setScanNote] = useState<string | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const barFile = useRef<HTMLInputElement>(null);
+  const barSeq = useRef(0);
+  /** Refocused when the sheet closes, so the keyboard is not left at the page top. */
+  const barBtn = useRef<HTMLButtonElement>(null);
+
+  /**
+   * What a frame or a photo came to.
+   *
+   * `trusted` is the whole gate. An untrusted read is a guess at digits, and a
+   * guess searched silently would put the wrong food in front of someone about
+   * to log it — so it is reported rather than used.
+   */
+  async function readBarcode(b64: string) {
+    const mine = ++barSeq.current;
+    setScanBusy(true);
+    setScanNote(null);
+    try {
+      const r = await scanBarcode(bare(b64));
+      if (mine !== barSeq.current) return;
+      if (r.payload !== null && r.trusted) {
+        setScanCode(r.payload);
+        setScanNote(null);
+        // Straight into the search this screen already has: in TrackIt a
+        // barcode IS a search — over the foods you transcribed yourself — and
+        // it deliberately does not pick anything. A silent auto-pick would be a
+        // write the back gesture could not undo, and it would teach a
+        // scan-and-it-is-logged gesture the app cannot honour.
+        setQuery(r.payload);
+      } else if (r.payload !== null) {
+        setScanNote(
+          r.trouble ??
+            "Those digits did not check out, so they were not searched. Try again square on, or type them in.",
+        );
+      } else {
+        setScanNote(
+          r.trouble ??
+            "No barcode was found. Fill the frame with the code, hold steady, and try again.",
+        );
+      }
+    } catch (e) {
+      if (mine === barSeq.current) setScanNote(sentence(String(e)));
+    } finally {
+      if (mine === barSeq.current) setScanBusy(false);
+    }
+  }
+
+  /**
+   * The way in when there is no lens — a permission denied, a desktop, a
+   * WebView built without the capability.
+   *
+   * This works and always would have: `scan_barcode` takes the same gate a
+   * stored photo does and never cared where the bytes came from. Only the
+   * interface insisted on a camera.
+   */
+  async function readBarcodeFile(f: File) {
+    setScanBusy(true);
+    setScanNote(null);
+    const mine = ++barSeq.current;
+    try {
+      const r = await readBarcodeFromFile(f);
+      if (mine !== barSeq.current) return;
+      if (r.payload !== null && r.trusted) {
+        setScanCode(r.payload);
+        setQuery(r.payload);
+      } else {
+        setScanNote(
+          r.trouble ?? "No barcode could be read from that photo. A closer, square-on shot works best.",
+        );
+      }
+    } catch (e) {
+      if (mine === barSeq.current) setScanNote(sentence(String(e)));
+    } finally {
+      if (mine === barSeq.current) setScanBusy(false);
+    }
+  }
+
+  /** Lens if there is one, photo picker if there is not. */
+  function startBarcode() {
+    setScanNote(null);
+    if (canStream()) barCam.openCam();
+    else barFile.current?.click();
+  }
   const [busy, setBusy] = useState(false);
   const [picked, setPicked] = useState<FoodDetail | null>(null);
   /** The user's own food, picked. Never set at the same time as `picked`. */
@@ -692,7 +805,7 @@ export default function Foods(p: Props) {
         <button className="chip" aria-pressed={tab === "foods"}
           onClick={() => { if (tab === "foods") return; setTab("foods"); setPickedRecipe(null); setPickedCook(null); setWeighed(null); }}>Foods</button>
         <button className="chip" aria-pressed={tab === "recipes"}
-          onClick={() => { if (tab === "recipes") return; setTab("recipes"); setPicked(null); setPickedCustom(null); setPickedCook(null); setWeighed(null); }}>My recipes</button>
+          onClick={() => { if (tab === "recipes") return; setTab("recipes"); setPicked(null); setPickedCustom(null); setPickedCook(null); setWeighed(null); }}>Recipes</button>
         <button className="chip" aria-pressed={tab === "supplements"}
           onClick={() => {
             if (tab === "supplements") return;
@@ -881,13 +994,36 @@ export default function Foods(p: Props) {
             <h3>No supplements yet</h3>
             <p>
               A multivitamin can carry more of a day's iodine or B12 than everything else you
-              eat put together. Transcribe one and those nutrients stop reading as gaps when
-              they are not.
+              eat put together. Take one off its bottle and those nutrients stop reading as
+              gaps when they are not.
             </p>
-            <button className="btn" onClick={p.onManageSupplements}>Add a supplement</button>
+            {/* Straight to the editor, where the camera is. It used to go to
+                the library, which is a list with its own New button — one more
+                screen between a person holding a bottle and the lens. */}
+            <button className="btn" onClick={p.onCreateSupplement}>Add one from its bottle</button>
           </div>
         ) : (
           <section className="card">
+            {/* The same door as the Foods tab's, in the words this tab uses: a
+                supplement is counted in tablets rather than weighed, and its
+                panel is a Supplement Facts panel. */}
+            <div className="rows" style={{ marginBottom: "var(--s3)" }}>
+              <button className="row packrow" onClick={p.onCreateSupplement}>
+                <span className="row__main">
+                  <span className="row__title">Add one from its bottle</span>
+                  <span className="row__sub">
+                    Photograph the Supplement Facts panel, then check what it read.
+                  </span>
+                </span>
+                <span className="packrow__icon" aria-hidden>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="1.9" strokeLinejoin="round">
+                    <path d="M4 8.5h3l1.4-2h7.2L17 8.5h3a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" />
+                    <circle cx="12" cy="13.5" r="3.2" />
+                  </svg>
+                </span>
+              </button>
+            </div>
             <div className="rows">
               {supplements.map((sup) => (
                 <button className="row" key={sup.id} style={{ gridTemplateColumns: "1fr auto" }}
@@ -1107,7 +1243,12 @@ export default function Foods(p: Props) {
           <input
             ref={searchRef}
             className="field"
-            placeholder="Search your foods and 13,694 more — try “urad dal”, “ghee”, “broccoli”"
+            /* Short enough to survive a 390pt screen. The old one ran to
+               "…13,694 more — try “urad dal”, “ghee”, “broccoli”" and a phone
+               showed the first four words and an em dash pointing at nothing.
+               The examples it was spending that length on are in the empty
+               state below, where they have room to be read. */
+            placeholder="Search foods"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onSearchKey}
@@ -1117,17 +1258,24 @@ export default function Foods(p: Props) {
             aria-expanded={flatHits.length > 0}
             aria-controls="food-hits"
           />
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--s3)", marginTop: "var(--s2)" }}>
-            {flatHits.length > 0 && (
+          {/* The keyboard hint, and nothing else.
+
+              A "Your own foods" text link used to sit at the right-hand end of
+              this row: a bare green word floating under a search field, with no
+              edge, no icon and nothing above or below to attach it to. It read
+              as a fragment of a sentence rather than as a way somewhere, and it
+              put a route into a library in the middle of a search box. The
+              library is reached from More, where the rest of the kitchen is,
+              and from the empty state below — which is where a person who
+              searched and found the wrong thing actually is. */}
+          {flatHits.length > 0 && (
+            <div className="search-hero__hint">
               <span className="hits__hint">
                 <kbd className="kbd">↑</kbd><kbd className="kbd">↓</kbd> to move,{" "}
                 <kbd className="kbd">↵</kbd> to pick
               </span>
-            )}
-            <button className="link" style={{ marginLeft: "auto" }} onClick={p.onManageCustomFoods}>
-              Your own foods
-            </button>
-          </div>
+            </div>
+          )}
         </div>
 
         {query.trim().length < 2 ? (
@@ -1147,28 +1295,143 @@ export default function Foods(p: Props) {
             list and gets no apology; nothing pads it, and with nothing in the
             window this branch renders exactly what it rendered before the
             section existed. */}
+        {/*
+          The door, and it is on screen before anything is typed.
+
+          Everything the camera can do in this app used to live inside the food
+          editor, and the only ways in were a text link that appeared after a
+          search returned results, a library two levels down the menu, and a
+          desktop keyboard shortcut. Somebody holding a packet had to type a
+          query they did not want, scroll past its results, and recognise
+          "label" as meaning camera. So the scanners were not missing — they
+          were unreachable, which to the person holding the packet is the same
+          thing.
+
+          Above "Had it before" deliberately: a repeat food is the commoner
+          action, but someone who has just picked up a pack is not going to
+          scroll to look for a lens.
+        */}
+        <section className="card">
+          <div className="card__head">
+            <h2>From the pack in your hand</h2>
+            {/* Says where the reading happens, which is the one fact that
+                stops this looking like every other barcode button. */}
+            <span className="card__note">read on this phone</span>
+          </div>
+          <div className="rows">
+            {/* Always offered, camera or not — see `startBarcode`. */}
+            <button className="row packrow" onClick={startBarcode} ref={barBtn} disabled={scanBusy}>
+              <span className="row__main">
+                <span className="row__title">
+                  {scanBusy ? "Reading…" : "Find it by its barcode"}
+                </span>
+                <span className="row__sub">
+                  Finds a food you added from a pack. Nothing is looked up online.
+                </span>
+              </span>
+              <span className="packrow__icon" aria-hidden>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="1.9" strokeLinecap="round">
+                  <path d="M3.5 7.5V5.6A1.6 1.6 0 0 1 5.1 4H7" />
+                  <path d="M17 4h1.9A1.6 1.6 0 0 1 20.5 5.6v1.9" />
+                  <path d="M20.5 16.5v1.9a1.6 1.6 0 0 1-1.6 1.6H17" />
+                  <path d="M7 20H5.1a1.6 1.6 0 0 1-1.6-1.6v-1.9" />
+                  <path d="M7.5 8.5v7M10.5 8.5v7M13.5 8.5v7M16.5 8.5v7" />
+                </svg>
+              </span>
+            </button>
+
+            <button className="row packrow" onClick={() => p.onCreateCustomFood()}>
+              <span className="row__main">
+                <span className="row__title">Add a food from its pack</span>
+                <span className="row__sub">
+                  Photograph the nutrition panel and the ingredient list, then check what it read.
+                </span>
+              </span>
+              <span className="packrow__icon" aria-hidden>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="1.9" strokeLinejoin="round">
+                  <path d="M4 8.5h3l1.4-2h7.2L17 8.5h3a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" />
+                  <circle cx="12" cy="13.5" r="3.2" />
+                </svg>
+              </span>
+            </button>
+          </div>
+
+          {scanNote !== null && (
+            <div className="card__foot">
+              <span className="packrow__note">{scanNote}</span>{" "}
+              <button className="link" onClick={startBarcode}>Try again</button>
+            </div>
+          )}
+
+          {/* The way in with no lens: a photo of the pack already on the phone.
+              Rendered always, because it is also what `startBarcode` falls back
+              to when the permission is refused rather than merely absent. */}
+          <input
+            ref={barFile}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void readBarcodeFile(f);
+            }}
+          />
+        </section>
+
         {quick.length > 0 && (
           <section className="card">
             <div className="card__head">
-              <h2>Quick add</h2>
-              <span className="card__note">most days these past three months</span>
+              <h2>Had it before</h2>
             </div>
             <ul className="hits" style={{ marginTop: "var(--s2)" }}>
               {quick.map((f) => (
                 <li key={f.key}>
-                  <button className="row hit" onClick={() => pickFrequent(f)}>
-                    <span className="row__main">
+                  {/*
+                    Two controls, because there are two things a person means
+                    by tapping a food they have had before: log it exactly as
+                    last time, or start from last time and change the weight.
+                    The row opens the amount, which is what it has always done;
+                    the button at its end writes it.
+
+                    The weight is printed on the button that writes it, so
+                    nothing gets logged that the finger had not already read —
+                    and an Undo follows it for eight seconds. See QuickLog.tsx.
+                  */}
+                  <div className="row hit quickrow">
+                    <button className="quickrow__open" onClick={() => pickFrequent(f)}>
                       <span className="row__title">{f.description}</span>
-                      {f.brand && <span className="row__sub">{f.brand}</span>}
-                    </span>
-                    <span className="hit__src">{f.last_amount_label} last time</span>
-                  </button>
+                      <span className="row__sub">
+                        {f.brand ? `${f.brand} · ` : ""}{f.last_amount_label} last time
+                      </span>
+                    </button>
+                    <button
+                      className="quickrow__log"
+                      onClick={() => qlog.log(f)}
+                      disabled={qlog.pending !== null}
+                      aria-busy={qlog.pending === f.key}
+                      aria-label={`Log ${f.description}, ${f.last_amount_label}, to ${p.meal}`}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2.6" strokeLinecap="round" aria-hidden>
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                      <span className="tnum">{f.last_amount_label}</span>
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
+            {/* The ordering's basis is stated once, here, and never per row —
+                a tally beside a food name is a leaderboard of your own eating.
+                It used to sit beside the heading, where it wrapped the two
+                words of the title onto two lines on a 390pt screen. */}
             <div className="card__foot">
-              A tap opens the amount, filled in with what you weighed last time — nothing is
-              logged until you add it.
+              The foods you have had on most days these past three months. The green button
+              logs one straight into {p.meal} at that weight and you can undo it; tap the name
+              instead to change the amount first.
             </div>
           </section>
         )}
@@ -1191,14 +1454,47 @@ export default function Foods(p: Props) {
           ))}
         </div>
       ) : hits.length === 0 ? (
+        /*
+          Two different dead ends, and they need different words.
+
+          Arriving here after a SCAN is the common one now, and the honest thing
+          to say is the thing the app has never said out loud: the digits were
+          read on this phone and looked up nowhere, because there is no product
+          database here and nothing left the device. Someone who expected a
+          supermarket app to name their cereal needs to be told that once, at
+          the moment it did not happen — not left to conclude the scanner is
+          broken.
+        */
         <div className="empty">
-          <h3>No matches for “{query.trim()}”</h3>
-          <p>Try a simpler word, or the ingredient rather than the dish.</p>
-          <p>
-            If it is something with a nutrition panel on the back, transcribe that instead —
-            what the pack says beats any generic entry for the thing you are actually eating.
-          </p>
-          <button className="btn" onClick={p.onCreateCustomFood}>Add it yourself</button>
+          {scanCode !== null && query.trim() === scanCode ? (
+            <>
+              <h3>No food of yours has that barcode</h3>
+              <p>
+                The digits came off the pack fine. TrackIt reads them on this phone and looks
+                them up nowhere — there is no product database on here, and nothing was sent
+                anywhere.
+              </p>
+              <p>
+                Add the food from its pack once and this barcode finds it every time after that.
+              </p>
+              <button className="btn" onClick={() => p.onCreateCustomFood(scanCode)}>
+                Add it from its pack
+              </button>
+            </>
+          ) : (
+            <>
+              <h3>No matches for “{query.trim()}”</h3>
+              <p>Try a simpler word, or the ingredient rather than the dish.</p>
+              <p>
+                If it is something with a nutrition panel on the back, take it from the pack
+                instead — what the pack says beats any generic entry for the thing you are
+                actually eating.
+              </p>
+              <button className="btn" onClick={() => p.onCreateCustomFood()}>
+                Add it from its pack
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <section className="card">
@@ -1259,7 +1555,7 @@ export default function Foods(p: Props) {
 
           <div className="card__foot">
             Not the thing in your hand?{" "}
-            <button className="link" onClick={p.onCreateCustomFood}>Add it from its label</button>
+            <button className="link" onClick={() => p.onCreateCustomFood()}>Add it from its pack</button>
           </div>
         </section>
         )}
@@ -1373,6 +1669,25 @@ export default function Foods(p: Props) {
       </div>
       </>
       )}
+
+      {/* The lens. Open only while the hash says so, so the Android back
+          gesture closes it rather than navigating this screen away underneath
+          it — see `useCameraRoute`. */}
+      {barCam.open && (
+        <CameraCapture
+          scanKind="barcode"
+          onCapture={(b64) => { barCam.closeCam(); void readBarcode(b64); barBtn.current?.focus(); }}
+          onCancel={() => { barCam.closeCam(); barBtn.current?.focus(); }}
+          /* A denied permission is not a dead end here: `scan_barcode` reads a
+             stored photo exactly as it reads a frame. */
+          onPickInstead={() => { barCam.closeCam(); barFile.current?.click(); }}
+        />
+      )}
+
+      {/* What the green button on a "Had it before" row just wrote, and the
+          way back out of it. See QuickLog.tsx. */}
+      <UndoToast last={qlog.last} onUndo={qlog.undo} />
+      {qlog.error && <p className="alert" role="alert">{qlog.error}</p>}
     </div>
   );
 }
@@ -1583,16 +1898,36 @@ function potLine(c: Cook): string {
   return `${left} ${of} · cooked ${when}`;
 }
 
+/**
+ * What a serving chip says.
+ *
+ * `unit` is whatever the source dataset carries there, and FNDDS carries
+ * numeric modifier CODES — so this printed “52000 · 9.8 g”, offering a
+ * five-digit database key as though it were a portion somebody might
+ * recognise. A code is not a name. Anything with no letter in it is dropped
+ * and the chip falls back to the one thing that is always true and always
+ * useful: what it weighs.
+ */
 function portionLabel(pt: Portion): string {
+  const named = [pt.description, pt.unit].find(
+    (v): v is string => typeof v === "string" && /\p{L}/u.test(v),
+  );
+  if (named === undefined) return `${round(pt.gram_weight)} g`;
   const qty = pt.amount === 1 ? "" : `${trim(pt.amount)} `;
-  const unit = pt.unit ?? pt.description ?? "portion";
-  return `${qty}${unit} · ${round(pt.gram_weight)} g`;
+  return `${qty}${named.trim()} · ${round(pt.gram_weight)} g`;
 }
 
 /** What a supplement is called in the log — brand first unless the name has it. */
 function supplementLabel(s: Supplement): string {
   if (!s.brand) return s.name;
   return s.name.toLowerCase().startsWith(s.brand.toLowerCase()) ? s.name : `${s.brand} ${s.name}`;
+}
+
+/** An error string, given a capital and a full stop so it reads as a sentence. */
+function sentence(s: string): string {
+  const t = s.replace(/^Error:\s*/, "").trim();
+  if (t === "") return "That did not work.";
+  return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".");
 }
 
 const round = (n: number) => Math.round(n * 10) / 10;

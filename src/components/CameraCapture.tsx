@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { probeFrame, scanBarcode, scanPairCode } from "../api";
+import { isAndroid } from "../lib/desktop";
 import type { Probe } from "../types";
 
 export type ScanKind = "nutrition" | "supplement" | "ingredients" | "barcode" | "pair";
@@ -25,6 +26,17 @@ interface Props {
   scanKind: ScanKind;
   onCapture: (dataBase64: string) => void;
   onCancel: () => void;
+  /**
+   * Offer a photo the user already has, from inside the failure panel.
+   *
+   * Every one of the snags below ends by telling the user to close this and
+   * pick a photo instead — which was only ever true where the caller had a
+   * picker to go back to. On the barcode sheet it was not true at all, so the
+   * one instruction a blocked user was given led nowhere. Where a caller can
+   * honour it, it passes this and the advice becomes a button; where it cannot,
+   * the sentence is not printed.
+   */
+  onPickInstead?: () => void;
 }
 
 /* ── the two cadences ─────────────────────────────────────────────────────
@@ -644,6 +656,14 @@ export default function CameraCapture(p: Props) {
           <div className="cam__snag">
             <h3 className="cam__snagh">{snag.title}</h3>
             <p className="cam__snagp">{snag.body}</p>
+            {/* The way out, as a button rather than as a sentence telling the
+                user to go and find one. Only where the caller actually has a
+                picker — see `onPickInstead`. */}
+            {p.onPickInstead && (
+              <button className="btn cam__snagbtn" onClick={p.onPickInstead}>
+                Use a photo instead
+              </button>
+            )}
           </div>
         )}
 
@@ -997,26 +1017,34 @@ function median(xs: number[]): number {
 function explain(e: unknown): Snag {
   const name = e instanceof DOMException ? e.name : "";
   if (name === "NotAllowedError" || name === "SecurityError") {
+    /*
+      The platform you are ON comes first.
+
+      This used to open with three sentences about macOS System Settings and a
+      note on how development builds are signed — read, in practice, by someone
+      standing in a shop holding a packet on an Android phone, who had to get
+      past a paragraph about Xcode signing to reach the line that applied to
+      them. Same two facts, sorted by who is reading.
+    */
     return {
       title: "TrackIt was not allowed to use the camera",
-      body:
-        "On a Mac, look in System Settings › Privacy & Security › Camera. If TrackIt is not " +
-        "listed there at all, it has not been able to ask yet — a development build is signed " +
-        "too loosely for macOS to offer the choice, and the packaged app asks properly. " +
-        "On Android it is under Settings › Apps › TrackIt › Permissions. " +
-        "Either way, close this and pick a photo you already have — it is read exactly the same.",
+      body: isAndroid()
+        ? "Turn it on under Settings › Apps › TrackIt › Permissions › Camera."
+        : "On a Mac, look in System Settings › Privacy & Security › Camera. If TrackIt is not " +
+          "listed there at all, it has not been able to ask yet — a development build is signed " +
+          "too loosely for macOS to offer the choice, and the packaged app asks properly.",
     };
   }
   if (name === "NotFoundError" || name === "OverconstrainedError") {
     return {
       title: "No camera found",
-      body: "This device has no camera the app can open. Close this and choose a photo you already have.",
+      body: "This device has no camera the app can open.",
     };
   }
   if (name === "NotReadableError" || name === "AbortError") {
     return {
       title: "The camera is busy",
-      body: "Another app is using it. Close that app and try again, or choose a photo you already have.",
+      body: "Another app is using it. Close that app and try again.",
     };
   }
   return {

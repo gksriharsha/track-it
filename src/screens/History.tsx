@@ -83,7 +83,9 @@ export default function History({ onPickDate, onImport }: Props) {
   return (
     <div className="screen">
       <ScreenHead
-        title="History"
+        /* The name the bottom bar uses. A screen whose heading disagrees with
+           the button that reached it makes a person doubt they arrived. */
+        title="Days"
         sub="pick a day, or average a period"
         action={<button className="btn btn--quiet" onClick={onImport}>Import data</button>}
       />
@@ -92,27 +94,51 @@ export default function History({ onPickDate, onImport }: Props) {
 
       {/* ── Calendar ─────────────────────────────────────────── */}
       <section className="card">
-        <div className="card__head">
-          <button className="iconbtn" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month">‹</button>
-          <h2 style={{ minWidth: 150, textAlign: "center" }}>{monthLabel(month)}</h2>
-          <button
-            className="iconbtn"
-            onClick={() => setMonth(shiftMonth(month, 1))}
-            disabled={month >= today.slice(0, 7)}
-            aria-label="Next month"
-          >
-            ›
-          </button>
-          {monthData && (
-            <span className="card__note">
-              {monthData.days_logged} day{monthData.days_logged === 1 ? "" : "s"} of food
-              {monthData.days_with_supplements > 0 &&
-                `, ${monthData.days_with_supplements} with a supplement`}
-              {monthData.days_with_water > 0 &&
-                `, ${monthData.days_with_water} with water logged`}
-            </span>
-          )}
+        {/* Drawn arrows in bounded buttons, not bare “‹” and “›” glyphs.
+
+            A lone chevron reads as Back — that is what it means everywhere
+            else on a phone — and Today's own date row was replaced for exactly
+            that reason. Here the control is genuinely a stepper rather than a
+            way out, so it keeps its arrows and says so with its shape: two
+            segments bounded together, the month between them. */}
+        <div className="card__head monthnav">
+          <div className="stepper stepper--sm">
+            <button className="stepper__seg" onClick={() => setMonth(shiftMonth(month, -1))}
+              aria-label="Previous month">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M14 6l-6 6 6 6" />
+              </svg>
+            </button>
+            <h2 className="stepper__mid monthnav__label">{monthLabel(month)}</h2>
+            <button
+              className="stepper__seg"
+              onClick={() => setMonth(shiftMonth(month, 1))}
+              disabled={month >= today.slice(0, 7)}
+              aria-label="Next month"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M10 6l6 6-6 6" />
+              </svg>
+            </button>
+          </div>
         </div>
+
+        {/* Under the month rather than beside it. As a `.card__note` with
+            `margin-left: auto` this sentence and the stepper were two flex
+            items competing for one row, and the sentence won — on a 390pt
+            screen it squeezed the month nav down to the width of its own
+            border. */}
+        {monthData && (
+          <p className="monthnav__note">
+            {monthData.days_logged} day{monthData.days_logged === 1 ? "" : "s"} of food
+            {monthData.days_with_supplements > 0 &&
+              `, ${monthData.days_with_supplements} with a supplement`}
+            {monthData.days_with_water > 0 &&
+              `, ${monthData.days_with_water} with water logged`}
+          </p>
+        )}
 
         <div className="cal">
           {WEEKDAYS.map((w) => (

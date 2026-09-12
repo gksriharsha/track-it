@@ -1,10 +1,14 @@
-import { useState } from "react";
-import { deleteLogEntry, setEntryTags } from "../api";
+import { useEffect, useState } from "react";
+import {
+  deleteLogEntry, frequentFoods, humanDate, loggedDates, setEntryTags, shiftIso, todayIso,
+} from "../api";
 import CorrectEntry from "../components/CorrectEntry";
-import type { DayView, LogEntry, Origin } from "../types";
+import type { DayView, FrequentFood, LogEntry, Meal, Origin } from "../types";
 import { MEALS, ORIGIN_LABEL, describeVolume } from "../types";
 import { plural, read, unassessable } from "../lib/nutrient";
 import TagPicker from "../components/TagPicker";
+import DayTabs from "../components/DayTabs";
+import { QuickAddStrip, UndoToast, useQuickLog } from "../components/QuickLog";
 
 interface Props {
   day: DayView | null;
@@ -12,9 +16,13 @@ interface Props {
   date: string;
   label: string;
   canGoForward: boolean;
+  /** Which sitting a one-tap repeat goes into. Shared with the Add food screen. */
+  meal: Meal;
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
+  /** Any of the seven days in the strip. */
+  onPickDate: (iso: string) => void;
   onRemoved: () => void;
   onSeeAll: () => void;
   onAddFood: () => void;
@@ -69,6 +77,32 @@ export default function Today(p: Props) {
   const covered = totals.filter((t) => read(t).state === "measured").length;
 
   const [open, setOpen] = useState<string | null>(null);
+
+  /* The foods you have most days, and the days the record holds something on —
+     the two things the top of this screen needs that the day itself cannot
+     say. Both are read once per mount: neither changes as you step between
+     days, and re-reading them on every date change would put two round trips
+     in front of a tap that should feel instant. */
+  const [quick, setQuick] = useState<FrequentFood[]>([]);
+  const [logged, setLogged] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    let live = true;
+    frequentFoods(8).then((f) => live && setQuick(f)).catch(() => {});
+    loggedDates().then((d) => live && setLogged(new Set(d))).catch(() => {});
+    return () => { live = false; };
+  }, []);
+
+  /*
+    A repeat is written straight in, and the way back out of it sits over the
+    screen for eight seconds. `refreshAll` rather than `onRemoved` alone: a
+    day that had nothing in it before this tap now has something, and the dot
+    under its date in the strip has to follow.
+  */
+  const refreshAll = () => {
+    p.onRemoved();
+    loggedDates().then((d) => setLogged(new Set(d))).catch(() => {});
+  };
+  const q = useQuickLog(p.date, p.meal, refreshAll);
   /**
    * Tags being edited, held here until the day reloads.
    *
@@ -116,23 +150,31 @@ export default function Today(p: Props) {
     <div className="screen screen--today">
       {/* The date IS the page title on mobile — a separate heading would just
           repeat it. Desktop shows the date in App.tsx's own toolbar instead
-          (see styles.css, `.daybar` is hidden there), so this row still
+          (see styles.css, `.daybar` is hidden there), so this block still
           renders here for the phone but nowhere on a wide window. */}
-      <div className="screen__head daybar">
-        <button className="iconbtn" onClick={p.onPrev} aria-label="Previous day">‹</button>
-        <h1>{p.label}</h1>
-        <button className="iconbtn" onClick={p.onNext} disabled={!p.canGoForward} aria-label="Next day">›</button>
-        {p.canGoForward && (
-          <button className="link" onClick={p.onToday} style={{ marginLeft: "var(--s2)" }}>
-            back to today
-          </button>
-        )}
-        {entries.length > 0 && (
-          <span className="screen__sub" style={{ marginLeft: "auto" }}>
-            {entries.length} item{entries.length > 1 ? "s" : ""}
-          </span>
-        )}
+      <div className="daybar">
+        <div className="daybar__row">
+          <h1>{p.label}</h1>
+          {p.canGoForward && (
+            <button className="btn btn--quiet daybar__today" onClick={p.onToday}>Today</button>
+          )}
+          {entries.length > 0 && (
+            <span className="screen__sub daybar__count">
+              {plural(entries.length, "item")}
+            </span>
+          )}
+        </div>
+        <WeekStrip date={p.date} logged={logged} onPick={p.onPickDate} />
       </div>
+
+      {/* Phone only. The nutrient panel is this same day counted differently,
+          not another place — see DayTabs. */}
+      <DayTabs current="day" onDay={() => {}} onNutrients={p.onSeeAll} />
+
+      {/* Above the day, and outside the empty branch on purpose: a day with
+          nothing in it is exactly when a one-tap repeat is worth most. */}
+      <QuickAddStrip foods={quick} meal={p.meal} pending={q.pending} onLog={q.log} />
+      {q.error && <p className="alert" role="alert">{q.error}</p>}
 
       {p.loading ? (
         <Skeleton />
@@ -257,11 +299,12 @@ export default function Today(p: Props) {
 
           {/* Not "What you ate": a supplement is not eaten and a bottle of
               water certainly is not, and this card holds both. */}
+          {/* No heading. The switch above this screen already says "What you
+              had", and the meal names below are the structure — a card titled
+              with the words of the tab that selected it is the page telling you
+              twice where you are. The "Add food" link that sat here went with
+              it: the bottom bar carries that button on every screen now. */}
           <section className="card day-ate">
-            <div className="card__head">
-              <h2>What you had</h2>
-              <button className="link card__note" onClick={p.onAddFood}>Add food</button>
-            </div>
             {groups.map((g) => (
               <div className="group" key={g.key}>
                 <div className="group__name">{g.label}</div>
@@ -431,6 +474,67 @@ export default function Today(p: Props) {
           </section>
         </>
       )}
+
+      <UndoToast last={q.last} onUndo={q.undo} />
+    </div>
+  );
+}
+
+/**
+ * The last seven days, as seven buttons.
+ *
+ * This replaced a `‹ Thursday 11 September ›` row: two bare chevrons in icon
+ * buttons, the left of which every person reading it took for a Back arrow —
+ * it sat in the top-left corner where Back lives, in a screen's title row, and
+ * pointed the way Back points. It also made every day a separate press: four
+ * taps to reach Monday, with the date changing under you each time.
+ *
+ * Seven dates instead. Any of them is one tap, the day you are reading is
+ * marked, and a day that has something logged in it carries a dot — so the
+ * strip answers "when did I last record anything" without a trip to Days.
+ *
+ * Deliberately NOT a progress track: the marks say a day exists in the record,
+ * never how well it went.
+ */
+function WeekStrip({
+  date, logged, onPick,
+}: {
+  date: string;
+  logged: ReadonlySet<string>;
+  onPick: (iso: string) => void;
+}) {
+  const today = todayIso();
+  /*
+    The strip ends on today while the chosen day is inside this past week, and
+    on the chosen day once it is older. Anchoring it always to today would show
+    seven days that do not contain the one being read; anchoring it always to
+    the selection would move the whole strip every time you stepped a day.
+  */
+  const end = date >= shiftIso(today, -6) ? today : date;
+  const days = Array.from({ length: 7 }, (_, i) => shiftIso(end, i - 6));
+
+  return (
+    <div className="week" role="group" aria-label="Pick a day">
+      {days.map((iso) => {
+        const d = new Date(`${iso}T00:00:00`);
+        const ahead = iso > today;
+        return (
+          <button
+            key={iso}
+            className="week__day"
+            onClick={() => onPick(iso)}
+            disabled={ahead}
+            aria-current={iso === date ? "date" : undefined}
+            aria-label={humanDate(iso)}
+          >
+            <span className="week__wd">
+              {d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
+            </span>
+            <span className="week__n tnum">{d.getDate()}</span>
+            <span className={logged.has(iso) ? "week__dot is-on" : "week__dot"} aria-hidden />
+          </button>
+        );
+      })}
     </div>
   );
 }
