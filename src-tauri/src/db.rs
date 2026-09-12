@@ -294,18 +294,31 @@ pub fn search(conn: &Connection, query: &str, limit: u32) -> Result<Vec<FoodHit>
     }
 
     // Pass 2: the free-text index, for everything else.
+    //
+    // A food NAMED by the query comes before a dish that merely contains it.
+    // USDA writes its descriptions as "Tofu, firm, prepared with calcium
+    // sulfate" — the food first, then how it was made — so a description
+    // starting with what was typed is the generic entry for that food, while
+    // "Mayonnaise, made with tofu", "Soup, miso or tofu" and "Beef, tofu, and
+    // vegetables…" are other foods entirely. bm25 alone cannot tell them apart:
+    // each mentions the word once, and the short ones then win on length.
+    //
+    // The same rule pushes the eight Vitasoy Nasoya rows below plain "Tofu",
+    // which is right for anyone who does not shop at that brand — and anyone
+    // who does can still type it.
     let mut stmt = conn
         .prepare(
             "SELECT f.fdc_id, f.description, f.data_type
              FROM foods_fts fts
              JOIN foods f ON f.fdc_id = fts.rowid
              WHERE foods_fts MATCH ?1
-             ORDER BY bm25(foods_fts), length(f.description)
+             ORDER BY (lower(f.description) LIKE ?3 || '%') DESC,
+                      bm25(foods_fts), length(f.description)
              LIMIT ?2",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map(rusqlite::params![q, limit], |r| {
+        .query_map(rusqlite::params![q, limit, needle], |r| {
             Ok(FoodHit::reference(
                 r.get(0)?,
                 r.get(1)?,
@@ -501,6 +514,36 @@ mod tests {
         assert!(hits
             .iter()
             .all(|h| h.description.to_lowercase().contains("broccoli")));
+    }
+
+    #[test]
+    fn a_food_named_by_the_query_comes_before_a_dish_that_merely_contains_it() {
+        let Some(c) = conn() else { return };
+        // Forty-two rows match "tofu". Most are not tofu: "Mayonnaise, made with
+        // tofu", "Soup, miso or tofu", "Beef, tofu, and vegetables…", and eight
+        // rows of one American brand nobody outside its aisles will ever buy.
+        // bm25 cannot separate them — each mentions the word once — and the
+        // short ones then win on length, which is how "Tofu yogurt" used to
+        // outrank plain tofu.
+        let hits = search(&c, "tofu", 12).unwrap();
+        assert!(hits.len() >= 6, "expected a crowded result set to rank");
+
+        let named = |h: &FoodHit| h.description.to_lowercase().starts_with("tofu");
+        let first_not_named = hits.iter().position(|h| !named(h));
+        let last_named = hits.iter().rposition(named);
+        if let (Some(first_other), Some(last)) = (first_not_named, last_named) {
+            assert!(
+                last < first_other,
+                "every food NAMED tofu must come before the first dish that only \
+                 contains it — got {:?}",
+                hits.iter().map(|h| &h.description).collect::<Vec<_>>()
+            );
+        }
+        assert!(
+            named(&hits[0]),
+            "the first hit for “tofu” must be a tofu — got “{}”",
+            hits[0].description
+        );
     }
 
     #[test]

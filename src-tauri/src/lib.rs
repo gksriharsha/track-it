@@ -842,6 +842,7 @@ fn draft_cook(
                 position: i.position,
                 fdc_id: i.fdc_id,
                 description: i.description.clone(),
+                custom_food_id: i.custom_food_id.clone(),
                 // Raw, like everything else about an ingredient: it is the
                 // amount that will be weighed out and tipped in.
                 planned_g: i.raw_g * scale,
@@ -2923,12 +2924,19 @@ fn resolve_contribution(
                 if !(portion.is_finite() && portion > 0.0) {
                     continue;
                 }
+                let (description, has_data, values) = ingredient_values(
+                    refconn,
+                    uconn,
+                    ing.fdc_id,
+                    ing.custom_food_id.as_deref(),
+                    &ing.description,
+                )?;
                 components.push(store::SnapComponent {
-                    description: ing.description.clone(),
+                    description,
                     fdc_id: ing.fdc_id,
                     quantity: store::SnapQuantity::Grams(portion),
-                    has_data: ing.fdc_id.is_some(),
-                    values: reference_values(refconn, ing.fdc_id)?,
+                    has_data,
+                    values,
                 });
             }
             Ok((
@@ -2978,18 +2986,26 @@ fn resolve_contribution(
                 if !(portion.is_finite() && portion > 0.0) {
                     continue;
                 }
+                // What was eaten, naming what it stood in for. Both, because
+                // the substitute is the food and the original is why the
+                // amounts read as they do.
+                let named = match &ing.substituted_for {
+                    Some(was) => format!("{} (instead of {was})", ing.description),
+                    None => ing.description.clone(),
+                };
+                let (description, has_data, values) = ingredient_values(
+                    refconn,
+                    uconn,
+                    ing.fdc_id,
+                    ing.custom_food_id.as_deref(),
+                    &named,
+                )?;
                 components.push(store::SnapComponent {
-                    // What was eaten, naming what it stood in for. Both, because
-                    // the substitute is the food and the original is why the
-                    // amounts read as they do.
-                    description: match &ing.substituted_for {
-                        Some(was) => format!("{} (instead of {was})", ing.description),
-                        None => ing.description.clone(),
-                    },
+                    description,
                     fdc_id: ing.fdc_id,
                     quantity: store::SnapQuantity::Grams(portion),
-                    has_data: ing.fdc_id.is_some(),
-                    values: reference_values(refconn, ing.fdc_id)?,
+                    has_data,
+                    values,
                 });
             }
             Ok((
@@ -3060,6 +3076,45 @@ fn resolve_contribution(
 ///
 /// A food with no id, or one whose id a later dataset retired, yields nothing —
 /// which freezes as "we knew nothing about this", not as a zero.
+/// What one line of a dish is worth per 100 g, and what to call it.
+///
+/// A line is a reference food, one of the user's own, or neither. The third
+/// case is not a failure: it contributes nothing AND keeps its mass in the
+/// day's coverage denominator, which is the difference between "not in the
+/// dish" and "in the dish and unmeasured".
+///
+/// One of the user's own foods carries its provenance into the description the
+/// same way a directly logged one does — "18 of 34 values off the pack, 11
+/// borrowed from ..." — because a dish assembled out of packs is mostly gaps,
+/// and a breakdown row that did not say so would look as solid as a lab
+/// measurement.
+fn ingredient_values(
+    refconn: &rusqlite::Connection,
+    uconn: &rusqlite::Connection,
+    fdc_id: Option<i64>,
+    custom_food_id: Option<&str>,
+    description: &str,
+) -> Result<(String, bool, Vec<(i64, NutrientValue)>), String> {
+    match custom_food_id {
+        Some(cid) => {
+            // Deliberately the history read: a dish must still expand after the
+            // food one of its lines names has been deleted.
+            let food = store::get_custom_food_for_history(uconn, cid)?;
+            let panel = resolve_panel(refconn, &food)?;
+            Ok((
+                format!("{} — {}", description, provenance_line(&panel)),
+                panel.from_label + panel.from_base > 0,
+                panel.values().into_iter().collect(),
+            ))
+        }
+        None => Ok((
+            description.to_string(),
+            fdc_id.is_some(),
+            reference_values(refconn, fdc_id)?,
+        )),
+    }
+}
+
 fn reference_values(
     refconn: &rusqlite::Connection,
     fdc_id: Option<i64>,
@@ -5727,6 +5782,79 @@ mod tests {
         }
 
         #[test]
+        fn a_dish_built_on_your_own_pack_counts_the_pack_and_says_where_it_came_from() {
+            // The point of letting a recipe name one of the user's own foods.
+            // A dish assembled out of packs is mostly gaps, so the breakdown row
+            // has to carry the pack's provenance the way a directly logged one
+            // does — otherwise 400 g of "Costco extra-firm tofu" reads as solid
+            // as a lab measurement when most of its panel is missing.
+            let Some(refconn) = refdb() else { return };
+            let dim = nutrient_dim(&refconn).unwrap();
+            let mut uc = user_db();
+
+            // 13 g of fat per 43 g serving, which is what `bar` prints.
+            let own = store::save_custom_food(&mut uc, None, &bar(None)).unwrap();
+            let rid = store::save_recipe(
+                &mut uc, "Chocolate thing", 100.0, None, None,
+                &[store::RecipeIngredient {
+                    id: String::new(), position: 0, fdc_id: None,
+                    custom_food_id: Some(own), description: "Milk chocolate bar".into(),
+                    raw_g: 43.0, optional: false,
+                }],
+                &[], &store::Tags::default(),
+            )
+            .unwrap();
+
+            // The whole 100 g dish, so the fraction is 1 and the whole bar is in.
+            add_frozen(
+                &refconn, &mut uc, DAY, Some("snack"), store::Source::Recipe(&rid),
+                "Chocolate thing", store::Quantity::Grams(100.0), None, &no_tags(),
+            )
+            .unwrap();
+
+            let store = store::Store(Mutex::new(uc));
+            let fat = lower_on(&refconn, &store, &dim, DAY, FAT);
+            assert!(
+                (fat - 13.0).abs() < 1e-6,
+                "the dish must be worth what its one line's pack prints — got {fat}"
+            );
+        }
+
+        #[test]
+        fn a_line_naming_one_of_your_own_foods_carries_its_provenance_into_the_breakdown() {
+            let Some(refconn) = refdb() else { return };
+            let dim = nutrient_dim(&refconn).unwrap();
+            let mut uc = user_db();
+            let own = store::save_custom_food(&mut uc, None, &bar(None)).unwrap();
+            let rid = store::save_recipe(
+                &mut uc, "Chocolate thing", 100.0, None, None,
+                &[store::RecipeIngredient {
+                    id: String::new(), position: 0, fdc_id: None,
+                    custom_food_id: Some(own), description: "Milk chocolate bar".into(),
+                    raw_g: 43.0, optional: false,
+                }],
+                &[], &store::Tags::default(),
+            )
+            .unwrap();
+            add_frozen(
+                &refconn, &mut uc, DAY, Some("snack"), store::Source::Recipe(&rid),
+                "Chocolate thing", store::Quantity::Grams(100.0), None, &no_tags(),
+            )
+            .unwrap();
+
+            let store = store::Store(Mutex::new(uc));
+            let (_, breakdowns, _) = collect_day(&refconn, &store, &dim, DAY).unwrap();
+            let line = &breakdowns[0].components[0];
+            assert!(
+                line.description.contains("Milk chocolate bar")
+                    && line.description.contains("off the pack"),
+                "the row must name the pack and say how much of its panel is real — got {}",
+                line.description
+            );
+            assert!(line.has_data, "a pack with figures on it is not a gap");
+        }
+
+        #[test]
         fn editing_a_food_does_not_change_a_day_already_logged() {
             let Some(refconn) = refdb() else { return };
             let dim = nutrient_dim(&refconn).unwrap();
@@ -5844,6 +5972,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: Some(fdc_id),
+                    custom_food_id: None,
                     description: "kidney beans".into(),
                     raw_g: 400.0,
                     optional: false,
@@ -5914,6 +6043,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: Some(fdc_id),
+                    custom_food_id: None,
                     description: "kidney beans".into(),
                     planned_g: 400.0,
                     raw_g: 400.0,
@@ -5996,6 +6126,7 @@ mod tests {
                 id: String::new(),
                 position: 1,
                 fdc_id: None,
+                custom_food_id: None,
                 description: "home-ground masala".into(),
                 planned_g: 20.0,
                 raw_g: 20.0,
@@ -6005,6 +6136,7 @@ mod tests {
                 id: String::new(),
                 position: 2,
                 fdc_id: Some(fdc_id),
+                custom_food_id: None,
                 description: "asafoetida".into(),
                 planned_g: 1.0,
                 // Left out. Zero here is a measurement, not a missing value.
@@ -6565,6 +6697,7 @@ mod tests {
                     id: String::new(),
                     position: 0,
                     fdc_id: None,
+                    custom_food_id: None,
                     description: "home-made mango pickle".into(),
                     raw_g: 500.0,
                     optional: false,

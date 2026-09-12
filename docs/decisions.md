@@ -983,3 +983,68 @@ neither absorb water nor cook down — a chutney, a raita, a salad — and other
   food's composition understates by the same factor the old model overstated. The builder says
   the weight is raw at the column, the field's label and the note under the yield; detecting the
   state of a reference food from its description is left undone rather than guessed at.
+
+---
+
+## D23 — An ingredient may be one of your own foods, and the food named by a search outranks the dish that contains it
+
+A recipe line could only ever be a reference food. `recipe_ingredients.fdc_id` was an INTEGER and
+nothing else, the ingredient search filtered the user's own foods out (`h.kind === "reference"`),
+and a footnote told them so: *"N of your own foods matched and are not listed here."*
+
+That is backwards, and the user said why: *"I search for tofu, I see a lot of options… I get my
+tofu from Costco, the extra firm one. None of these actually match to it. So this only causes more
+confusion."*
+
+They are right about the data. USDA has **42 rows matching "tofu"**. Eight are one American brand
+(Vitasoy Nasoya), four more another (MORI-NU), several are not tofu at all — *Mayonnaise, made
+with tofu*; *Soup, miso or tofu*; *Beef, tofu, and vegetables including carrots, broccoli…* — and
+none of them is the block sold at Costco. Forcing a choice among them makes somebody who has
+already transcribed their own pack pick a stranger's brand instead, and then carry that guess
+through every dish built on it.
+
+**Decision one: an ingredient is a reference food, one of the user's own foods, or neither.**
+
+`recipe_ingredients` and `cook_ingredients` each gain `custom_food_id TEXT REFERENCES
+custom_foods(id)` beside `fdc_id`, with `CHECK (fdc_id IS NULL OR custom_food_id IS NULL)`.
+Neither set remains legal and still means a line with no composition data, which contributes
+nothing and keeps its mass in the day's coverage denominator.
+
+Two sibling columns rather than a polymorphic `kind` + `id` pair, because `fdc_id` is an INTEGER
+with an index behind it and a custom id is a TEXT uuid: one column could hold either only by
+giving up both. The CHECK is what makes "one or the other" unrepresentable rather than merely
+discouraged.
+
+Nothing about the arithmetic changes shape. A custom food already resolves to a **per-100 g**
+panel through `resolve_panel`, which is what the directly-logged path has always used, so an
+ingredient line valued at `raw_g × panel / 100` is the same sum a reference line does. The
+provenance travels with it: a breakdown row reads *"Costco extra-firm tofu — 14 of 34 values off
+the pack, 9 borrowed from 'Tofu, raw, firm', 11 unmeasured"*, because a dish assembled out of
+packs is mostly gaps and a row that did not say so would look as solid as a lab measurement.
+
+**Decision two: a food NAMED by the query comes before a dish that merely contains it.**
+
+`db::search`'s second pass ordered by `bm25(foods_fts), length(description)`. bm25 cannot separate
+*Tofu, firm, prepared with calcium sulfate* from *Soup, miso or tofu* — each mentions the word
+once — and the short ones then win on length, which is how *Tofu yogurt* outranked plain tofu. USDA
+writes descriptions as the food first and the preparation after, so a description **starting with**
+what was typed is the generic entry for that food. The order becomes
+`(lower(description) LIKE query || '%') DESC, bm25, length`.
+
+The same rule pushes the eight Vitasoy rows below plain "Tofu", which is right for anyone who does
+not shop that brand — and anyone who does can still type it.
+
+**Consequences.**
+
+- **Schema v17**, both ingredient tables rebuilt (not ALTERed: SQLite cannot add a CHECK in place,
+  and `ADD COLUMN` would leave nothing stopping a row from setting both). Every existing line is a
+  reference food and stays one, with the new column NULL.
+- **A household sync can now carry a dish that depends on a food.** `missing_dependency` gained a
+  child-row check: a `recipes` or `cooks` aggregate whose lines name a `custom_food_id` this device
+  does not have is **held whole** until the food arrives, exactly as a pot is held for its recipe.
+  Without it the child INSERT fails its foreign key, aborts the apply batch, and sticks that peer's
+  sync permanently — the unrecoverable failure `replace_aggregate` documents at length.
+- `save_recipe` and `save_cook` reject a line naming both **and say which line**, so a constraint
+  violation reaches the user as a sentence.
+- The ingredient search no longer filters and no longer apologises. Own foods are marked "yours",
+  and the builder says where to add one.
