@@ -189,9 +189,19 @@ CREATE INDEX IF NOT EXISTS idx_bottles_live ON bottles(name) WHERE deleted_at IS
 CREATE TABLE IF NOT EXISTS recipes (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
-  -- The reference batch: what the amounts below add up to. Not a claim about
-  -- how much you will make, only the size the proportions happen to be written
-  -- at, which is why a cook carries its own scale.
+  -- What the dish comes out at, cooked, when made at the amounts below. The
+  -- user's own single weighing of a finished pot, NOT a sum of the ingredients:
+  -- an ingredient is weighed raw and the pot gains or loses water, so the two
+  -- figures are different numbers about different things.
+  --
+  -- One weighing per dish is the most that can honestly be asked. A person can
+  -- put each ingredient on a scale before it goes in; nobody can lift the rajma
+  -- back out of a finished curry and weigh it apart from the onions. So the
+  -- cooked side of the arithmetic is measured exactly once, here, and every
+  -- portion divides by it.
+  --
+  -- Not a claim about how much you will make -- a cook carries its own scale,
+  -- and its own reading off a scale, which beat this.
   yield_g     REAL NOT NULL CHECK (yield_g > 0),
   -- How many people the batch feeds, if the user chose to say. NULL is the
   -- normal case and is never filled in: the same dal feeds two on a weeknight
@@ -219,10 +229,16 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
   position    INTEGER NOT NULL,
   fdc_id      INTEGER,            -- NULL = no composition data for this ingredient
   description TEXT NOT NULL,
+  -- What goes in, weighed before it is cooked. The only weight an ingredient
+  -- has, and deliberately so: raw is the one state in which a single
+  -- ingredient can actually be put on a scale.
+  --
+  -- The raw-to-cooked change is real and large -- dry rajma roughly triples --
+  -- but it is DERIVED rather than collected. Nutrient mass is conserved through
+  -- cooking while concentration is not, so this weight against the raw food's
+  -- composition is the ingredient's whole contribution, and `recipes.yield_g`
+  -- is what a portion of the finished dish divides by. See D22.
   raw_g       REAL NOT NULL CHECK (raw_g > 0),
-  -- What this weighs once cooked. Dry rajma roughly triples; ignoring that
-  -- reads a katori of cooked beans as if it were dry, a threefold error.
-  cooked_g    REAL NOT NULL CHECK (cooked_g > 0),
   -- Whether the dish is still the dish without this line. It changes nothing
   -- about the recipe's own arithmetic — it is a note to the person at the
   -- stove, telling them which lines they may skip without having made
@@ -272,14 +288,22 @@ CREATE TABLE IF NOT EXISTS cooks (
   -- extra onion" is a different statement from the weights it produces, and
   -- only the first is any use the next time this is cooked.
   scale       REAL NOT NULL DEFAULT 1 CHECK (scale > 0),
-  -- What the pot weighed. NULL means it never went on a scale, and the yield
-  -- falls back to the sum of the lines. The two are separate columns because
-  -- one is a measurement and the other is an estimate, and which one a portion
-  -- was divided by is exactly the sort of thing this app refuses to lose.
+  -- What the recipe says this dish comes out at, times the scale, frozen when
+  -- the pot was opened. The fallback divisor, and the reason a pot can be
+  -- portioned before anyone finds the scale.
   --
-  -- A weighed yield below the summed one is normal, not an error: water leaves
-  -- a pot, nutrients do not. Dividing by what the pot actually weighs is what
-  -- concentrates a reduced dal correctly.
+  -- Frozen rather than read back through `recipe_id` for the same reason
+  -- `planned_g` is: rewriting the recipe next month must not silently
+  -- re-portion a pot that is already in the fridge.
+  expected_yield_g REAL NOT NULL CHECK (expected_yield_g > 0),
+  -- What the pot weighed. NULL means it never went on a scale, and the yield
+  -- falls back to the figure above. The two are separate columns because one is
+  -- a measurement and the other is an estimate, and which one a portion was
+  -- divided by is exactly the sort of thing this app refuses to lose.
+  --
+  -- A weighed yield below the expected one is normal, not an error: water
+  -- leaves a pot, nutrients do not. Dividing by what the pot actually weighs is
+  -- what concentrates a reduced dal correctly.
   weighed_yield_g REAL CHECK (weighed_yield_g IS NULL OR weighed_yield_g > 0),
   -- How that weight was arrived at, when it came off a scale with the pot on
   -- it. `tare_note` is denormalised like log_entries.tare_note, so deleting a
@@ -317,17 +341,17 @@ CREATE TABLE IF NOT EXISTS cook_ingredients (
   position    INTEGER NOT NULL,
   fdc_id      INTEGER,            -- NULL = no composition data, as on a recipe
   description TEXT NOT NULL,
-  -- What the recipe called for at this cook's scale, frozen when the cook was
-  -- opened. It is what the dial is centred on, and it keeps "what moved"
-  -- answerable after the recipe itself has been rewritten. 0 for a line thrown
-  -- in at the stove that the recipe never mentioned.
+  -- The raw weight the recipe called for at this cook's scale, frozen when the
+  -- cook was opened. It is what the dial is centred on, and it keeps "what
+  -- moved" answerable after the recipe itself has been rewritten. 0 for a line
+  -- thrown in at the stove that the recipe never mentioned.
   planned_g   REAL NOT NULL CHECK (planned_g >= 0),
-  -- What actually went in. Zero is meaningful and allowed -- it is the record
-  -- of an ingredient deliberately left out, which is a different fact from the
-  -- line never having been in the dish. This is the one place in the app where
-  -- a zero weight is a measurement rather than a missing one.
+  -- What actually went in, weighed raw -- the one weight an ingredient has,
+  -- here as on a recipe. Zero is meaningful and allowed: it is the record of an
+  -- ingredient deliberately left out, which is a different fact from the line
+  -- never having been in the dish. This is the one place in the app where a
+  -- zero weight is a measurement rather than a missing one.
   raw_g       REAL NOT NULL CHECK (raw_g >= 0),
-  cooked_g    REAL NOT NULL CHECK (cooked_g >= 0),
   -- What this stood in for, when it was a substitution. Both are kept: the
   -- substitute is what was eaten, the original is what the dish was meant to
   -- be, and collapsing them would lose the reason the numbers differ.
@@ -990,8 +1014,9 @@ pub struct RecipeIngredient {
     /// still records it, so the gap stays visible instead of vanishing.
     pub fdc_id: Option<i64>,
     pub description: String,
+    /// Weighed before it went in — the one weight an ingredient has. See the
+    /// `recipe_ingredients` table comment and D22.
     pub raw_g: f64,
-    pub cooked_g: f64,
     /// Whether the dish survives without this line. A note for the person at
     /// the stove; the recipe's own arithmetic ignores it.
     ///
@@ -1015,11 +1040,12 @@ pub struct CookIngredient {
     pub position: i64,
     pub fdc_id: Option<i64>,
     pub description: String,
-    /// What the recipe called for at this cook's scale. The dial's centre.
+    /// The raw weight the recipe called for at this cook's scale. The dial's
+    /// centre.
     pub planned_g: f64,
-    /// What went in. Zero means deliberately left out — see the table comment.
+    /// What went in, weighed raw. Zero means deliberately left out — see the
+    /// table comment.
     pub raw_g: f64,
-    pub cooked_g: f64,
     /// The line this replaced, when it was a substitution.
     #[serde(default)]
     pub substituted_for: Option<String>,
@@ -1034,6 +1060,9 @@ pub struct Cook {
     pub cooked_on: String,
     pub cooked_at: String,
     pub scale: f64,
+    /// What the recipe says this dish comes out at, times this pot's scale,
+    /// frozen when the pot was opened. See [`Cook::yield_g`].
+    pub expected_yield_g: f64,
     /// What the pot weighed, when it was weighed. See [`Cook::yield_g`].
     pub weighed_yield_g: Option<f64>,
     pub gross_g: Option<f64>,
@@ -1061,19 +1090,22 @@ impl Cook {
     /// numbers the nutrition arm divides by, from the one definition here. Every
     /// path that builds a `Cook` ends with this call; nothing else may set them.
     ///
-    /// **What you weighed wins.** The summed line weights are an estimate built
-    /// out of the recipe's raw-to-cooked ratios; a reading off a scale is the
-    /// pot itself, and where both exist the measurement is the honest divisor —
-    /// which is also what concentrates a reduced dal correctly, since water
-    /// leaves a pot and nutrients do not.
+    /// **What you weighed wins.** `expected_yield_g` is what the recipe says
+    /// this dish usually comes out at; a reading off a scale is the pot itself,
+    /// and where both exist the measurement is the honest divisor — which is
+    /// also what concentrates a reduced dal correctly, since water leaves a pot
+    /// and nutrients do not.
+    ///
+    /// The summed ingredient weights are NOT a candidate. They are raw weights,
+    /// and a pot of rajma weighs roughly three times what its dry beans did, so
+    /// dividing a katori by them would read it as if it were dry — the single
+    /// largest avoidable error in tracking Indian food. See D22.
     ///
     /// `remaining_g` never goes negative. Logging more than the pot held is
     /// allowed: grams are estimates, and going over says the yield was
     /// under-read, not that the fridge owes you food.
     pub fn seal(mut self) -> Self {
-        self.yield_g = self
-            .weighed_yield_g
-            .unwrap_or_else(|| self.ingredients.iter().map(|i| i.cooked_g).sum());
+        self.yield_g = self.weighed_yield_g.unwrap_or(self.expected_yield_g);
         self.remaining_g = (self.yield_g - self.logged_g).max(0.0);
         self
     }
@@ -1141,7 +1173,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -2577,6 +2609,192 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
+    // v15 -> v16: an ingredient has one weight, and it is the raw one.
+    //
+    // Until now every line of a recipe and of a pot carried BOTH a raw and a
+    // cooked weight, and the cooked one was what the nutrition arithmetic read.
+    // That asked for a number nobody can produce: ingredients go on a scale one
+    // at a time before they are cooked, and once they are cooked they are one
+    // mixed dish — there is no way to lift the rajma back out of a curry and
+    // weigh it apart from the onions. So the second figure was always going to
+    // be a guess, and a guess was driving every calorie in the app.
+    //
+    // The replacement is arithmetic rather than a question. Nutrient mass is
+    // conserved through cooking while concentration is not, so a raw weight
+    // against the raw food's composition IS the ingredient's whole
+    // contribution; what changes is the mass it is dissolved in, and that is
+    // one weighing of one finished pot. See D22.
+    //
+    // Nothing already logged moves: an entry's nutrition was frozen when it was
+    // written and no read path reaches back through these tables.
+    //
+    // Two arms, guarded separately, because they can arrive apart. `SCHEMA`
+    // runs before this function and creates missing tables in their CURRENT
+    // shape, so a database can reach here with a brand-new `cooks` and an old
+    // `recipe_ingredients` — the fixtures that build one table by hand do
+    // exactly that. Keying each rebuild on its own column keeps either half
+    // idempotent.
+
+    // The divisor first, while `cook_ingredients.cooked_g` is still there to
+    // read it out of. Filling from each pot's own summed cooked weights is
+    // exactly what the old fallback computed, so no existing pot changes what
+    // its portions divide by. Recipes need no such fill: `recipes.yield_g`
+    // already held the cooked batch weight and already meant what it now means.
+    if !columns(conn, "cooks")?.iter().any(|c| c == "expected_yield_g") {
+        // A pot's old divisor, read out of the column that is about to go. A
+        // pot whose lines were all dialled to zero, or that has none left,
+        // falls back to its own weighed yield and finally to 1 g -- a number
+        // that portions nothing, on a pot that holds nothing.
+        let summed = if columns(conn, "cook_ingredients")?
+            .iter()
+            .any(|c| c == "cooked_g")
+        {
+            "NULLIF((SELECT SUM(cooked_g) FROM cook_ingredients ci WHERE ci.cook_id = c.id), 0)"
+        } else {
+            "NULL"
+        };
+        conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        // Filled by the rebuild's own SELECT rather than by an ALTER and an
+        // UPDATE. An UPDATE on `cooks` would fire `trg_ver_cooks_upd` on every
+        // real installed database, bumping each pot's sync version and telling
+        // the household that food in the fridge had changed -- when all that
+        // happened was a column being filled in. Nothing is attached to
+        // `cooks_migrating`, so writing there says nothing to anybody.
+        tx.execute_batch(&format!(
+            r#"
+            CREATE TABLE cooks_migrating (
+              id          TEXT PRIMARY KEY,
+              recipe_id   TEXT REFERENCES recipes(id),
+              name        TEXT NOT NULL,
+              cooked_on   TEXT NOT NULL,
+              cooked_at   TEXT NOT NULL,
+              scale       REAL NOT NULL DEFAULT 1 CHECK (scale > 0),
+              expected_yield_g REAL NOT NULL CHECK (expected_yield_g > 0),
+              weighed_yield_g REAL CHECK (weighed_yield_g IS NULL OR weighed_yield_g > 0),
+              gross_g     REAL,
+              tare_g      REAL,
+              tare_note   TEXT,
+              default_origin  TEXT CHECK (default_origin IS NULL OR
+                                default_origin IN ('home','ordered_in','eaten_out','packaged')),
+              default_cuisine TEXT,
+              notes       TEXT,
+              finished_at TEXT,
+              created_at  TEXT NOT NULL,
+              updated_at  TEXT NOT NULL,
+              deleted_at  TEXT,
+              CHECK (weighed_yield_g IS NOT NULL OR gross_g IS NULL),
+              CHECK ((gross_g IS NULL) = (tare_g IS NULL)),
+              CHECK (gross_g IS NULL OR gross_g > tare_g)
+            );
+            INSERT INTO cooks_migrating
+              (id, recipe_id, name, cooked_on, cooked_at, scale, expected_yield_g,
+               weighed_yield_g, gross_g, tare_g, tare_note, default_origin,
+               default_cuisine, notes, finished_at, created_at, updated_at, deleted_at)
+            SELECT c.id, c.recipe_id, c.name, c.cooked_on, c.cooked_at, c.scale,
+                   COALESCE({summed}, c.weighed_yield_g, 1),
+                   c.weighed_yield_g, c.gross_g, c.tare_g, c.tare_note, c.default_origin,
+                   c.default_cuisine, c.notes, c.finished_at, c.created_at, c.updated_at,
+                   c.deleted_at
+            FROM cooks c;
+            DROP TABLE cooks;
+            ALTER TABLE cooks_migrating RENAME TO cooks;
+            CREATE INDEX IF NOT EXISTS idx_cooks_open ON cooks(cooked_at DESC)
+              WHERE deleted_at IS NULL AND finished_at IS NULL;
+            "#
+        ))
+        .map_err(|e| format!("migrating cooks to v16: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Then the cooked weights themselves, now that nothing needs them.
+    if columns(conn, "recipe_ingredients")?
+        .iter()
+        .any(|c| c == "cooked_g")
+    {
+        conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            r#"
+            CREATE TABLE recipe_ingredients_migrating (
+              id          TEXT PRIMARY KEY,
+              recipe_id   TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+              position    INTEGER NOT NULL,
+              fdc_id      INTEGER,
+              description TEXT NOT NULL,
+              raw_g       REAL NOT NULL CHECK (raw_g > 0),
+              optional    INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0,1))
+            );
+            INSERT INTO recipe_ingredients_migrating
+              (id, recipe_id, position, fdc_id, description, raw_g, optional)
+            SELECT id, recipe_id, position, fdc_id, description, raw_g, optional
+            FROM recipe_ingredients;
+            DROP TABLE recipe_ingredients;
+            ALTER TABLE recipe_ingredients_migrating RENAME TO recipe_ingredients;
+            CREATE INDEX IF NOT EXISTS idx_ri_recipe ON recipe_ingredients(recipe_id, position);
+            "#,
+        )
+        .map_err(|e| format!("migrating recipe_ingredients to v16: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+    }
+
+    if columns(conn, "cook_ingredients")?
+        .iter()
+        .any(|c| c == "cooked_g")
+    {
+        conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            r#"
+            CREATE TABLE cook_ingredients_migrating (
+              id          TEXT PRIMARY KEY,
+              cook_id     TEXT NOT NULL REFERENCES cooks(id) ON DELETE CASCADE,
+              position    INTEGER NOT NULL,
+              fdc_id      INTEGER,
+              description TEXT NOT NULL,
+              planned_g   REAL NOT NULL CHECK (planned_g >= 0),
+              raw_g       REAL NOT NULL CHECK (raw_g >= 0),
+              substituted_for TEXT
+            );
+            INSERT INTO cook_ingredients_migrating
+              (id, cook_id, position, fdc_id, description, planned_g, raw_g, substituted_for)
+            SELECT id, cook_id, position, fdc_id, description,
+                   -- `planned_g` was a COOKED figure and is now a raw one, so it
+                   -- has to be converted rather than copied: left alone, a pot
+                   -- of rajma would read "900 g as written" beside a line that
+                   -- actually holds 300 g of dry bean.
+                   --
+                   -- The line's own raw-to-cooked ratio is the right converter
+                   -- and survives right up until this statement. A line dialled
+                   -- to zero has lost it -- both weights are zero -- so it
+                   -- borrows the pot's overall ratio, and a pot with nothing
+                   -- left in it keeps the figure unchanged rather than
+                   -- inventing one.
+                   planned_g * COALESCE(
+                     NULLIF(raw_g, 0) / NULLIF(cooked_g, 0),
+                     (SELECT NULLIF(SUM(s.raw_g), 0) / NULLIF(SUM(s.cooked_g), 0)
+                        FROM cook_ingredients s WHERE s.cook_id = cook_ingredients.cook_id),
+                     1),
+                   raw_g, substituted_for
+            FROM cook_ingredients;
+            DROP TABLE cook_ingredients;
+            ALTER TABLE cook_ingredients_migrating RENAME TO cook_ingredients;
+            CREATE INDEX IF NOT EXISTS idx_ci_cook ON cook_ingredients(cook_id, position);
+            "#,
+        )
+        .map_err(|e| format!("migrating cook_ingredients to v16: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+    }
+
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
     // column this indexes does not exist yet and the whole batch would fail.
@@ -3107,8 +3325,8 @@ pub fn save_recipe(
         let iid = new_id(&tx)?;
         tx.execute(
             "INSERT INTO recipe_ingredients
-               (id,recipe_id,position,fdc_id,description,raw_g,cooked_g,optional)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+               (id,recipe_id,position,fdc_id,description,raw_g,optional)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
             rusqlite::params![
                 iid,
                 id,
@@ -3116,7 +3334,6 @@ pub fn save_recipe(
                 ing.fdc_id,
                 ing.description,
                 ing.raw_g,
-                ing.cooked_g,
                 ing.optional as i64
             ],
         )
@@ -3173,7 +3390,7 @@ fn get_recipe_inner(conn: &Connection, id: &str, include_deleted: bool) -> Resul
 
     let mut istmt = conn
         .prepare(
-            "SELECT id, position, fdc_id, description, raw_g, cooked_g, optional
+            "SELECT id, position, fdc_id, description, raw_g, optional
              FROM recipe_ingredients WHERE recipe_id = ?1 ORDER BY position",
         )
         .map_err(|e| e.to_string())?;
@@ -3185,8 +3402,7 @@ fn get_recipe_inner(conn: &Connection, id: &str, include_deleted: bool) -> Resul
                 fdc_id: r.get(2)?,
                 description: r.get(3)?,
                 raw_g: r.get(4)?,
-                cooked_g: r.get(5)?,
-                optional: r.get::<_, i64>(6)? != 0,
+                optional: r.get::<_, i64>(5)? != 0,
             })
         })
         .map_err(|e| e.to_string())?
@@ -3255,6 +3471,10 @@ pub struct CookInput {
     /// Ignored when `gross_g` is given — a reading and its tare are the better
     /// record, and two sources for one number is how they drift apart.
     pub weighed_yield_g: Option<f64>,
+    /// What the recipe says the dish comes out at, times `scale`. Carried from
+    /// the draft rather than re-read, so editing the recipe later cannot
+    /// re-portion a pot already in the fridge.
+    pub expected_yield_g: f64,
     pub notes: Option<String>,
     pub defaults: Tags,
     pub ingredients: Vec<CookIngredient>,
@@ -3276,6 +3496,7 @@ pub struct CookDraft {
     #[serde(default)]
     pub vessel_ids: Vec<String>,
     pub weighed_yield_g: Option<f64>,
+    pub expected_yield_g: f64,
     pub notes: Option<String>,
     pub origin: Option<String>,
     pub cuisine: Option<String>,
@@ -3292,6 +3513,7 @@ impl CookDraft {
             gross_g: self.gross_g,
             vessel_ids: self.vessel_ids,
             weighed_yield_g: self.weighed_yield_g,
+            expected_yield_g: self.expected_yield_g,
             notes: self.notes,
             defaults: Tags {
                 origin: self.origin,
@@ -3321,6 +3543,12 @@ pub fn save_cook(
     if !(input.scale.is_finite() && input.scale > 0.0) {
         return Err("the batch scale must be a positive number".into());
     }
+    // The fallback divisor, so it has to exist before the pot does. A recipe
+    // always states one and `draft_cook` scales it, which means a pot arriving
+    // here without one came from somewhere that skipped the draft.
+    if !(input.expected_yield_g.is_finite() && input.expected_yield_g > 0.0) {
+        return Err("a pot needs what the dish comes out at, so a portion of it can be valued".into());
+    }
     if input.ingredients.is_empty() {
         return Err("a cook needs at least one ingredient".into());
     }
@@ -3328,11 +3556,7 @@ pub fn save_cook(
     // NaN would sail past the column CHECK on the NaN and mean nothing on the
     // negative.
     for ing in &input.ingredients {
-        for (what, v) in [
-            ("planned", ing.planned_g),
-            ("raw", ing.raw_g),
-            ("cooked", ing.cooked_g),
-        ] {
+        for (what, v) in [("planned", ing.planned_g), ("raw", ing.raw_g)] {
             if !(v.is_finite() && v >= 0.0) {
                 return Err(format!(
                     "“{}” has a {what} weight that is not a number at or above zero",
@@ -3367,7 +3591,8 @@ pub fn save_cook(
                 .execute(
                     "UPDATE cooks SET recipe_id=?2, name=?3, cooked_on=?4, scale=?5,
                         weighed_yield_g=?6, gross_g=?7, tare_g=?8, tare_note=?9,
-                        default_origin=?10, default_cuisine=?11, notes=?12, updated_at=?13
+                        default_origin=?10, default_cuisine=?11, notes=?12, updated_at=?13,
+                        expected_yield_g=?14
                      WHERE id=?1 AND deleted_at IS NULL",
                     rusqlite::params![
                         existing,
@@ -3382,7 +3607,8 @@ pub fn save_cook(
                         input.defaults.origin.as_deref(),
                         opt_trim(input.defaults.cuisine.as_ref()),
                         opt_trim(input.notes.as_ref()),
-                        now
+                        now,
+                        input.expected_yield_g
                     ],
                 )
                 .map_err(|e| e.to_string())?;
@@ -3398,9 +3624,9 @@ pub fn save_cook(
             tx.execute(
                 "INSERT INTO cooks
                    (id,recipe_id,name,cooked_on,cooked_at,scale,
-                    weighed_yield_g,gross_g,tare_g,tare_note,
+                    expected_yield_g,weighed_yield_g,gross_g,tare_g,tare_note,
                     default_origin,default_cuisine,notes,created_at,updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14)",
+                 VALUES (?1,?2,?3,?4,?5,?6,?15,?7,?8,?9,?10,?11,?12,?13,?14,?14)",
                 rusqlite::params![
                     fresh,
                     input.recipe_id,
@@ -3415,7 +3641,8 @@ pub fn save_cook(
                     input.defaults.origin.as_deref(),
                     opt_trim(input.defaults.cuisine.as_ref()),
                     opt_trim(input.notes.as_ref()),
-                    now
+                    now,
+                    input.expected_yield_g
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -3427,8 +3654,8 @@ pub fn save_cook(
         let iid = new_id(&tx)?;
         tx.execute(
             "INSERT INTO cook_ingredients
-               (id,cook_id,position,fdc_id,description,planned_g,raw_g,cooked_g,substituted_for)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+               (id,cook_id,position,fdc_id,description,planned_g,raw_g,substituted_for)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
             rusqlite::params![
                 iid,
                 id,
@@ -3437,7 +3664,6 @@ pub fn save_cook(
                 ing.description,
                 ing.planned_g,
                 ing.raw_g,
-                ing.cooked_g,
                 opt_trim(ing.substituted_for.as_ref())
             ],
         )
@@ -3463,11 +3689,13 @@ pub fn get_cook_for_history(conn: &Connection, id: &str) -> Result<Cook, String>
 fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<Cook, String> {
     let sql = if include_deleted {
         "SELECT recipe_id, name, cooked_on, cooked_at, scale, weighed_yield_g,
-                gross_g, tare_g, tare_note, default_origin, default_cuisine, notes, finished_at
+                gross_g, tare_g, tare_note, default_origin, default_cuisine, notes,
+                finished_at, expected_yield_g
          FROM cooks WHERE id = ?1"
     } else {
         "SELECT recipe_id, name, cooked_on, cooked_at, scale, weighed_yield_g,
-                gross_g, tare_g, tare_note, default_origin, default_cuisine, notes, finished_at
+                gross_g, tare_g, tare_note, default_origin, default_cuisine, notes,
+                finished_at, expected_yield_g
          FROM cooks WHERE id = ?1 AND deleted_at IS NULL"
     };
     let mut cook = conn
@@ -3487,6 +3715,7 @@ fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<
                 default_cuisine: r.get(10)?,
                 notes: r.get(11)?,
                 finished_at: r.get(12)?,
+                expected_yield_g: r.get(13)?,
                 ingredients: Vec::new(),
                 logged_g: 0.0,
                 yield_g: 0.0,
@@ -3497,7 +3726,7 @@ fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<
 
     let mut istmt = conn
         .prepare(
-            "SELECT id, position, fdc_id, description, planned_g, raw_g, cooked_g, substituted_for
+            "SELECT id, position, fdc_id, description, planned_g, raw_g, substituted_for
              FROM cook_ingredients WHERE cook_id = ?1 ORDER BY position",
         )
         .map_err(|e| e.to_string())?;
@@ -3510,8 +3739,7 @@ fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<
                 description: r.get(3)?,
                 planned_g: r.get(4)?,
                 raw_g: r.get(5)?,
-                cooked_g: r.get(6)?,
-                substituted_for: r.get(7)?,
+                substituted_for: r.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -7312,14 +7540,13 @@ mod tests {
         c
     }
 
-    fn ing(desc: &str, fdc: Option<i64>, raw: f64, cooked: f64) -> RecipeIngredient {
+    fn ing(desc: &str, fdc: Option<i64>, raw: f64) -> RecipeIngredient {
         RecipeIngredient {
             id: String::new(),
             position: 0,
             fdc_id: fdc,
             description: desc.into(),
             raw_g: raw,
-            cooked_g: cooked,
             optional: false,
         }
     }
@@ -7544,11 +7771,151 @@ mod tests {
     }
 
     #[test]
+    fn migrates_a_v15_pot_keeping_the_divisor_it_was_already_portioned_by() {
+        // The upgrade that takes the cooked weight off every ingredient. What
+        // must not move is what a portion divides by: before this, an unweighed
+        // pot was divided by the sum of its lines' cooked weights, and that sum
+        // has to survive the column it was made of being dropped.
+        let mut c = Connection::open_in_memory().unwrap();
+        c.pragma_update(None, "foreign_keys", "ON").unwrap();
+        c.execute_batch(SCHEMA).unwrap();
+        // Put the two tables back in their v15 shape. `SCHEMA` has just built
+        // them without `cooked_g`, which is exactly the mixed state the split
+        // guards exist for -- `cooks` is already new while these are old.
+        c.execute_batch(
+            r#"
+            DROP TABLE cook_ingredients;
+            CREATE TABLE cook_ingredients (
+              id TEXT PRIMARY KEY,
+              cook_id TEXT NOT NULL REFERENCES cooks(id) ON DELETE CASCADE,
+              position INTEGER NOT NULL, fdc_id INTEGER, description TEXT NOT NULL,
+              planned_g REAL NOT NULL, raw_g REAL NOT NULL, cooked_g REAL NOT NULL,
+              substituted_for TEXT
+            );
+            DROP TABLE recipe_ingredients;
+            CREATE TABLE recipe_ingredients (
+              id TEXT PRIMARY KEY,
+              recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+              position INTEGER NOT NULL, fdc_id INTEGER, description TEXT NOT NULL,
+              raw_g REAL NOT NULL, cooked_g REAL NOT NULL,
+              optional INTEGER NOT NULL DEFAULT 0
+            );
+            ALTER TABLE cooks DROP COLUMN expected_yield_g;
+
+            INSERT INTO recipes (id,name,yield_g,notes,created_at,updated_at)
+              VALUES ('r1','Rajma',900,NULL,'t','t');
+            INSERT INTO recipe_ingredients
+              (id,recipe_id,position,fdc_id,description,raw_g,cooked_g,optional)
+              VALUES ('ri1','r1',0,16033,'Kidney beans, dry',300,900,0);
+
+            INSERT INTO cooks (id,recipe_id,name,cooked_on,cooked_at,scale,created_at,updated_at)
+              VALUES ('c1','r1','Rajma','2026-09-04','t',1,'t','t');
+            INSERT INTO cook_ingredients
+              (id,cook_id,position,fdc_id,description,planned_g,raw_g,cooked_g,substituted_for)
+              VALUES ('ci1','c1',0,16033,'Kidney beans, dry',900,300,900,NULL);
+            "#,
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 15).unwrap();
+
+        migrate(&mut c).unwrap();
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+
+        let pot = get_cook(&c, "c1").unwrap();
+        assert_eq!(
+            pot.ingredients[0].planned_g, 300.0,
+            "`planned_g` was a cooked figure and is now a raw one, so it is \
+             converted by the line's own ratio rather than copied across — \
+             900 g of cooked rajma was 300 g of dry bean"
+        );
+        assert_eq!(
+            pot.yield_g, 900.0,
+            "an unweighed pot divided by 900 g before the migration and must \
+             divide by 900 g after it"
+        );
+        assert_eq!(pot.expected_yield_g, 900.0);
+        assert_eq!(
+            pot.ingredients[0].raw_g, 300.0,
+            "the weight that survives is the one that was actually weighed"
+        );
+
+        let r = get_recipe(&c, "r1").unwrap();
+        assert_eq!(r.ingredients[0].raw_g, 300.0);
+        assert_eq!(
+            r.yield_g, 900.0,
+            "`recipes.yield_g` already held the cooked batch weight, so it is \
+             not touched"
+        );
+
+        // And the shape is genuinely gone, not merely unread.
+        assert!(!columns(&c, "recipe_ingredients")
+            .unwrap()
+            .iter()
+            .any(|x| x == "cooked_g"));
+        assert!(!columns(&c, "cook_ingredients")
+            .unwrap()
+            .iter()
+            .any(|x| x == "cooked_g"));
+    }
+
+    #[test]
+    fn a_portion_is_valued_on_what_went_in_raw_not_on_what_the_pot_weighs() {
+        // The arithmetic the whole change rests on. 300 g of dry rajma swells to
+        // a 900 g pot; a third of that pot is a third of the beans, which is
+        // 100 g of DRY bean -- not 300 g of anything.
+        //
+        // Reading the 300 g helping as 300 g of dry bean is the threefold error
+        // this app exists to avoid, and it is what a per-line cooked weight
+        // invited every time someone guessed one.
+        let mut c = db();
+        let rid = save_recipe(
+            &mut c, "Rajma", 900.0, None, None,
+            &[ing("Kidney beans, dry", Some(16033), 300.0)], &[], &Tags::default(),
+        )
+        .unwrap();
+        let cid = save_cook(
+            &mut c,
+            None,
+            &CookInput {
+                recipe_id: Some(rid),
+                name: "Rajma".into(),
+                cooked_on: "2026-09-04".into(),
+                scale: 1.0,
+                gross_g: None,
+                vessel_ids: Vec::new(),
+                weighed_yield_g: None,
+                expected_yield_g: 900.0,
+                notes: None,
+                defaults: Tags::default(),
+                ingredients: vec![CookIngredient {
+                    id: String::new(),
+                    position: 0,
+                    fdc_id: Some(16033),
+                    description: "Kidney beans, dry".into(),
+                    planned_g: 300.0,
+                    raw_g: 300.0,
+                    substituted_for: None,
+                }],
+            },
+        )
+        .unwrap();
+
+        let pot = get_cook(&c, &cid).unwrap();
+        assert_eq!(pot.yield_g, 900.0, "the recipe says the dish comes out at 900 g");
+        assert_eq!(
+            pot.ingredients.iter().map(|i| i.raw_g).sum::<f64>(),
+            300.0,
+            "and the lines still add to the 300 g of dry bean that went in"
+        );
+    }
+
+    #[test]
     fn deleting_a_recipe_does_not_break_days_that_already_used_it() {
         let mut c = db();
         let rid = save_recipe(
             &mut c, "Rajma chawal", 1212.0, Some(4.0), None,
-            &[ing("Kidney beans, dry", Some(16033), 128.0, 384.0)], &[],
+            &[ing("Kidney beans, dry", Some(16033), 128.0)], &[],
             &Tags::default(),
         )
         .unwrap();
@@ -7770,6 +8137,7 @@ mod tests {
                 gross_g: None,
                 vessel_ids: Vec::new(),
                 weighed_yield_g: Some(900.0),
+                expected_yield_g: 900.0,
                 notes: None,
                 defaults: Tags::default(),
                 ingredients: vec![CookIngredient {
@@ -7779,7 +8147,6 @@ mod tests {
                     description: "kidney beans".into(),
                     planned_g: 900.0,
                     raw_g: 300.0,
-                    cooked_g: 900.0,
                     substituted_for: None,
                 }],
             },
@@ -7882,7 +8249,11 @@ mod tests {
         assert_eq!(r.yield_g, 1212.0);
         assert_eq!(r.ingredients.len(), 1);
         assert_eq!(r.ingredients[0].description, "Kidney beans, dry");
-        assert_eq!(r.ingredients[0].cooked_g, 384.0);
+        assert_eq!(
+            r.ingredients[0].raw_g, 128.0,
+            "the weight that survives every migration is the raw one — it is the \
+             only one anybody ever measured"
+        );
         assert!(
             !r.ingredients[0].optional,
             "a recipe written before the flag existed said nothing about which \
@@ -7897,7 +8268,7 @@ mod tests {
             600.0,
             None,
             None,
-            &[ing("Toor dal", Some(16101), 100.0, 300.0)],
+            &[ing("Toor dal", Some(16101), 100.0)],
             &[],
             &Tags::default(),
         )
@@ -8135,7 +8506,7 @@ mod tests {
         // about the recipe's own weights — but it has to round-trip, because
         // it is what the cook sheet reads to offer "leave this out".
         let mut c = db();
-        let mut hing = ing("Asafoetida", None, 1.0, 1.0);
+        let mut hing = ing("Asafoetida", None, 1.0);
         hing.optional = true;
         let id = save_recipe(
             &mut c,
@@ -8143,7 +8514,7 @@ mod tests {
             900.0,
             None,
             None,
-            &[ing("Toor dal", Some(16101), 200.0, 600.0), hing],
+            &[ing("Toor dal", Some(16101), 200.0), hing],
             &[],
             &Tags::default(),
         )
@@ -8895,9 +9266,9 @@ mod tests {
             Some(4.0),
             None,
             &[
-                ing("Kidney beans, dry", Some(16033), 128.0, 384.0),
-                ing("Rice, dry", Some(20044), 210.0, 630.0),
-                ing("Garam masala", None, 8.0, 8.0),
+                ing("Kidney beans, dry", Some(16033), 128.0),
+                ing("Rice, dry", Some(20044), 210.0),
+                ing("Garam masala", None, 8.0),
             ],
             &[RecipeServing { id: String::new(), label: "1 katori + 1 cup".into(), grams: 303.0 }],
             &Tags::default(),
@@ -8920,7 +9291,7 @@ mod tests {
         let mut c = db();
         let id = save_recipe(
             &mut c, "Sambar", 600.0, Some(4.0), None,
-            &[ing("Toor dal", Some(16101), 100.0, 300.0), ing("Sambar powder", None, 6.0, 6.0)],
+            &[ing("Toor dal", Some(16101), 100.0), ing("Sambar powder", None, 6.0)],
             &[],
             &Tags::default(),
         )
@@ -8935,7 +9306,7 @@ mod tests {
         let mut c = db();
         let rid = save_recipe(
             &mut c, "Rajma chawal", 1212.0, Some(4.0), None,
-            &[ing("Kidney beans, dry", Some(16033), 128.0, 384.0)], &[], &Tags::default(),
+            &[ing("Kidney beans, dry", Some(16033), 128.0)], &[], &Tags::default(),
         )
         .unwrap();
 
@@ -9003,19 +9374,19 @@ mod tests {
     #[test]
     fn rejects_a_recipe_that_cannot_be_scaled() {
         let mut c = db();
-        assert!(save_recipe(&mut c, "x", 0.0, Some(4.0), None, &[ing("a", Some(1), 1.0, 1.0)], &[], &Tags::default()).is_err());
+        assert!(save_recipe(&mut c, "x", 0.0, Some(4.0), None, &[ing("a", Some(1), 1.0)], &[], &Tags::default()).is_err());
         // A count the user did offer still has to be usable. NULL is fine and
         // is tested a line below; zero is a number that would divide something.
-        assert!(save_recipe(&mut c, "x", 100.0, Some(0.0), None, &[ing("a", Some(1), 1.0, 1.0)], &[], &Tags::default()).is_err());
-        assert!(save_recipe(&mut c, "x", 100.0, None, None, &[ing("a", Some(1), 1.0, 1.0)], &[], &Tags::default()).is_ok());
-        assert!(save_recipe(&mut c, "  ", 100.0, Some(4.0), None, &[ing("a", Some(1), 1.0, 1.0)], &[], &Tags::default()).is_err());
+        assert!(save_recipe(&mut c, "x", 100.0, Some(0.0), None, &[ing("a", Some(1), 1.0)], &[], &Tags::default()).is_err());
+        assert!(save_recipe(&mut c, "x", 100.0, None, None, &[ing("a", Some(1), 1.0)], &[], &Tags::default()).is_ok());
+        assert!(save_recipe(&mut c, "  ", 100.0, Some(4.0), None, &[ing("a", Some(1), 1.0)], &[], &Tags::default()).is_err());
         assert!(save_recipe(&mut c, "x", 100.0, Some(4.0), None, &[], &[], &Tags::default()).is_err());
     }
 
     #[test]
     fn deleting_a_recipe_is_soft_so_a_future_sync_can_propagate_it() {
         let mut c = db();
-        let id = save_recipe(&mut c, "x", 100.0, None, None, &[ing("a", Some(1), 1.0, 1.0)], &[], &Tags::default()).unwrap();
+        let id = save_recipe(&mut c, "x", 100.0, None, None, &[ing("a", Some(1), 1.0)], &[], &Tags::default()).unwrap();
         delete_recipe(&c, &id).unwrap();
         assert!(list_recipes(&c).unwrap().is_empty());
         let still_there: i64 = c
@@ -9482,6 +9853,7 @@ mod tests {
                 gross_g: None,
                 vessel_ids: Vec::new(),
                 weighed_yield_g: Some(weighed_g),
+                expected_yield_g: weighed_g,
                 notes: None,
                 defaults: Tags::default(),
                 ingredients: vec![CookIngredient {
@@ -9491,7 +9863,6 @@ mod tests {
                     description: "Toor dal".into(),
                     planned_g: weighed_g,
                     raw_g: weighed_g,
-                    cooked_g: weighed_g,
                     substituted_for: None,
                 }],
             },
@@ -10270,7 +10641,7 @@ mod tests {
             900.0,
             Some(4.0),
             Some("soak overnight"),
-            &[ing("kidney beans", Some(16033), 300.0, 900.0)],
+            &[ing("kidney beans", Some(16033), 300.0)],
             &[RecipeServing { id: String::new(), label: "katori".into(), grams: 200.0 }],
             &Tags { origin: Some("home".into()), cuisine: Some("North Indian".into()) },
         )
@@ -10286,6 +10657,7 @@ mod tests {
                 gross_g: None,
                 vessel_ids: Vec::new(),
                 weighed_yield_g: Some(900.0),
+                expected_yield_g: 900.0,
                 notes: None,
                 defaults: Tags::default(),
                 ingredients: vec![CookIngredient {
@@ -10295,7 +10667,6 @@ mod tests {
                     description: "kidney beans".into(),
                     planned_g: 900.0,
                     raw_g: 300.0,
-                    cooked_g: 900.0,
                     substituted_for: None,
                 }],
             },
@@ -11051,6 +11422,7 @@ mod tests {
                 gross_g: None,
                 vessel_ids: Vec::new(),
                 weighed_yield_g: Some(600.0),
+                expected_yield_g: 600.0,
                 notes: None,
                 defaults: Tags::default(),
                 ingredients: vec![CookIngredient {
@@ -11060,7 +11432,6 @@ mod tests {
                     description: "kidney beans".into(),
                     planned_g: 600.0,
                     raw_g: 200.0,
-                    cooked_g: 600.0,
                     substituted_for: None,
                 }],
             },
@@ -11088,7 +11459,7 @@ mod tests {
             900.0,
             Some(4.0),
             None,
-            &[ing("kidney beans", Some(16033), 300.0, 900.0)],
+            &[ing("kidney beans", Some(16033), 300.0)],
             &[],
             &Tags::default(),
         )
@@ -11532,7 +11903,7 @@ mod tests {
 
         let rid = save_recipe(
             &mut c, "Dal tadka", 1000.0, Some(4.0), None,
-            &[ing("Lentils", Some(172421), 300.0, 900.0)], &[], &Tags::default(),
+            &[ing("Lentils", Some(172421), 300.0)], &[], &Tags::default(),
         )
         .unwrap();
         add(
@@ -11552,6 +11923,7 @@ mod tests {
                 gross_g: None,
                 vessel_ids: Vec::new(),
                 weighed_yield_g: Some(900.0),
+                expected_yield_g: 900.0,
                 notes: None,
                 defaults: Tags::default(),
                 ingredients: vec![CookIngredient {
@@ -11561,7 +11933,6 @@ mod tests {
                     description: "Lentils".into(),
                     planned_g: 900.0,
                     raw_g: 300.0,
-                    cooked_g: 900.0,
                     substituted_for: None,
                 }],
             },

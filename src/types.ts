@@ -567,8 +567,18 @@ export interface RecipeIngredient {
   /** null when no composition data exists for this ingredient. */
   fdc_id: number | null;
   description: string;
+  /**
+   * Weighed before it goes in — the one weight an ingredient has.
+   *
+   * There is deliberately no cooked weight beside it. A person can put each
+   * ingredient on a scale before it goes in the pot; nobody can lift the rajma
+   * back out of a finished curry and weigh it apart from the onions, so a
+   * per-ingredient cooked figure could only ever be guessed. The raw-to-cooked
+   * change is handled instead by `Recipe.yield_g` — one weighing of one
+   * finished dish — because nutrient mass is conserved through cooking while
+   * concentration is not. See D22.
+   */
   raw_g: number;
-  cooked_g: number;
   /**
    * Whether the dish is still the dish without this line. A note to the person
    * at the stove — it moves no weight and enters no arithmetic. Actually
@@ -600,9 +610,13 @@ export interface Recipe {
   id: string;
   name: string;
   /**
-   * The reference batch: what the ingredient weights happen to add up to. Not
-   * a claim about how much you will make, which is why a cook carries a scale
-   * of its own.
+   * What the dish comes out at, cooked, when made at the weights below. The
+   * user's own single weighing of a finished pot — NOT the sum of the
+   * ingredients, which are raw and add to a quite different number.
+   *
+   * This is the divisor. A portion is `grams / yield_g` of the dish, and that
+   * fraction of every ingredient's raw weight. Not a claim about how much you
+   * will make, which is why a cook carries a scale of its own.
    */
   yield_g: number;
   /**
@@ -627,18 +641,18 @@ export interface CookIngredient {
   fdc_id: number | null;
   description: string;
   /**
-   * What the recipe called for at this cook's scale, frozen when the cook was
-   * opened. The dial's centre, and what "what moved" is measured against —
-   * which is why it survives a later rewrite of the recipe.
+   * The raw weight the recipe called for at this cook's scale, frozen when the
+   * cook was opened. The dial's centre, and what "what moved" is measured
+   * against — which is why it survives a later rewrite of the recipe.
    */
   planned_g: number;
   /**
-   * What went in. Zero means deliberately left out, which is a different fact
-   * from the line never having been in the dish — the one place in this app
-   * where a zero weight is a measurement rather than a missing one.
+   * What went in, weighed raw — the one weight an ingredient has, here as on a
+   * recipe. Zero means deliberately left out, which is a different fact from
+   * the line never having been in the dish — the one place in this app where a
+   * zero weight is a measurement rather than a missing one.
    */
   raw_g: number;
-  cooked_g: number;
   /** The line this replaced, when it was a substitution. */
   substituted_for: string | null;
 }
@@ -660,6 +674,11 @@ export interface Cook {
   cooked_at: string;
   /** What the recipe was multiplied by before any single line was dialled. */
   scale: number;
+  /**
+   * What the recipe says this dish comes out at, times this pot's scale, frozen
+   * when the pot was opened. The divisor until the pot goes on a scale.
+   */
+  expected_yield_g: number;
   /** What the pot weighed, when it was weighed. Null means it never was. */
   weighed_yield_g: number | null;
   gross_g: number | null;
@@ -675,8 +694,9 @@ export interface Cook {
   logged_g: number;
   /**
    * What a portion is divided by: the weighed yield where there is one, the
-   * summed line weights otherwise. Computed in the backend so both sides use
-   * one definition — never recompute it here.
+   * expected yield otherwise. Never the summed line weights — those are raw,
+   * and a pot of rajma weighs roughly three times its dry beans. Computed in
+   * the backend so both sides use one definition — never recompute it here.
    */
   yield_g: number;
   /** What is left. Floored at zero; logging past the yield is allowed. */
@@ -692,6 +712,8 @@ export interface CookDraft {
   grossG: number | null;
   vesselIds: string[];
   weighedYieldG: number | null;
+  /** Carried from the draft, so editing the recipe cannot re-portion a pot. */
+  expectedYieldG: number;
   notes: string | null;
   origin: Origin | null;
   cuisine: string | null;

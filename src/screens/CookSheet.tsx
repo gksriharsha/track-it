@@ -17,10 +17,16 @@ import ScreenHead from "../components/ScreenHead";
  * dialled up or down line by line, with what you skipped recorded as a skip and
  * what you swapped recorded as a swap.
  *
- * Then the pot goes on the scale. What you weighed wins: a reading is the pot
- * itself, while the summed line weights are only an estimate assembled from the
- * recipe's raw-to-cooked ratios. Every portion logged afterwards is divided by
- * whichever of those the pot actually has.
+ * Every line is a RAW weight, because that is the one state an ingredient can
+ * be put on a scale in — once it is cooked it is part of one mixed dish. The
+ * cooked side of the arithmetic is a single number: what the pot weighs when it
+ * comes off the heat.
+ *
+ * So the pot goes on the scale. What you weighed wins: a reading is the pot
+ * itself, while the expected yield is only what the recipe says this dish comes
+ * out at, scaled. Every portion logged afterwards is divided by whichever of
+ * those the pot actually has — never by the lines, which are raw and add to a
+ * quite different number.
  *
  * Editing here is safe at any time, including after the pot has been eaten
  * from. An entry's nutrition was frozen when it was written and no read path
@@ -53,7 +59,6 @@ const DRAFT_KEY = "trackit.cook-draft";
 type Persisted = {
   key: string;
   rows: CookIngredient[];
-  ratios: number[];
   scale: number;
   origin: Origin | null;
   cuisine: string | null;
@@ -93,15 +98,6 @@ export default function CookSheet(p: Props) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<FoodHit[]>([]);
   const seq = useRef(0);
-  /**
-   * Each line's raw-to-cooked ratio, by position.
-   *
-   * Held here rather than on the row because it belongs to the recipe, not to
-   * the pot: it is how much this ingredient gains or loses on cooking, and it
-   * has to survive a line being dialled to zero — at which point both weights
-   * are zero and the ratio is no longer recoverable from them.
-   */
-  const ratios = useRef<number[]>([]);
 
   /** Which pot this sheet is on, for keying the draft. */
   const draftKey = p.cookId ?? `r:${p.recipeId ?? ""}`;
@@ -125,7 +121,6 @@ export default function CookSheet(p: Props) {
       const d = loadDraft(draftKey);
       if (d) {
         setRows(d.rows);
-        ratios.current = d.ratios;
         setScale(d.scale);
         setOrigin(d.origin);
         setCuisine(d.cuisine);
@@ -134,12 +129,11 @@ export default function CookSheet(p: Props) {
         setRestored(true);
       } else {
         setRows(c.ingredients);
-        ratios.current = c.ingredients.map((i) => (i.cooked_g > 0 ? i.raw_g / i.cooked_g : 1));
         setScale(c.scale);
         setNotes(c.notes ?? "");
-        // Only a weighed pot pre-fills the field. A summed estimate must not
+        // Only a weighed pot pre-fills the field. The expected yield must not
         // appear in a box labelled "what it weighed" — typing it back would
-        // turn an estimate into a reading.
+        // turn what the recipe says into a reading off a scale.
         setYieldG(c.weighed_yield_g === null ? "" : String(Math.round(c.weighed_yield_g)));
       }
       setError(null);
@@ -165,7 +159,7 @@ export default function CookSheet(p: Props) {
   useEffect(() => {
     if (loading || !cook) return;
     const draft: Persisted = {
-      key: draftKey, rows, ratios: ratios.current, scale, origin, cuisine, notes, yieldG,
+      key: draftKey, rows, scale, origin, cuisine, notes, yieldG,
     };
     try {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
@@ -205,47 +199,38 @@ export default function CookSheet(p: Props) {
     if (!cook || !(next > 0)) return;
     const factor = next / scale;
     setRows((rs) =>
-      rs.map((r, i) => {
+      rs.map((r) => {
         const planned = r.planned_g * factor;
         // A line still sitting on its planned amount follows the batch. One
         // the user has moved — including one they left out — keeps what they
         // gave it: that is a decision about this pot, not a number to rescale.
-        const untouched = Math.abs(r.cooked_g - r.planned_g) < 0.05;
+        const untouched = Math.abs(r.raw_g - r.planned_g) < 0.05;
         if (!untouched) return { ...r, planned_g: planned };
-        const ratio = ratios.current[i] ?? 1;
-        return { ...r, planned_g: planned, cooked_g: planned, raw_g: roundHalf(planned * ratio) };
+        return { ...r, planned_g: planned, raw_g: roundHalf(planned) };
       }),
     );
     setScale(next);
   }
 
   /**
-   * Set a line's cooked amount, carrying its raw weight with it.
+   * Set a line's amount: what went into the pot, weighed raw.
    *
-   * The dial moves the cooked figure because that is what a portion is divided
-   * out of, but the raw one is what actually went in the pot and has to stay
-   * consistent with it. The ratio is the line's own — a swap keeps the ratio of
-   * what it replaced, because a substitute's own ratio is not known.
+   * One number, because there is only one. What the dish weighs afterwards is
+   * asked once, below, about the whole pot.
    */
-  function setCooked(i: number, cookedG: number) {
-    const ratio = ratios.current[i] ?? 1;
-    setRows((rs) =>
-      rs.map((r, j) => (j === i ? { ...r, cooked_g: cookedG, raw_g: roundHalf(cookedG * ratio) } : r)),
-    );
+  function setRaw(i: number, rawG: number) {
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, raw_g: rawG } : r)));
   }
 
   function toggleOut(i: number) {
-    const ratio = ratios.current[i] ?? 1;
     setRows((rs) =>
       rs.map((r, j) => {
         if (j !== i) return r;
         // Putting a line back restores what the recipe says, not whatever it
         // was dialled to before it was zeroed: that amount is not something
         // this pot ever had, and re-offering it would invent a measurement.
-        if (r.cooked_g === 0) {
-          return { ...r, cooked_g: r.planned_g, raw_g: roundHalf(r.planned_g * ratio) };
-        }
-        return { ...r, cooked_g: 0, raw_g: 0 };
+        if (r.raw_g === 0) return { ...r, raw_g: r.planned_g };
+        return { ...r, raw_g: 0 };
       }),
     );
   }
@@ -272,9 +257,6 @@ export default function CookSheet(p: Props) {
 
   function addLine(h: FoodHit) {
     if (h.fdc_id === null) return;
-    // 1:1 — nothing here knows how this ingredient behaves on cooking, and the
-    // recipe never mentioned it. The user types what it weighed in the pot.
-    ratios.current = [...ratios.current, 1];
     setRows((rs) => [
       ...rs,
       {
@@ -282,27 +264,33 @@ export default function CookSheet(p: Props) {
         // The recipe never called for this, so there is nothing to be centred
         // on. The dial falls back to half-gram notches, which is right for a
         // line whose "as written" amount is genuinely zero.
-        planned_g: 0, raw_g: 10, cooked_g: 10, substituted_for: null,
+        planned_g: 0, raw_g: 10, substituted_for: null,
       },
     ]);
     setSwapping(null); setQuery(""); setHits([]);
   }
 
-  const summedG = rows.reduce((a, r) => a + r.cooked_g, 0);
+  /** What went in, added up. A raw total: never a yield, and never a divisor. */
+  const rawInG = rows.reduce((a, r) => a + r.raw_g, 0);
+  /**
+   * What the recipe says this dish comes out at, at this batch size. Scaled off
+   * the figure the draft was opened with, so ×2 of a 900 g dish expects 1,800 g.
+   */
+  const expectedG = cook ? (cook.expected_yield_g / cook.scale) * scale : 0;
   const typedYield = Number(yieldG);
   const haveYield = weighed !== null || (yieldG.trim() !== "" && typedYield > 0);
   const effectiveYield = weighed
     ? weighed.grossG - vessels.filter((v) => weighed.vesselIds.includes(v.id)).reduce((a, v) => a + v.grams, 0)
     : haveYield
       ? typedYield
-      : summedG;
-  const left = rows.filter((r) => r.cooked_g === 0).length;
+      : expectedG;
+  const left = rows.filter((r) => r.raw_g === 0).length;
   const swapped = rows.filter((r) => r.substituted_for !== null).length;
 
   async function save() {
     if (!cook) return;
     setError(null);
-    const live = rows.filter((r) => r.cooked_g > 0);
+    const live = rows.filter((r) => r.raw_g > 0);
     if (live.length === 0) {
       return setError("Every ingredient is left out — there is no pot to save.");
     }
@@ -320,6 +308,10 @@ export default function CookSheet(p: Props) {
           // carries its own provenance, and two sources for one number is how
           // they drift apart.
           weighedYieldG: weighed ? null : haveYield ? typedYield : null,
+          // Carried even when the pot was weighed: it is what the recipe said
+          // this batch would come out at, and re-opening the sheet must show
+          // the same figure rather than re-deriving it from a rewritten recipe.
+          expectedYieldG: expectedG,
           notes: notes.trim() || null,
           origin,
           cuisine,
@@ -410,7 +402,7 @@ export default function CookSheet(p: Props) {
 
       <section className="card">
         <div className="card__head">
-          <h2>In the pot</h2>
+          <h2>What goes in</h2>
           <span className="card__note">
             {plural(rows.length, "ingredient")}
             {left > 0 && ` · ${left} left out`}
@@ -419,7 +411,7 @@ export default function CookSheet(p: Props) {
         </div>
 
         {rows.map((r, i) => {
-          const out = r.cooked_g === 0;
+          const out = r.raw_g === 0;
           return (
             <div className={`cook-row${out ? " cook-row--off" : ""}`} key={`${r.id}-${i}`}>
               <div className="cook-row__head">
@@ -433,13 +425,13 @@ export default function CookSheet(p: Props) {
                     )}
                   </span>
                   <span className="cook-row__sub">
-                    {r.substituted_for !== null && (
-                      <>instead of {r.substituted_for} · same raw-to-cooked ratio · </>
-                    )}
-                    {r.fdc_id === null
-                      ? "no composition data"
-                      : `raw ${fmtG(r.raw_g)} g`}
-                    {!out && summedG > 0 && ` · ${pct(r.cooked_g / summedG)} of the pot`}
+                    {r.substituted_for !== null && <>instead of {r.substituted_for} · </>}
+                    {r.fdc_id === null && "no composition data · "}
+                    {!out && rawInG > 0
+                      ? `${pct(r.raw_g / rawInG)} of what goes in`
+                      : out
+                        ? "left out"
+                        : ""}
                   </span>
                 </span>
 
@@ -448,10 +440,10 @@ export default function CookSheet(p: Props) {
                   type="number"
                   min="0"
                   inputMode="decimal"
-                  value={fmtG(r.cooked_g)}
+                  value={fmtG(r.raw_g)}
                   disabled={out}
-                  onChange={(e) => setCooked(i, Math.max(0, Number(e.target.value) || 0))}
-                  aria-label={`Cooked grams of ${r.description}`}
+                  onChange={(e) => setRaw(i, Math.max(0, Number(e.target.value) || 0))}
+                  aria-label={`Raw grams of ${r.description}`}
                 />
 
                 <span className="cook-row__acts">
@@ -471,10 +463,10 @@ export default function CookSheet(p: Props) {
               {!out && (
                 <div className="cook-row__dial">
                   <IngredientDial
-                    plannedG={r.planned_g > 0 ? r.planned_g : r.cooked_g}
-                    valueG={r.cooked_g}
+                    plannedG={r.planned_g > 0 ? r.planned_g : r.raw_g}
+                    valueG={r.raw_g}
                     label={r.description}
-                    onChange={(g) => setCooked(i, g)}
+                    onChange={(g) => setRaw(i, g)}
                   />
                 </div>
               )}
@@ -558,9 +550,9 @@ export default function CookSheet(p: Props) {
             </span>
           </div>
           <div className="yieldrow__stat">
-            <span className="group__name">Ingredients add to</span>
+            <span className="group__name">Went in, raw</span>
             <span className="yieldrow__v tnum">
-              {Math.round(summedG).toLocaleString()}
+              {Math.round(rawInG).toLocaleString()}
               <span className="yieldrow__u"> g</span>
             </span>
           </div>
@@ -568,8 +560,8 @@ export default function CookSheet(p: Props) {
 
         <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
           {haveYield
-            ? "Portions are divided by what the pot weighed. A weighed pot lighter than its ingredients is normal — water leaves a pot and nutrients do not, so the food that is left is simply more concentrated."
-            : "No weight yet, so portions will be divided by what the ingredients add up to. That is an estimate assembled from raw-to-cooked ratios; weighing the pot replaces it with a measurement."}
+            ? "Portions are divided by what the pot weighed. It will not match what went in, and should not — dry rajma roughly triples on the water it takes up, while a reduced dal comes out lighter. Nutrients stay where they are either way; only what they are dissolved in moves."
+            : `No weight yet, so portions are divided by the ${Math.round(expectedG).toLocaleString()} g this dish is written to come out at. Weighing the pot replaces that with a measurement of this one.`}
         </p>
       </section>
 

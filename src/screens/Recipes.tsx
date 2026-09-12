@@ -87,9 +87,9 @@ export default function Recipes(p: Props) {
           <h3>No recipes yet</h3>
           <p>
             A recipe is ingredients in proportion — no servings to commit to, because you cook
-            for however many are eating. Write “rajma chawal” once and every batch afterwards
-            starts from it, including the raw-to-cooked change, which is a threefold error on
-            dal if you skip it.
+            for however many are eating. Weigh each ingredient raw, say once what the dish comes
+            out at cooked, and every batch afterwards starts from it. That one cooked weight is
+            what keeps a katori of rajma from counting three times over.
           </p>
           <button className="btn" onClick={() => setBuilding(true)}>Build your first recipe</button>
         </div>
@@ -106,7 +106,7 @@ export default function Recipes(p: Props) {
                     reads as their note rather than as a property of the dish —
                     never write `?? 4` here to make the sentence tidier. */}
                 <div className="rcard__meta tnum">
-                  written for {Math.round(r.yield_g).toLocaleString()} g ·{" "}
+                  comes out at {Math.round(r.yield_g).toLocaleString()} g ·{" "}
                   {plural(r.ingredients.length, "ingredient")}
                   {optional > 0 && `, ${optional} optional`}
                   {r.servings !== null && ` · usually feeds ${r.servings}`}

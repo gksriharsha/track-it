@@ -1219,7 +1219,6 @@ mod tests {
                     fdc_id: Some(16033),
                     description: "kidney beans".into(),
                     raw_g: 300.0,
-                    cooked_g: 900.0,
                     optional: false,
                 }],
                 &[],
@@ -1236,6 +1235,7 @@ mod tests {
                     gross_g: None,
                     vessel_ids: Vec::new(),
                     weighed_yield_g: Some(900.0),
+                    expected_yield_g: 900.0,
                     notes: None,
                     defaults: store::Tags::default(),
                     ingredients: vec![store::CookIngredient {
@@ -1245,7 +1245,6 @@ mod tests {
                         description: "kidney beans".into(),
                         planned_g: 900.0,
                         raw_g: 300.0,
-                        cooked_g: 900.0,
                         substituted_for: None,
                     }],
                 },

@@ -837,9 +837,10 @@ export default function Foods(p: Props) {
               {potLine(pickedCook)}
               {pickedCook.weighed_yield_g === null && (
                 <>
-                  {" "}This pot was never weighed, so portions are divided by what its
-                  ingredients add up to — an estimate. Weighing it makes every portion since
-                  then no better, but every one after it exact.
+                  {" "}This pot was never weighed, so portions are divided by what the recipe
+                  says the dish comes out at — what it usually does, not what this one did.
+                  Weighing it makes every portion since then no better, but every one after it
+                  exact.
                 </>
               )}
             </p>
@@ -1148,7 +1149,7 @@ export default function Foods(p: Props) {
               <button className="link card__note" onClick={() => { setPickedRecipe(null); setWeighed(null); }}>change</button>
             </div>
             <p className="rangenote">
-              Written for {Math.round(pickedRecipe.yield_g).toLocaleString()} g, from{" "}
+              Comes out at {Math.round(pickedRecipe.yield_g).toLocaleString()} g, from{" "}
               {plural(pickedRecipe.ingredients.length, "ingredient")}. Logging here portions
               that written batch — if today's pot was a different size, cook it instead so the
               weights are the ones that went in.
@@ -1221,7 +1222,7 @@ export default function Foods(p: Props) {
                   <span className="row__main">
                     <span className="row__title">{r.name}</span>
                     <span className="row__sub">
-                      {plural(r.ingredients.length, "ingredient")} · written for{" "}
+                      {plural(r.ingredients.length, "ingredient")} · comes out at{" "}
                       {Math.round(r.yield_g).toLocaleString()} g
                     </span>
                   </span>
@@ -1892,7 +1893,7 @@ function defaultPortion(r: Recipe): number {
  */
 function potLine(c: Cook): string {
   const when = humanDate(c.cooked_on).toLowerCase();
-  const basis = c.weighed_yield_g === null ? "from the ingredients" : "weighed";
+  const basis = c.weighed_yield_g === null ? "the recipe expects" : "weighed";
   const left = `${Math.round(c.remaining_g).toLocaleString()} g left`;
   const of = `of ${Math.round(c.yield_g).toLocaleString()} g ${basis}`;
   return `${left} ${of} · cooked ${when}`;

@@ -901,3 +901,85 @@ know about the other.
 - **`canStream()` is a function.** As a module-level constant it was evaluated once at import, so
   a WebView that gained `getUserMedia` after the bundle loaded hid every camera control until a
   reload.
+
+---
+
+## D22 — An ingredient is weighed once, raw; the cooked side of the arithmetic is one weighing of one pot
+
+Every line of a recipe and of a cook used to carry **two** weights, `raw_g` and `cooked_g`, and
+`cooked_g` was the one the nutrition arithmetic read: a portion was `grams / yield_g` of the
+dish, and that fraction of each line's cooked weight, valued against the reference food's per-100 g
+composition.
+
+That asked for a number nobody can produce. Ingredients go on a kitchen scale one at a time
+*before* they are cooked. Once they are cooked they are one mixed dish — there is no way to lift
+the rajma back out of a finished curry and weigh it apart from the onions and the water it took
+up. So the second figure was always going to be typed rather than measured, and a typed figure was
+driving every calorie in the app. The evidence is in the only recipe the app had ever been used to
+write: both weights were 100 g, the same number entered twice, because the second box had no
+answer.
+
+**Decision. A recipe ingredient and a cook ingredient carry exactly one weight, `raw_g`, and it is
+what the ingredient weighed before it went in. The raw-to-cooked change is derived, not
+collected.**
+
+The derivation is a mass balance, and it is the rule `indian-foods-plan.md` §3.2 already
+mandated while the shipped code did the opposite. **Nutrient mass is conserved through cooking;
+concentration is not.** 300 g of dry rajma carries the same protein whether it is still dry or has
+swollen to 900 g in a pot — what changed is the mass that protein is now dissolved in. So:
+
+- an ingredient's whole contribution is `raw_g` against the **raw** food's composition;
+- a portion is `grams / yield_g` of the dish, and that same fraction of every ingredient's raw
+  weight;
+- `yield_g` is the one cooked measurement in the model.
+
+This also keeps the app's totals directly comparable to ICMR-NIN's diet charts, which are raw
+throughout — Annexure II of *Dietary Guidelines for Indians* (2024) is headed "Raw food item
+measures" with a column titled "Raw weight (g)".
+
+**Where the one cooked weight comes from, in order.**
+
+1. **What the pot weighed** (`cooks.weighed_yield_g`), a reading off a scale with the vessel tared.
+   A measurement always wins.
+2. **What the recipe says the dish comes out at** (`recipes.yield_g`), times the batch scale,
+   frozen onto the pot as `cooks.expected_yield_g` when the pot is opened. Frozen rather than read
+   back through `recipe_id` for the same reason `planned_g` is: rewriting the recipe next month
+   must not silently re-portion food already in the fridge.
+
+**The summed ingredient weights are not a candidate and never appear as one.** They are raw. A pot
+of rajma weighs roughly three times its dry beans, so dividing a katori by them would read it as
+though it were still dry — the threefold overstatement this app exists to avoid, reintroduced at
+the last step.
+
+**Why `recipes.yield_g` is asked for rather than estimated.** A yield factor could be derived —
+`indian-foods-plan.md` §3.3 works two of them out, and they disagree by up to 22 %, which is why
+it recommends storing an interval. Applying one here would put a manufactured number under every
+figure in the app in exchange for saving the user a single weighing they already do every time
+they cook. One number per *dish* is a fair trade for one number per *ingredient per dish*; one
+fabricated number is not. The builder offers "same as what goes in" as a one-tap for dishes that
+neither absorb water nor cook down — a chutney, a raita, a salad — and otherwise asks.
+
+**Consequences.**
+
+- **Schema v16.** `recipe_ingredients.cooked_g` and `cook_ingredients.cooked_g` are dropped;
+  `cooks.expected_yield_g` is added, NOT NULL. The migration fills it from each pot's own summed
+  cooked weights, which is exactly what the old fallback divisor computed, so **no existing pot
+  changes what its portions divide by**. `recipes.yield_g` is not touched: it already held the
+  cooked batch weight and already meant what it now means.
+- The two halves of the migration are guarded independently, on `cooks.expected_yield_g` and on
+  each ingredient table's `cooked_g`. `SCHEMA` runs before `migrate` and creates *missing* tables
+  in their current shape, so a database can arrive with a new `cooks` and an old
+  `recipe_ingredients`; one guard over both would have failed on the duplicate column.
+- **Nothing already logged moves.** An entry's nutrition was frozen when it was written and no
+  read path reaches back through these tables (D17 and the immutability rule stand unchanged).
+- Future portions of an *existing* pot are valued on `raw_g` where they were valued on `cooked_g`.
+  Where the user picked a raw reference food this is a correction; where they picked a cooked one
+  and entered the same number twice it changes nothing.
+- The cook sheet's per-line dial now moves the raw weight, and the ratio bookkeeping it carried —
+  a `ratios` ref held outside React state precisely because a line dialled to zero lost both
+  weights — is gone rather than ported.
+- **Picking the raw form of an ingredient now matters.** "Beans, kidney, red, mature seeds, raw"
+  and "…, cooked, boiled" differ about threefold per 100 g, and a raw weight against a cooked
+  food's composition understates by the same factor the old model overstated. The builder says
+  the weight is raw at the column, the field's label and the note under the yield; detecting the
+  state of a reference food from its description is left undone rather than guessed at.
