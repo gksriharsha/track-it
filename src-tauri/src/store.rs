@@ -2476,15 +2476,40 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
     // reader will worry about it: all fourteen change-tracking triggers read
     // `(SELECT device_id FROM this_device)`. Dropping and renaming that table
     // does not drop them -- they hang off `recipes`, `cooks` and the rest, not
-    // off `this_device` -- and they resolve the name at fire time, so they keep
-    // working across this arm.
+    // off `this_device`.
+    //
+    // They keep working across this arm, but NOT for the reason this comment
+    // used to give. "They resolve the name at fire time" is true of firing and
+    // false of renaming: since SQLite 3.25 `ALTER TABLE ... RENAME TO` re-parses
+    // every trigger body in the schema so it can rewrite references to the old
+    // name, and at that point in the batch `this_device` has just been dropped.
+    // The re-parse then fails on the first trigger that names it and the whole
+    // migration errors with
+    //
+    //     error in trigger trg_ver_recipes_ins: no such table: main.this_device
+    //
+    // which on a phone means the app does not start AT ALL. `legacy_alter_table`
+    // is the documented switch for exactly this: it makes RENAME move the table
+    // and leave every other schema object alone, which is what is wanted here
+    // because the table ends the batch under the name those triggers already
+    // use. Set around the transaction rather than inside it, next to the
+    // `foreign_keys` pragma that cannot be changed inside one.
+    //
+    // This was invisible to the suite for a real reason, fixed alongside it:
+    // `install_sync_triggers` runs in `open` AFTER `migrate`, so a fixture built
+    // in memory and handed straight to `migrate` carries no triggers, while
+    // every phone in the world has had them sitting in `sqlite_master` since
+    // build 11's first launch. See
+    // `migrates_a_v14_database_that_already_carries_the_sync_triggers`.
     if !columns(conn, "this_device")?.iter().any(|c| c == "static_pk") {
         conn.pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "legacy_alter_table", "ON")
             .map_err(|e| e.to_string())?;
         let tx = conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| e.to_string())?;
-        tx.execute_batch(
+        let result = tx.execute_batch(
             "CREATE TABLE this_device_migrating (
                id         INTEGER PRIMARY KEY CHECK (id = 1),
                device_id  TEXT NOT NULL,
@@ -2498,11 +2523,22 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
              SELECT id, device_id, name, created_at FROM this_device;
              DROP TABLE this_device;
              ALTER TABLE this_device_migrating RENAME TO this_device;",
-        )
-        .map_err(|e| format!("migrating this_device to v15: {e}"))?;
-        tx.commit().map_err(|e| e.to_string())?;
+        );
+        // The transaction is finished BEFORE the pragmas are put back, because
+        // `tx` borrows the connection and neither pragma can be set while it
+        // lives. A failed batch is rolled back by dropping it.
+        match &result {
+            Ok(()) => tx.commit().map_err(|e| e.to_string())?,
+            Err(_) => drop(tx),
+        }
+        // Restored whether the batch worked or not: leaving a connection in
+        // legacy rename mode would silently change the behaviour of every arm
+        // added after this one.
+        conn.pragma_update(None, "legacy_alter_table", "OFF")
+            .map_err(|e| e.to_string())?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| e.to_string())?;
+        result.map_err(|e| format!("migrating this_device to v15: {e}"))?;
     }
 
     if !columns(conn, "peers")?.iter().any(|c| c == "acked_through") {
@@ -10028,6 +10064,67 @@ mod tests {
 
     fn key(fill: u8) -> Vec<u8> {
         vec![fill; 32]
+    }
+
+    /// A v14 database with the sync triggers ALREADY ON IT, which is what every
+    /// installed build 11 actually has and what no other test here had.
+    ///
+    /// `install_sync_triggers` is called from `open` AFTER `migrate`, so a test
+    /// that builds its fixture in memory and calls `migrate` directly has no
+    /// triggers on it and the v15 arms rebuild `this_device` against an empty
+    /// schema. A phone does not: build 11 installed those fourteen triggers on
+    /// its own first launch and they have been sitting in `sqlite_master` ever
+    /// since. `ALTER TABLE ... RENAME TO` re-parses every trigger body in the
+    /// schema, and at that moment `this_device` has just been dropped — so the
+    /// rename fails with "error in trigger trg_ver_recipes_ins: no such table:
+    /// main.this_device" and the app cannot start at all.
+    ///
+    /// Found by installing the real build-11 APK on an emulator, logging food,
+    /// and upgrading in place. The suite could not have found it: the arm's own
+    /// comment argued the triggers "resolve the name at fire time, so they keep
+    /// working across this arm", which is true of firing and false of renaming.
+    #[test]
+    fn migrates_a_v14_database_that_already_carries_the_sync_triggers() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch(V14_HOUSEHOLD).unwrap();
+        c.execute_batch(SCHEMA).unwrap();
+        // The half a real phone has and the fixtures did not.
+        install_sync_triggers(&c).unwrap();
+        c.execute(
+            "INSERT INTO this_device (id, device_id, name, created_at)
+             VALUES (1, 'phone-11', 'Pixel', '2026-09-07T09:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO log_entries (id, logged_on, meal, source_kind, fdc_id, description, grams, created_at, updated_at)
+             VALUES ('e1', '2026-09-07', 'lunch', 'food', 2708346, 'Idli', 120.0, '2026-09-07T12:00:00Z', '2026-09-07T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 14).unwrap();
+
+        migrate(&mut c).unwrap();
+
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION, "the database must end up current");
+        // The identity survived the rebuild rather than being dropped with the table.
+        let id: String = c
+            .query_row("SELECT device_id FROM this_device", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(id, "phone-11");
+        // And the eating is untouched, which is the whole point of the upgrade.
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM log_entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1, "the log must come through the household migration");
+        // The triggers still work afterwards: a write must find this_device.
+        c.execute(
+            "INSERT INTO recipes (id, name, yield_g, created_at, updated_at)
+             VALUES ('r1', 'Sambar', 800.0, '2026-09-07T12:00:00Z', '2026-09-07T12:00:00Z')",
+            [],
+        )
+        .expect("a recipe must be writable once the migration is done");
     }
 
     #[test]
