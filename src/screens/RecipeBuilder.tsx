@@ -11,8 +11,8 @@ interface Draft {
   key: string;
   fdcId: number | null;
   description: string;
+  /** Weighed before it goes in. The only weight a line has — see below. */
   raw: string;
-  cooked: string;
   source: string;
   /** Whether the dish survives without this line. See `RecipeIngredient`. */
   optional: boolean;
@@ -30,10 +30,17 @@ interface Draft {
  * and six when there are guests, so a count demanded here would be a number the
  * recipe cannot honestly carry.
  *
- * Raw and cooked weight are separate fields on purpose. Dry rajma roughly
- * triples on cooking, so a katori of cooked beans logged against the raw weight
- * overstates its nutrients about threefold — the single largest avoidable error
- * in tracking Indian food.
+ * Every ingredient is weighed once, raw, because that is the only state in
+ * which a single ingredient can be put on a scale. Once it is cooked it is part
+ * of one mixed dish, and nobody can lift the rajma back out of a finished curry
+ * to weigh it apart from the onions.
+ *
+ * The raw-to-cooked change is still real and still large — dry rajma roughly
+ * triples, and a katori of cooked beans read as if it were dry overstates its
+ * nutrients about threefold, the single largest avoidable error in tracking
+ * Indian food. It is handled by asking for ONE cooked weight for the whole
+ * dish, which is one weighing of one pot, and dividing by that. Nutrient mass
+ * is conserved through cooking; concentration is not. See D22.
  */
 /**
  * A half-built recipe is real work. The Android back gesture drives WebView
@@ -46,11 +53,13 @@ interface Draft {
  * boolean belongs; a new key lets the old draft expire untouched rather than
  * being half-read.
  */
-const DRAFT_KEY = "trackit.recipe-draft.v2";
+const DRAFT_KEY = "trackit.recipe-draft.v3";
 
 type Persisted = {
   name: string;
   rows: Draft[];
+  /** What the dish comes out at, cooked. Carried so a reload keeps it. */
+  yieldG?: string;
   servingOpts: RecipeServing[];
   /** Carried in the draft too, or a reload silently forgets what was answered. */
   defaultOrigin?: Origin | null;
@@ -70,6 +79,11 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
   const restored = loadDraft();
   const [name, setName] = useState(restored?.name ?? "");
   const [rows, setRows] = useState<Draft[]>(restored?.rows ?? []);
+  /**
+   * What the whole dish weighs once it is cooked — the one cooked measurement
+   * a recipe asks for, and the figure every portion is divided by.
+   */
+  const [yieldG, setYieldG] = useState(restored?.yieldG ?? "");
   const [servingOpts, setServingOpts] = useState<RecipeServing[]>(restored?.servingOpts ?? []);
   const [wasRestored] = useState(() => !!restored && (restored.name !== "" || restored.rows.length > 0));
   const [soLabel, setSoLabel] = useState("");
@@ -91,14 +105,14 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
   const seq = useRef(0);
 
   useEffect(() => {
-    const draft: Persisted = { name, rows, servingOpts, defaultOrigin, defaultCuisine };
+    const draft: Persisted = { name, rows, yieldG, servingOpts, defaultOrigin, defaultCuisine };
     try {
       if (name || rows.length) sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
       else sessionStorage.removeItem(DRAFT_KEY);
     } catch {
       // Private mode or blocked storage: the draft simply is not kept.
     }
-  }, [name, rows, servingOpts, defaultOrigin, defaultCuisine]);
+  }, [name, rows, yieldG, servingOpts, defaultOrigin, defaultCuisine]);
 
   function clearDraft() {
     try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* nothing to clean up */ }
@@ -125,16 +139,20 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     return () => clearTimeout(t);
   }, [query]);
 
-  const yieldG = rows.reduce((a, r) => a + (Number(r.cooked) || 0), 0);
+  /** What goes in, added up. Not the yield — these are raw weights. */
+  const rawInG = rows.reduce((a, r) => a + (Number(r.raw) || 0), 0);
+  const yieldNum = Number(yieldG);
+  const haveYield = yieldG.trim() !== "" && Number.isFinite(yieldNum) && yieldNum > 0;
   const missing = rows.filter((r) => r.fdcId === null).length;
   /**
-   * A line's share of the batch, which is the proportion the recipe is really
-   * made of. Computed from the cooked weights because that is what portioning
-   * divides by, and returned as null rather than 0 while the batch is still
-   * empty — a share of "0%" would read as a claim about the ingredient.
+   * A line's share of the ingredients, which is the proportion the recipe is
+   * really made of. Computed from the raw weights, because those are the
+   * weights the recipe is written in — and returned as null rather than 0 while
+   * the list is still empty, since a share of "0%" would read as a claim about
+   * the ingredient.
    */
   const shareOf = (r: Draft): number | null =>
-    yieldG > 0 ? (Number(r.cooked) || 0) / yieldG : null;
+    rawInG > 0 ? (Number(r.raw) || 0) / rawInG : null;
   const optionalCount = rows.filter((r) => r.optional).length;
 
   function addHit(h: FoodHit) {
@@ -149,7 +167,6 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
         fdcId,
         description: h.description,
         raw: "100",
-        cooked: "100",
         source: SOURCE_LABEL[h.data_type] ?? h.data_type,
         // Required until the user says otherwise. Nothing may guess that a
         // small line is skippable — "optional" is a claim about the dish.
@@ -166,14 +183,14 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
       ...rs,
       {
         key: `x-${rs.length}-${label}`, fdcId: null, description: label,
-        raw: "10", cooked: "10", source: "no composition data", optional: false,
+        raw: "10", source: "no composition data", optional: false,
       },
     ]);
     setQuery(""); setHits([]); setHiddenOwn(0);
   }
 
-  function patch(key: string, field: "raw" | "cooked", value: string) {
-    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  function patch(key: string, value: string) {
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, raw: value } : r)));
   }
 
   function toggleOptional(key: string) {
@@ -193,17 +210,22 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     if (rows.length === 0) return setError("Add at least one ingredient.");
     // Zero belongs on a cook, not here. A recipe line at zero is not an
     // ingredient left out — it is a recipe that does not call for it.
-    const bad = rows.find((r) => !(Number(r.raw) > 0) || !(Number(r.cooked) > 0));
-    if (bad) return setError(`“${bad.description}” needs a raw and cooked weight above zero.`);
+    const bad = rows.find((r) => !(Number(r.raw) > 0));
+    if (bad) return setError(`“${bad.description}” needs a raw weight above zero.`);
+    // The one cooked figure the recipe asks for, and the divisor for every
+    // portion ever logged from it. Without it a helping cannot be valued at all.
+    if (!haveYield) {
+      return setError("Say what the dish comes out at once it is cooked — a portion is divided by it.");
+    }
 
     const ingredients: RecipeIngredient[] = rows.map((r, i) => ({
       id: "", position: i, fdc_id: r.fdcId, description: r.description,
-      raw_g: Number(r.raw), cooked_g: Number(r.cooked), optional: r.optional,
+      raw_g: Number(r.raw), optional: r.optional,
     }));
 
     setSaving(true);
     try {
-      await saveRecipe(name.trim(), yieldG, ingredients, servingOpts, null, {
+      await saveRecipe(name.trim(), yieldNum, ingredients, servingOpts, null, {
         origin: defaultOrigin,
         cuisine: defaultCuisine,
       });
@@ -257,15 +279,51 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
           autoFocus
         />
 
-        {/* Nothing here is a field. Both figures are derived from the
-            ingredients, and there is deliberately no servings box: how many
-            people a batch feeds is a fact about an evening, not about a dish. */}
-        <div className="yieldrow">
+        {/* The one cooked measurement a recipe asks for. It is a field rather
+            than a sum because it cannot be derived: the ingredients below are
+            raw, and what a pot weighs afterwards depends on how much water went
+            in and how long it sat on the heat.
+
+            Still no servings box: how many people a batch feeds is a fact about
+            an evening, not about a dish. */}
+        <div className="group__name" style={{ marginTop: "var(--s5)" }}>
+          Comes out at
+        </div>
+        <div className="commit" style={{ marginTop: "var(--s2)" }}>
+          <input
+            className="field grams tnum"
+            type="number"
+            min="1"
+            inputMode="decimal"
+            placeholder="900"
+            value={yieldG}
+            onChange={(e) => setYieldG(e.target.value)}
+            aria-label="What the whole dish weighs once cooked"
+          />
+          <span className="rangenote" style={{ margin: 0 }}>g, cooked</span>
+          {rawInG > 0 && (
+            <button
+              className="link"
+              onClick={() => setYieldG(String(Math.round(rawInG)))}
+              title="For a dish that neither absorbs water nor cooks down — a chutney, a salad, a raita"
+            >
+              same as what goes in ({Math.round(rawInG).toLocaleString()} g)
+            </button>
+          )}
+        </div>
+        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
+          Weigh the pot once, the next time you make this. It is the only cooked weight the app
+          asks for, and every helping is divided by it — dry rajma roughly triples, and a katori
+          read as though it were still dry counts about three times over. The ingredients below
+          are weighed raw, which is the one state each of them can actually go on a scale in.
+        </p>
+
+        <div className="yieldrow" style={{ marginTop: "var(--s4)" }}>
           <div className="yieldrow__stat">
-            <span className="group__name">Written for</span>
+            <span className="group__name">Goes in, raw</span>
             <span className="yieldrow__v tnum">
-              {yieldG > 0 ? Math.round(yieldG).toLocaleString() : "—"}
-              {yieldG > 0 && <span className="yieldrow__u"> g</span>}
+              {rawInG > 0 ? Math.round(rawInG).toLocaleString() : "—"}
+              {rawInG > 0 && <span className="yieldrow__u"> g</span>}
             </span>
           </div>
           <div className="yieldrow__stat">
@@ -281,8 +339,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
         <p className="rangenote" style={{ marginTop: "var(--s2)" }}>
           A recipe is the proportions, not the batch. These weights are only the size they happen
           to be written at — you scale the whole thing, and adjust any line, when you actually cook
-          it. The total is the sum of the cooked weights below, so it can never disagree with the
-          ingredients.
+          it.
         </p>
       </section>
 
@@ -297,7 +354,6 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
             <div className="ing-row ing-head ing-head--wide">
               <span>Ingredient</span>
               <span style={{ textAlign: "right" }}>Raw g</span>
-              <span style={{ textAlign: "right" }}>Cooked g</span>
               <span>Skippable</span>
               <span />
             </div>
@@ -320,20 +376,13 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
                     {r.optional && " · optional"}
                   </span>
                 </span>
-                {/* Both weights stay reachable at every width. Hiding the cooked
-                    field on a phone would remove the only control that sets the
-                    yield — and the raw-to-cooked change is the point. */}
+                {/* One weight, and it is the one that can be measured: what
+                    this weighs on the scale before it goes in the pot. */}
                 <label className="ing-w">
                   <span className="ing-w__k">raw</span>
                   <input className="field tnum" type="number" min="1" value={r.raw}
-                    onChange={(e) => patch(r.key, "raw", e.target.value)}
+                    onChange={(e) => patch(r.key, e.target.value)}
                     aria-label={`Raw grams of ${r.description}`} />
-                </label>
-                <label className="ing-w">
-                  <span className="ing-w__k">cooked</span>
-                  <input className="field tnum" type="number" min="1" value={r.cooked}
-                    onChange={(e) => patch(r.key, "cooked", e.target.value)}
-                    aria-label={`Cooked grams of ${r.description}`} />
                 </label>
                 {/* Optional says the dish is still the dish without this line.
                     It moves no weight here — it is what the cook sheet reads

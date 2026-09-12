@@ -797,10 +797,9 @@ fn delete_recipe(id: String, user: State<'_, store::Store>) -> Result<(), String
 
 /// Open a cook from a recipe, without saving anything.
 ///
-/// The scaling and the raw-to-cooked ratios are done here rather than in the
-/// screen so there is one definition of what "×0.5 of this recipe" means, and
-/// so the numbers the dial is centred on came from the same place the stored
-/// ones will.
+/// The scaling is done here rather than in the screen so there is one
+/// definition of what "×0.5 of this recipe" means, and so the numbers the dial
+/// is centred on came from the same place the stored ones will.
 #[tauri::command]
 fn draft_cook(
     recipe_id: String,
@@ -820,6 +819,11 @@ fn draft_cook(
         cooked_on: today,
         cooked_at: String::new(),
         scale,
+        // Half the recipe makes half as much. This is the divisor until the
+        // pot goes on a scale, and it is frozen onto the pot when it is saved:
+        // rewriting the recipe next month must not re-portion food already in
+        // the fridge.
+        expected_yield_g: recipe.yield_g * scale,
         weighed_yield_g: None,
         gross_g: None,
         tare_g: None,
@@ -838,11 +842,10 @@ fn draft_cook(
                 position: i.position,
                 fdc_id: i.fdc_id,
                 description: i.description.clone(),
-                // The dial's centre is the cooked weight, because that is what
-                // a portion is eventually divided out of.
-                planned_g: i.cooked_g * scale,
+                // Raw, like everything else about an ingredient: it is the
+                // amount that will be weighed out and tipped in.
+                planned_g: i.raw_g * scale,
                 raw_g: i.raw_g * scale,
-                cooked_g: i.cooked_g * scale,
                 substituted_for: None,
             })
             .collect(),
@@ -2897,6 +2900,13 @@ fn resolve_contribution(
         // A recipe expands into its ingredients scaled by the fraction eaten, so
         // a dish's gaps propagate: an ingredient with no composition data
         // contributes nothing AND still counts its mass against coverage.
+        //
+        // The share of each ingredient is its RAW weight, because nutrient mass
+        // is conserved through cooking: 300 g of dry rajma carries the same
+        // protein whether it is still dry or has swollen to 900 g in a pot. The
+        // yield is where the swelling is accounted for — it is the mass that
+        // protein ends up dissolved in, and dividing by it is what turns "a
+        // third of the dish" into "a third of its ingredients". See D22.
         store::Source::Recipe(rid) => {
             let recipe = store::get_recipe_for_history(uconn, rid)?;
             let grams = grams.ok_or("a recipe is logged by weight")?;
@@ -2906,7 +2916,7 @@ fn resolve_contribution(
             let fraction = grams / recipe.yield_g;
             let mut components = Vec::new();
             for ing in &recipe.ingredients {
-                let portion = ing.cooked_g * fraction;
+                let portion = ing.raw_g * fraction;
                 // An ingredient scaled to nothing would violate the component
                 // table's positivity CHECK. Dropping it loses no nutrition and
                 // keeps a zero-gram ingredient from failing the whole entry.
@@ -2935,8 +2945,10 @@ fn resolve_contribution(
         // deliberately so — what differs is only which numbers it reads.
         //
         // The divisor is `cook.yield_g`, which is what the pot WEIGHED where
-        // there is a reading and the summed line weights where there is not
-        // (see `Cook::seal`). That is what makes a reduced pot come out right:
+        // there is a reading and what the recipe says the dish comes out at,
+        // scaled, where there is not (see `Cook::seal`). It is never the summed
+        // line weights: those are raw, and a pot of rajma weighs three times its
+        // dry beans. That is what makes a reduced pot come out right:
         // water leaves a pot and nutrients do not, so 250 g of a dal that was
         // written to make 300 g is more concentrated, and dividing by the
         // measurement rather than the estimate is what says so.
@@ -2962,7 +2974,7 @@ fn resolve_contribution(
             let fraction = grams / cook.yield_g;
             let mut components = Vec::new();
             for ing in &cook.ingredients {
-                let portion = ing.cooked_g * fraction;
+                let portion = ing.raw_g * fraction;
                 if !(portion.is_finite() && portion > 0.0) {
                     continue;
                 }
@@ -5834,7 +5846,6 @@ mod tests {
                     fdc_id: Some(fdc_id),
                     description: "kidney beans".into(),
                     raw_g: 400.0,
-                    cooked_g: 1000.0,
                     optional: false,
                 }],
                 &[],
@@ -5882,7 +5893,12 @@ mod tests {
         }
 
         /// A pot of one fatty ingredient, for the yield-divisor tests below.
-        fn pot_of(fdc_id: i64, cooked_g: f64, weighed: Option<f64>) -> store::CookInput {
+        ///
+        /// `expected_g` is what the recipe said the dish comes out at; `weighed`
+        /// is what the pot actually read. The 400 g of beans is the same in both
+        /// cases, because a raw weight is a fact about what went in and has
+        /// nothing to do with how far the pot was reduced.
+        fn pot_of(fdc_id: i64, expected_g: f64, weighed: Option<f64>) -> store::CookInput {
             store::CookInput {
                 recipe_id: None,
                 name: "Rajma".into(),
@@ -5891,6 +5907,7 @@ mod tests {
                 gross_g: None,
                 vessel_ids: Vec::new(),
                 weighed_yield_g: weighed,
+                expected_yield_g: expected_g,
                 notes: None,
                 defaults: store::Tags::default(),
                 ingredients: vec![store::CookIngredient {
@@ -5898,9 +5915,8 @@ mod tests {
                     position: 0,
                     fdc_id: Some(fdc_id),
                     description: "kidney beans".into(),
-                    planned_g: cooked_g,
+                    planned_g: 400.0,
                     raw_g: 400.0,
-                    cooked_g,
                     substituted_for: None,
                 }],
             }
@@ -5983,7 +5999,6 @@ mod tests {
                 description: "home-ground masala".into(),
                 planned_g: 20.0,
                 raw_g: 20.0,
-                cooked_g: 20.0,
                 substituted_for: None,
             });
             input.ingredients.push(store::CookIngredient {
@@ -5994,7 +6009,6 @@ mod tests {
                 planned_g: 1.0,
                 // Left out. Zero here is a measurement, not a missing value.
                 raw_g: 0.0,
-                cooked_g: 0.0,
                 substituted_for: None,
             });
             let cid = store::save_cook(&mut uc, None, &input).unwrap();
@@ -6553,7 +6567,6 @@ mod tests {
                     fdc_id: None,
                     description: "home-made mango pickle".into(),
                     raw_g: 500.0,
-                    cooked_g: 500.0,
                     optional: false,
                 }],
                 &[],

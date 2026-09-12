@@ -685,12 +685,12 @@ button.row:hover { background: var(--sunken); }
   /* Every column is fixed except the name. Each row is its own grid, so an
      `auto` track would size to that row's own content and the header would
      stop lining up with the fields under it. */
-  display: grid; grid-template-columns: 1fr 96px 96px 76px 40px;
+  display: grid; grid-template-columns: 1fr 96px 76px 40px;
   gap: var(--s3); align-items: center;
   padding: var(--s2) 0; border-bottom: 1px solid var(--line);
 }
-/* The line's share of the batch, which is what the recipe is really made of.
-   Quiet by design: it sits beside the name as context, not as a second title. */
+/* The line's share of what goes in, which is what the recipe is really made
+   of. Quiet by design: it sits beside the name as context, not a second title. */
 .ing-share { color: var(--ink-3); font-weight: 400; }
 /* Smaller than a normal chip — it is a per-row flag in a dense table, not one
    of a row of choices. */
@@ -708,12 +708,10 @@ button.row:hover { background: var(--sunken); }
 .ing-w__k { display: none; }
 
 @media (max-width: 720px) {
-  /* Two lines rather than a hidden column: name across the top, both weights
-     beneath. Nothing that changes the yield is out of reach. */
-  /* Three lines rather than a hidden column: name across the top, both weights
-     beneath, and the optional flag with the remove button. Nothing that
-     changes the batch — or says what may be skipped — is out of reach. */
-  .ing-row { grid-template-columns: 1fr 1fr 76px 40px; row-gap: var(--s2); }
+  /* Two lines rather than a hidden column: name across the top, then the raw
+     weight with the optional flag and the remove button. Nothing that changes
+     the batch — or says what may be skipped — is out of reach. */
+  .ing-row { grid-template-columns: 1fr 76px 40px; row-gap: var(--s2); }
   .ing-name { grid-column: 1 / -1; }
   .ing-head--wide { display: none; }
   .ing-w__k {
