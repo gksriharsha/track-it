@@ -9,7 +9,10 @@ import ScreenHead from "../components/ScreenHead";
 
 interface Draft {
   key: string;
+  /** A reference food. Null when this line is one of the user's own instead. */
   fdcId: number | null;
+  /** One of the user's own foods. Never set alongside `fdcId`. */
+  ownId: string | null;
   description: string;
   /** Weighed before it goes in. The only weight a line has — see below. */
   raw: string;
@@ -90,8 +93,6 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
   const [soGrams, setSoGrams] = useState("");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<FoodHit[]>([]);
-  /** How many of the user's own foods this query matched and this list cannot show. */
-  const [hiddenOwn, setHiddenOwn] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   /**
@@ -118,21 +119,18 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* nothing to clean up */ }
   }
 
-  // An ingredient has to be a reference food: `recipe_ingredients` references an
-  // fdc_id, so a custom food has nothing to store here. Search ranks the user's
-  // own foods first, so asking for eight results and filtering afterwards could
-  // leave none at all — hence the wider ask and the slice after the filter.
+  // An ingredient may be a reference food OR one of the user's own. Search
+  // already ranks their own first, and they are the better answer for anything
+  // that came out of a packet — the generic entry is a stranger's version of it.
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setHits([]); setHiddenOwn(0); return; }
+    if (q.length < 2) { setHits([]); return; }
     const mine = ++seq.current;
     const t = setTimeout(() => {
-      searchFoods(q, 24)
+      searchFoods(q, 12)
         .then((r) => {
           if (mine !== seq.current) return;
-          const refs = r.filter((h) => h.kind === "reference");
-          setHits(refs.slice(0, 8));
-          setHiddenOwn(r.length - refs.length);
+          setHits(r.slice(0, 8));
         })
         .catch((e) => setError(String(e)));
     }, 160);
@@ -143,7 +141,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
   const rawInG = rows.reduce((a, r) => a + (Number(r.raw) || 0), 0);
   const yieldNum = Number(yieldG);
   const haveYield = yieldG.trim() !== "" && Number.isFinite(yieldNum) && yieldNum > 0;
-  const missing = rows.filter((r) => r.fdcId === null).length;
+  const missing = rows.filter((r) => r.fdcId === null && r.ownId === null).length;
   /**
    * A line's share of the ingredients, which is the proportion the recipe is
    * really made of. Computed from the raw weights, because those are the
@@ -156,24 +154,31 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
   const optionalCount = rows.filter((r) => r.optional).length;
 
   function addHit(h: FoodHit) {
-    // Only reference hits reach this list, and a reference hit always carries its
-    // fdc_id. Nothing sensible could be stored for one that did not.
-    if (h.fdc_id === null) return;
+    // One or the other. A hit always carries exactly one of the two, and a hit
+    // carrying neither is not a food anything could be stored for.
     const fdcId = h.fdc_id;
+    const ownId = h.custom_food_id;
+    if (fdcId === null && ownId === null) return;
     setRows((rs) => [
       ...rs,
       {
-        key: `${fdcId}-${rs.length}-${h.description.length}`,
+        key: `${fdcId ?? ownId}-${rs.length}-${h.description.length}`,
         fdcId,
+        ownId,
         description: h.description,
         raw: "100",
-        source: SOURCE_LABEL[h.data_type] ?? h.data_type,
+        // Said plainly rather than as a data-type code: "yours" is the fact
+        // that matters about this line, and it is the reason its panel has
+        // holes in it where a reference food's would not.
+        source: ownId !== null
+          ? h.brand ? `yours · ${h.brand}` : "yours"
+          : SOURCE_LABEL[h.data_type] ?? h.data_type,
         // Required until the user says otherwise. Nothing may guess that a
         // small line is skippable — "optional" is a claim about the dish.
         optional: false,
       },
     ]);
-    setQuery(""); setHits([]); setHiddenOwn(0);
+    setQuery(""); setHits([]);
   }
 
   function addUntracked() {
@@ -182,11 +187,11 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     setRows((rs) => [
       ...rs,
       {
-        key: `x-${rs.length}-${label}`, fdcId: null, description: label,
+        key: `x-${rs.length}-${label}`, fdcId: null, ownId: null, description: label,
         raw: "10", source: "no composition data", optional: false,
       },
     ]);
-    setQuery(""); setHits([]); setHiddenOwn(0);
+    setQuery(""); setHits([]);
   }
 
   function patch(key: string, value: string) {
@@ -219,8 +224,8 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     }
 
     const ingredients: RecipeIngredient[] = rows.map((r, i) => ({
-      id: "", position: i, fdc_id: r.fdcId, description: r.description,
-      raw_g: Number(r.raw), optional: r.optional,
+      id: "", position: i, fdc_id: r.fdcId, custom_food_id: r.ownId,
+      description: r.description, raw_g: Number(r.raw), optional: r.optional,
     }));
 
     setSaving(true);
@@ -371,7 +376,8 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
                       <span className="ing-share tnum"> · {pct(share)}</span>
                     )}
                   </span>
-                  <span className="row__sub" style={{ color: r.fdcId === null ? "var(--over)" : undefined }}>
+                  <span className="row__sub" style={{
+                    color: r.fdcId === null && r.ownId === null ? "var(--over)" : undefined }}>
                     {r.source}
                     {r.optional && " · optional"}
                   </span>
@@ -414,6 +420,15 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          {/* The reference data is a stranger's version of what is in your
+              kitchen — it has eight brands of tofu and not the one you buy. A
+              pack you transcribed yourself outranks all of them, so it is worth
+              saying that it can go in a dish and where it comes from. */}
+          <p className="rangenote" style={{ marginTop: "var(--s2)" }}>
+            Your own foods come first and are marked “yours”. If the pack in your kitchen is not
+            in here, add it under Library › Your foods — photograph its panel and it becomes an
+            ingredient like anything else.
+          </p>
           {hits.length > 0 && (
             <ul className="hits">
               {hits.map((h) => (
@@ -423,25 +438,16 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
                       <span className="row__title">{h.description}</span>
                       {h.note && <span className="hit__note">{h.note}</span>}
                     </span>
-                    <span className="hit__src">{SOURCE_LABEL[h.data_type] ?? h.data_type}</span>
+                    <span className="hit__src">
+                      {h.custom_food_id !== null
+                        ? "yours"
+                        : SOURCE_LABEL[h.data_type] ?? h.data_type}
+                    </span>
                   </button>
                 </li>
               ))}
             </ul>
           )}
-          {/* Said out loud rather than silently dropped: the food is there, it
-              matched, and it is not in this list. */}
-          {hiddenOwn > 0 && (
-            <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-              {hiddenOwn === 1
-                ? "One of your own foods matched and is not listed here."
-                : `${hiddenOwn} of your own foods matched and are not listed here.`}{" "}
-              A recipe is stored as
-              reference ingredients over a yield, so a food transcribed from a pack is logged on
-              its own rather than built into a dish.
-            </p>
-          )}
-
           {query.trim().length >= 2 && (
             <button className="link" style={{ marginTop: "var(--s3)" }} onClick={addUntracked}>
               Add “{query.trim()}” with no composition data

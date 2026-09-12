@@ -181,7 +181,10 @@ export default function CookSheet(p: Props) {
       searchFoods(q, 24)
         .then((r) => {
           if (mine !== seq.current) return;
-          setHits(r.filter((h) => h.kind === "reference").slice(0, 6));
+          // Own foods included, and ranked first by the backend. A swap at
+          // the stove is exactly where the brand actually in the fridge beats
+          // the generic entry the recipe was written against.
+          setHits(r.slice(0, 6));
         })
         .catch((e) => setError(String(e)));
     }, 160);
@@ -236,13 +239,16 @@ export default function CookSheet(p: Props) {
   }
 
   function swapIn(i: number, h: FoodHit) {
-    if (h.fdc_id === null) return;
+    if (h.fdc_id === null && h.custom_food_id === null) return;
     setRows((rs) =>
       rs.map((r, j) =>
         j === i
           ? {
               ...r,
+              // One or the other, always cleared together: a line left holding
+              // both would be two claims about what was eaten.
               fdc_id: h.fdc_id,
+              custom_food_id: h.custom_food_id,
               description: h.description,
               // Keep the first thing this line ever was. Swapping twice must
               // still say what the dish was meant to have, not what the last
@@ -256,11 +262,12 @@ export default function CookSheet(p: Props) {
   }
 
   function addLine(h: FoodHit) {
-    if (h.fdc_id === null) return;
+    if (h.fdc_id === null && h.custom_food_id === null) return;
     setRows((rs) => [
       ...rs,
       {
-        id: "", position: rs.length, fdc_id: h.fdc_id, description: h.description,
+        id: "", position: rs.length, fdc_id: h.fdc_id,
+        custom_food_id: h.custom_food_id, description: h.description,
         // The recipe never called for this, so there is nothing to be centred
         // on. The dial falls back to half-gram notches, which is right for a
         // line whose "as written" amount is genuinely zero.
@@ -426,7 +433,11 @@ export default function CookSheet(p: Props) {
                   </span>
                   <span className="cook-row__sub">
                     {r.substituted_for !== null && <>instead of {r.substituted_for} · </>}
-                    {r.fdc_id === null && "no composition data · "}
+                    {r.custom_food_id !== null
+                      ? "yours · "
+                      : r.fdc_id === null
+                        ? "no composition data · "
+                        : ""}
                     {!out && rawInG > 0
                       ? `${pct(r.raw_g / rawInG)} of what goes in`
                       : out
@@ -488,7 +499,11 @@ export default function CookSheet(p: Props) {
                             <span className="row__main">
                               <span className="row__title">{h.description}</span>
                             </span>
-                            <span className="hit__src">{SOURCE_LABEL[h.data_type] ?? h.data_type}</span>
+                            <span className="hit__src">
+                              {h.custom_food_id !== null
+                                ? "yours"
+                                : SOURCE_LABEL[h.data_type] ?? h.data_type}
+                            </span>
                           </button>
                         </li>
                       ))}
@@ -516,7 +531,11 @@ export default function CookSheet(p: Props) {
                         <span className="row__main">
                           <span className="row__title">{h.description}</span>
                         </span>
-                        <span className="hit__src">{SOURCE_LABEL[h.data_type] ?? h.data_type}</span>
+                        <span className="hit__src">
+                              {h.custom_food_id !== null
+                                ? "yours"
+                                : SOURCE_LABEL[h.data_type] ?? h.data_type}
+                            </span>
                       </button>
                     </li>
                   ))}
