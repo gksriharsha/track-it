@@ -608,20 +608,48 @@ function WeekStrip({
   useLayoutEffect(() => {
     const el = rail.current;
     if (el === null) return;
-    const w = el.clientWidth;
-    // Zero on a wide window, where `.daybar` is display:none. There is no
-    // layout to scroll and no scroll position worth overwriting.
-    if (w === 0) return;
-    const want = page * w;
+
+    const settle = () => {
+      const w = el.clientWidth;
+      // Zero on a wide window, where `.daybar` is display:none. There is no
+      // layout to scroll and no scroll position worth overwriting.
+      if (w === 0) return;
+      const target = el.children[page] as HTMLElement | undefined;
+      if (target === undefined) return;
+      /*
+        Measured off the page itself rather than computed as `page * w`, which
+        is what this did first and what put today's own cell half off the right
+        edge of a phone.
+
+        `clientWidth` is an INTEGER and a page's real width is not: a 448.33 px
+        column reports 448, and eleven pages of that lose four pixels — enough
+        to sit a whole week's worth of rounding short of the end. It is also
+        why the fault was invisible in a 375 px browser window, where the width
+        came out a round 343 and the arithmetic happened to be exact. Asking
+        the element where it is cannot drift.
+      */
+      const want = target.getBoundingClientRect().left
+        - el.getBoundingClientRect().left
+        + el.scrollLeft;
+      /*
+        Left alone when the selected day is already on screen. Without this,
+        scrolling back to August and tapping the 14th would re-run this effect
+        and snap the rail to where it computes the week to be — which is where
+        it already is, but a half-swipe in progress would be yanked straight.
+      */
+      if (Math.abs(el.scrollLeft - want) > w / 2) el.scrollLeft = want;
+    };
+
+    settle();
     /*
-      Left alone when the selected day is already on screen. Without this,
-      scrolling back to August and tapping the 14th would re-run this effect
-      and snap the rail to wherever it computed — which is where it already is,
-      but only because the arithmetic agrees; a half-swipe in progress would be
-      yanked straight. Half a page is the tolerance because a snapped rail is
-      always within a rounding error of an exact multiple.
+      And again whenever the rail changes width. A snap position is a fraction
+      of the container, so every one of them moves when the container does —
+      leaving the strip stranded between two weeks after a rotation, or after
+      any late reflow that settles the width AFTER this effect has run.
     */
-    if (Math.abs(el.scrollLeft - want) > w / 2) el.scrollLeft = want;
+    const ro = new ResizeObserver(settle);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [page, days.length]);
 
   const weeks = Array.from({ length: STRIP_WEEKS }, (_, i) => days.slice(i * 7, i * 7 + 7));
