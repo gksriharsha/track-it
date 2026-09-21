@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  deleteLogEntry, frequentFoods, humanDate, loggedDates, setEntryTags, shiftIso, todayIso,
+  deleteLogEntry, frequentFoods, getDayNote, humanDate, loggedDates, setDayNote, setEntryTags,
+  shiftIso, todayIso,
 } from "../api";
 import CorrectEntry from "../components/CorrectEntry";
 import type { DayView, FrequentFood, LogEntry, Meal, Origin } from "../types";
@@ -78,19 +79,35 @@ export default function Today(p: Props) {
 
   const [open, setOpen] = useState<string | null>(null);
 
-  /* The foods you have most days, and the days the record holds something on —
-     the two things the top of this screen needs that the day itself cannot
-     say. Both are read once per mount: neither changes as you step between
-     days, and re-reading them on every date change would put two round trips
-     in front of a tap that should feel instant. */
+  /* The days the strip is going to draw, and the first of them.
+     `stripDays` is the single definition of the strip's reach: the marks below
+     are read for exactly this span, so a dot cannot be missing from a day the
+     strip shows. Recomputed on every date change and almost always identical,
+     which is why the read is keyed on `from` — a string — rather than on the
+     array. */
+  const stripDates = useMemo(() => stripDays(p.date), [p.date]);
+  const from = stripDates[0];
+
+  /* The foods you have most days. Read once per mount: it does not change as
+     you step between days, and re-reading it on every date change would put a
+     round trip in front of a tap that should feel instant. */
   const [quick, setQuick] = useState<FrequentFood[]>([]);
-  const [logged, setLogged] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     let live = true;
     frequentFoods(8).then((f) => live && setQuick(f)).catch(() => {});
-    loggedDates().then((d) => live && setLogged(new Set(d))).catch(() => {});
     return () => { live = false; };
   }, []);
+
+  /* Which of those days hold something. Keyed on the strip's first day, so it
+     is re-read only when the strip's reach actually moves — which happens when
+     a day older than the strip is picked out of the Days calendar, and not
+     when you step from Tuesday to Wednesday. */
+  const [logged, setLogged] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    let live = true;
+    loggedDates(from).then((d) => live && setLogged(new Set(d))).catch(() => {});
+    return () => { live = false; };
+  }, [from]);
 
   /*
     A repeat is written straight in, and the way back out of it sits over the
@@ -100,7 +117,7 @@ export default function Today(p: Props) {
   */
   const refreshAll = () => {
     p.onRemoved();
-    loggedDates().then((d) => setLogged(new Set(d))).catch(() => {});
+    loggedDates(from).then((d) => setLogged(new Set(d))).catch(() => {});
   };
   const q = useQuickLog(p.date, p.meal, refreshAll);
   /**
@@ -164,7 +181,7 @@ export default function Today(p: Props) {
             </span>
           )}
         </div>
-        <WeekStrip date={p.date} logged={logged} onPick={p.onPickDate} />
+        <WeekStrip date={p.date} days={stripDates} logged={logged} onPick={p.onPickDate} />
       </div>
 
       {/* Phone only. The nutrient panel is this same day counted differently,
@@ -475,67 +492,326 @@ export default function Today(p: Props) {
         </>
       )}
 
+      {/* Outside the branch above on purpose, and last on purpose.
+
+          Outside, because a day with nothing logged is a day you may well have
+          something to say about — a fast, a day away, a day you gave up
+          weighing — and the empty state is exactly when the arithmetic has
+          least to offer. Last, because it is a footnote to the day and not a
+          headline: the screen still opens on what was eaten. */}
+      <DayNote date={p.date} />
+
       <UndoToast last={q.last} onUndo={q.undo} />
     </div>
   );
 }
 
 /**
- * The last seven days, as seven buttons.
+ * How far back the date strip reaches: twelve weeks, ending on today.
  *
- * This replaced a `‹ Thursday 11 September ›` row: two bare chevrons in icon
- * buttons, the left of which every person reading it took for a Back arrow —
- * it sat in the top-left corner where Back lives, in a screen's title row, and
- * pointed the way Back points. It also made every day a separate press: four
- * taps to reach Monday, with the date changing under you each time.
+ * A reach and not a page size. The strip shows seven days at a time and scrolls
+ * a week per swipe, so this is how many swipes there are — twelve, about a
+ * quarter. Beyond that the Days calendar is the right instrument: it draws a
+ * month at a time with its month named, and jumping four months back through a
+ * seven-day window would be sixteen swipes past dates you cannot identify.
+ */
+const STRIP_WEEKS = 12;
+const STRIP_DAYS = STRIP_WEEKS * 7;
+
+/**
+ * The days the strip draws for a given selection, oldest first.
  *
- * Seven dates instead. Any of them is one tap, the day you are reading is
- * marked, and a day that has something logged in it carries a dot — so the
- * strip answers "when did I last record anything" without a trip to Days.
+ * Exported from module scope rather than computed inside `WeekStrip` because
+ * two things need to agree about it: the strip, and the read that marks which
+ * of those days hold something. One function, called once, is what makes them
+ * agree — see the `stripDays` call in `Today`.
+ */
+function stripDays(date: string): string[] {
+  const today = todayIso();
+  /*
+    The strip's last day, and the ONLY thing that moves its contents.
+
+    Today, normally: there is nothing to the right of today because the future
+    holds nothing to log, so the strip ends there and the days ahead are not
+    drawn at all. The exception is a day picked out of the Days calendar that
+    twelve weeks does not reach — that day ends the strip instead, so the day
+    being read is on screen, and the daybar's own Today button is the way back.
+
+    Note what this is not: it does not move when you tap a date inside the
+    strip. That was the old behaviour and it cannot survive a scroller — you
+    would scroll back to August, tap the 14th, and have the whole rail jump out
+    from under your thumb to put the 14th at the right-hand edge.
+  */
+  const end = date >= shiftIso(today, -(STRIP_DAYS - 1)) ? today : date;
+  return Array.from({ length: STRIP_DAYS }, (_, i) => shiftIso(end, i - (STRIP_DAYS - 1)));
+}
+
+/**
+ * Twelve weeks of days, seven at a time, as a strip you scroll.
  *
- * Deliberately NOT a progress track: the marks say a day exists in the record,
- * never how well it went.
+ * Two earlier versions of this row are worth recording, because each fixed the
+ * one before it and left something behind.
+ *
+ * The first was `‹ Thursday 11 September ›`: two bare chevrons in icon buttons,
+ * the left of which sat in the corner Back lives in, in a screen's title row,
+ * pointing the way Back points. Every reader took it for a way out. It also
+ * made every day a separate press — four taps to reach Monday, with the date
+ * changing under you each time.
+ *
+ * The second was seven fixed dates ending on today. One tap to any day of the
+ * past week, nothing that could be mistaken for Back — and no way at all to
+ * reach the week before, which the user found on the fifth day of using the
+ * app: *"the top row of dates cannot move?"* Reaching a fortnight back meant
+ * the Days calendar, for a date that is four days off the edge of the screen.
+ *
+ * So the seven dates stay and the rail behind them grows. The gesture is the
+ * one they already tried; the contents do not move when you pick a day; and
+ * scrolling browses without selecting, so nothing is logged against a week you
+ * merely looked at.
+ *
+ * Still deliberately NOT a progress track. The marks say a day exists in the
+ * record, never how well it went, and there is nothing here to fill or beat.
  */
 function WeekStrip({
-  date, logged, onPick,
+  date, days, logged, onPick,
 }: {
   date: string;
+  /** The strip's whole reach, oldest first. See `stripDays`. */
+  days: string[];
   logged: ReadonlySet<string>;
   onPick: (iso: string) => void;
 }) {
   const today = todayIso();
+  const rail = useRef<HTMLDivElement | null>(null);
+
+  /** Which week of the rail holds the day being read. */
+  const page = Math.max(0, Math.floor(days.indexOf(date) / 7));
+
   /*
-    The strip ends on today while the chosen day is inside this past week, and
-    on the chosen day once it is older. Anchoring it always to today would show
-    seven days that do not contain the one being read; anchoring it always to
-    the selection would move the whole strip every time you stepped a day.
+    Which week is on screen, which is not the same question as which day is
+    selected — the whole point of a scroller is that you can look at one week
+    while reading another. Tracked so the caption can name the month: seven
+    bare numbers are ambiguous the moment they are not this week's, and a
+    person scrolling back three weeks should not have to tap a date to find out
+    which month they are in.
   */
-  const end = date >= shiftIso(today, -6) ? today : date;
-  const days = Array.from({ length: 7 }, (_, i) => shiftIso(end, i - 6));
+  const [shown, setShown] = useState(page);
+  useEffect(() => { setShown(page); }, [page]);
+
+  /*
+    Put the week holding the selected day on screen.
+
+    `useLayoutEffect` and not `useEffect`: this runs on mount, when the rail is
+    scrolled to its oldest week and the correct position is its newest. After
+    paint that is a visible jump from twelve weeks ago to today.
+  */
+  useLayoutEffect(() => {
+    const el = rail.current;
+    if (el === null) return;
+    const w = el.clientWidth;
+    // Zero on a wide window, where `.daybar` is display:none. There is no
+    // layout to scroll and no scroll position worth overwriting.
+    if (w === 0) return;
+    const want = page * w;
+    /*
+      Left alone when the selected day is already on screen. Without this,
+      scrolling back to August and tapping the 14th would re-run this effect
+      and snap the rail to wherever it computed — which is where it already is,
+      but only because the arithmetic agrees; a half-swipe in progress would be
+      yanked straight. Half a page is the tolerance because a snapped rail is
+      always within a rounding error of an exact multiple.
+    */
+    if (Math.abs(el.scrollLeft - want) > w / 2) el.scrollLeft = want;
+  }, [page, days.length]);
+
+  const weeks = Array.from({ length: STRIP_WEEKS }, (_, i) => days.slice(i * 7, i * 7 + 7));
 
   return (
-    <div className="week" role="group" aria-label="Pick a day">
-      {days.map((iso) => {
-        const d = new Date(`${iso}T00:00:00`);
-        const ahead = iso > today;
-        return (
-          <button
-            key={iso}
-            className="week__day"
-            onClick={() => onPick(iso)}
-            disabled={ahead}
-            aria-current={iso === date ? "date" : undefined}
-            aria-label={humanDate(iso)}
-          >
-            <span className="week__wd">
-              {d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
-            </span>
-            <span className="week__n tnum">{d.getDate()}</span>
-            <span className={logged.has(iso) ? "week__dot is-on" : "week__dot"} aria-hidden />
-          </button>
-        );
-      })}
+    <div className="weekwrap">
+      <div className="week__caption">{monthSpan(weeks[shown] ?? [], today)}</div>
+      <div
+        className="week"
+        ref={rail}
+        role="group"
+        aria-label="Pick a day"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const w = el.clientWidth;
+          if (w > 0) setShown(Math.min(STRIP_WEEKS - 1, Math.round(el.scrollLeft / w)));
+        }}
+      >
+        {weeks.map((week, i) => (
+          <div className="week__page" key={week[0]} data-page={i}>
+            {week.map((iso) => {
+              const d = new Date(`${iso}T00:00:00`);
+              const ahead = iso > today;
+              return (
+                <button
+                  key={iso}
+                  className="week__day"
+                  onClick={() => onPick(iso)}
+                  disabled={ahead}
+                  aria-current={iso === date ? "date" : undefined}
+                  aria-label={humanDate(iso)}
+                >
+                  <span className="week__wd">
+                    {d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
+                  </span>
+                  <span className="week__n tnum">{d.getDate()}</span>
+                  <span className={logged.has(iso) ? "week__dot is-on" : "week__dot"} aria-hidden />
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
+  );
+}
+
+/**
+ * The month the visible week sits in, or both months when it straddles two.
+ *
+ * The year is named only when it is not this one. A strip reaching twelve weeks
+ * back crosses New Year for a quarter of the year, and "January" next to a
+ * December day is worse than useless — but printing 2026 beside every week for
+ * the other nine months is noise nobody reads.
+ */
+function monthSpan(week: string[], today: string): string {
+  if (week.length === 0) return "";
+  const thisYear = today.slice(0, 4);
+  const name = (iso: string) => {
+    const d = new Date(`${iso}T00:00:00`);
+    const month = d.toLocaleDateString(undefined, { month: "long" });
+    return iso.slice(0, 4) === thisYear ? month : `${month} ${iso.slice(0, 4)}`;
+  };
+  const first = name(week[0]);
+  const last = name(week[week.length - 1]);
+  return first === last ? first : `${first} – ${last}`;
+}
+
+/**
+ * The day in the user's own words.
+ *
+ * Everything else on this screen is arithmetic, and arithmetic cannot hold the
+ * reasons: that the sambar could not be weighed because it was somebody else's
+ * pot, that a day was a fast, that the numbers look odd because of a flight.
+ * Those are facts about the day that belong beside it, and there was nowhere to
+ * put them. The user asked for somewhere.
+ *
+ * It is NOT nutrition and nothing reads it as any — see the `day_notes` comment
+ * in store.rs. No figure on this screen moves because of what is typed here,
+ * which is exactly what makes it safe to write freely in.
+ *
+ * Saved by itself, on a pause and on losing focus, because a note nobody
+ * pressed a button for is a note that has to survive the thumb that reaches
+ * for the bottom bar. The screen unmounts when you leave it, so the last write
+ * happens from the cleanup below.
+ */
+function DayNote({ date }: { date: string }) {
+  /** null while the note for `date` has not come back yet. */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [status, setStatus] = useState<"idle" | "saving" | "kept">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  /*
+    What the database holds, and the day it holds it for. Both in refs, because
+    the only reader is `flush`, which runs from a cleanup — after `date` has
+    already changed in props and before this component has rendered for the new
+    one. A note typed on Tuesday must not be written to Wednesday because the
+    user tapped Wednesday first, and the date that travels with the text is the
+    only thing that can prevent it.
+  */
+  const stored = useRef<{ date: string; body: string } | null>(null);
+  const draftRef = useRef<string | null>(null);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
+
+  const flush = useCallback(async () => {
+    const at = stored.current;
+    const body = draftRef.current;
+    if (at === null || body === null) return;
+    if (body.trim() === at.body.trim()) return;
+    setStatus("saving");
+    try {
+      await setDayNote(at.date, body);
+      /*
+        Only if the day has not moved underneath this write. The day being
+        left is saved from a cleanup, and by the time it lands `stored` may
+        already describe the day arrived at — writing the old body there would
+        make the new day's note look already-saved and lose the next edit.
+      */
+      if (stored.current?.date !== at.date) return;
+      stored.current = { date: at.date, body };
+      setStatus("kept");
+      setError(null);
+    } catch (e) {
+      if (stored.current?.date !== at.date) return;
+      setStatus("idle");
+      setError(String(e));
+    }
+  }, []);
+
+  /* Read the day arrived at, and write the day being left. */
+  useEffect(() => {
+    let live = true;
+    setStatus("idle");
+    setError(null);
+    getDayNote(date)
+      .then((body) => {
+        if (!live) return;
+        stored.current = { date, body: body ?? "" };
+        // Only if nothing has been typed in the meantime. The read is a
+        // single-row lookup and wins this race every time in practice, but
+        // losing it would silently delete a sentence.
+        setDraft((d) => (d === null ? body ?? "" : d));
+      })
+      .catch((e) => { if (live) setError(String(e)); });
+    return () => {
+      live = false;
+      void flush();
+      setDraft(null);
+    };
+  }, [date, flush]);
+
+  /*
+    A pause is a save. Long enough that it is not a write per keystroke, short
+    enough that putting the phone down mid-sentence keeps the sentence.
+  */
+  useEffect(() => {
+    if (draft === null || stored.current === null) return;
+    if (draft.trim() === stored.current.body.trim()) return;
+    const t = setTimeout(() => { void flush(); }, 700);
+    return () => clearTimeout(t);
+  }, [draft, flush]);
+
+  return (
+    <section className="card day-note">
+      <div className="card__head">
+        <h2>Note</h2>
+        {status !== "idle" && (
+          <span className="card__note">{status === "saving" ? "Saving…" : "Saved"}</span>
+        )}
+      </div>
+
+      <textarea
+        className="field day-note__field"
+        rows={3}
+        maxLength={2000}
+        value={draft ?? ""}
+        placeholder="Anything worth writing down about this day."
+        aria-label={`Note for ${humanDate(date)}`}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void flush()}
+      />
+
+      {error && <p className="alert" role="alert">{error}</p>}
+
+      <div className="card__foot">
+        Yours, and not part of the arithmetic. Nothing here is read as food and nothing in it
+        changes a figure on this screen — which is the point: it is for what the numbers cannot
+        hold.
+      </div>
+    </section>
   );
 }
 

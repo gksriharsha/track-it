@@ -960,10 +960,55 @@ fn delete_log_entry(
     after_write(&app, store::remove(&conn, &id))
 }
 
+/// Which days the record holds something on, from `since` forward.
+///
+/// `since` is the first day the caller is going to DRAW, not a preference. See
+/// `store::logged_dates` for why the bound is a date and no longer a row count.
 #[tauri::command]
-fn logged_dates(user: State<'_, store::Store>) -> Result<Vec<String>, String> {
+fn logged_dates(since: String, user: State<'_, store::Store>) -> Result<Vec<String>, String> {
     let conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::logged_dates(&conn, 60)
+    store::logged_dates(&conn, &since)
+}
+
+/// How long a day's note may be.
+///
+/// A bound on an untrusted command argument rather than a product limit, in the
+/// spirit of `export::MAX_EXPORT_BYTES`: `body` arrives from the webview, this
+/// is the writing side, and a size assertion belongs here. Two thousand
+/// characters is several paragraphs — far more than the field is shaped for and
+/// far less than anything that could bloat the database a person syncs.
+const MAX_NOTE_CHARS: usize = 2000;
+
+/// What the user wrote about one day, or `None`.
+#[tauri::command]
+fn get_day_note(
+    logged_on: String,
+    user: State<'_, store::Store>,
+) -> Result<Option<String>, String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::day_note(&conn, &logged_on)
+}
+
+/// Keep what the user wrote about one day, or clear it.
+///
+/// Nothing here reaches the day's arithmetic, and that is deliberate rather
+/// than incidental: there is no `after_write` call and no widget refresh,
+/// because no figure anywhere changed. Compare `delete_log_entry`, which has
+/// both.
+#[tauri::command]
+fn set_day_note(
+    logged_on: String,
+    body: String,
+    user: State<'_, store::Store>,
+) -> Result<(), String> {
+    let len = body.chars().count();
+    if len > MAX_NOTE_CHARS {
+        return Err(format!(
+            "a day's note is kept to {MAX_NOTE_CHARS} characters, and this one is {len}"
+        ));
+    }
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::set_day_note(&conn, &logged_on, &body)
 }
 
 /// How much wider the ranking is asked to look than the caller wants.
@@ -4446,6 +4491,8 @@ pub fn run() {
             add_log_entry,
             delete_log_entry,
             logged_dates,
+            get_day_note,
+            set_day_note,
             get_range,
             save_recipe,
             list_recipes,
