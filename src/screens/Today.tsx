@@ -519,6 +519,30 @@ const STRIP_WEEKS = 12;
 const STRIP_DAYS = STRIP_WEEKS * 7;
 
 /**
+ * How many days sit to the RIGHT of the anchor day, which is what puts it in
+ * the middle of its week rather than hard against the right-hand edge.
+ *
+ * Three, because seven days have one middle and it is the fourth.
+ *
+ * The strip used to end ON today, and the reasoning for that was too narrow:
+ * the future holds nothing to log, so drawing it looked like drawing dead
+ * cells. But the row is not only a set of buttons — it is where you are in the
+ * week, and a rail that stops at today can only show what is behind you. On a
+ * Thursday it said nothing about the weekend ahead; on any day it put the one
+ * cell you press most into the worst place on the screen, against the edge and
+ * against the scroll boundary.
+ *
+ * The three days ahead stay unpressable, because a day that has not happened
+ * has nothing to record. They are dimmed rather than hidden, which is the
+ * honest shape: they are days, they are simply not yet.
+ *
+ * Nothing about this is a plan or a target. There is no cell to fill and no
+ * run to keep — an empty Thursday ahead looks exactly like an empty Thursday
+ * behind, which is the point.
+ */
+const STRIP_LEAD = 3;
+
+/**
  * The days the strip draws for a given selection, oldest first.
  *
  * Exported from module scope rather than computed inside `WeekStrip` because
@@ -529,20 +553,26 @@ const STRIP_DAYS = STRIP_WEEKS * 7;
 function stripDays(date: string): string[] {
   const today = todayIso();
   /*
-    The strip's last day, and the ONLY thing that moves its contents.
+    The day the strip is built around, and the ONLY thing that moves its
+    contents.
 
-    Today, normally: there is nothing to the right of today because the future
-    holds nothing to log, so the strip ends there and the days ahead are not
-    drawn at all. The exception is a day picked out of the Days calendar that
-    twelve weeks does not reach — that day ends the strip instead, so the day
-    being read is on screen, and the daybar's own Today button is the way back.
+    Today, normally. The exception is a day picked out of the Days calendar
+    that twelve weeks does not reach — that day becomes the anchor instead, so
+    the day being read is on screen and centred the same way, with the daybar's
+    own Today button as the way back.
 
     Note what this is not: it does not move when you tap a date inside the
     strip. That was the old behaviour and it cannot survive a scroller — you
     would scroll back to August, tap the 14th, and have the whole rail jump out
     from under your thumb to put the 14th at the right-hand edge.
   */
-  const end = date >= shiftIso(today, -(STRIP_DAYS - 1)) ? today : date;
+  const anchor = date >= shiftIso(today, -(STRIP_DAYS - 1 - STRIP_LEAD)) ? today : date;
+  /*
+    The rail's last day. `anchor + 3`, so the anchor lands in the middle of the
+    final week: the rail holds `STRIP_DAYS` days ending here, and the anchor is
+    therefore the fourth of the last seven.
+  */
+  const end = shiftIso(anchor, STRIP_LEAD);
   return Array.from({ length: STRIP_DAYS }, (_, i) => shiftIso(end, i - (STRIP_DAYS - 1)));
 }
 
@@ -568,6 +598,9 @@ function stripDays(date: string): string[] {
  * one they already tried; the contents do not move when you pick a day; and
  * scrolling browses without selecting, so nothing is logged against a week you
  * merely looked at.
+ *
+ * Today sits in the MIDDLE of its week rather than at the end of it — see
+ * `STRIP_LEAD` for why the rail stopped ending on today.
  *
  * Still deliberately NOT a progress track. The marks say a day exists in the
  * record, never how well it went, and there is nothing here to fill or beat.
@@ -609,7 +642,7 @@ function WeekStrip({
     const el = rail.current;
     if (el === null) return;
 
-    const settle = () => {
+    const position = () => {
       const w = el.clientWidth;
       // Zero on a wide window, where `.daybar` is display:none. There is no
       // layout to scroll and no scroll position worth overwriting.
@@ -640,14 +673,28 @@ function WeekStrip({
       if (Math.abs(el.scrollLeft - want) > w / 2) el.scrollLeft = want;
     };
 
-    settle();
+    position();
+
     /*
-      And again whenever the rail changes width. A snap position is a fraction
+      And again whenever the rail changes WIDTH. A snap position is a fraction
       of the container, so every one of them moves when the container does —
       leaving the strip stranded between two weeks after a rotation, or after
-      any late reflow that settles the width AFTER this effect has run.
+      any late reflow that settles the width once this effect has already run.
+
+      Width specifically, and the guard is not a micro-optimisation. A
+      ResizeObserver fires for a height change and for a sub-pixel settle as
+      readily as for a rotation, and re-positioning on one of those mid-fling
+      is a rail that jumps back under the thumb: on a phone the first swipe
+      after launch was being eaten outright, and the second worked, which is
+      exactly what an observer racing a gesture looks like.
     */
-    const ro = new ResizeObserver(settle);
+    let seen = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w === seen) return;
+      seen = w;
+      position();
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, [page, days.length]);

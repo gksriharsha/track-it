@@ -1049,7 +1049,7 @@ not shop that brand — and anyone who does can still type it.
 - The ingredient search no longer filters and no longer apologises. Own foods are marked "yours",
   and the builder says where to add one.
 
-## D24 — The date strip reaches twelve weeks and never past today; the marks cover exactly what it draws
+## D24 — The date strip reaches twelve weeks, sits today in the middle of its week, and marks exactly what it draws
 
 Today's date row has been rebuilt twice, and the second version shipped with a hole in it that took
 five days of real use to find. The user, on the fifth day after installing:
@@ -1086,9 +1086,28 @@ re-anchors is a day picked out of the Days calendar that twelve weeks does not r
 ends the strip, so the day being read is on screen, and the daybar's own Today button is the way
 back.
 
-**There is nothing to the right of today.** The future holds nothing to log, so the rail ends on
-today rather than drawing days ahead greyed out. The days ahead inside today's own week are still
-drawn and still disabled, because a week with four cells missing is not a week.
+**The anchor day sits in the middle of its week, not at the end of it.** The rail runs to
+`anchor + 3`, so today is the fourth of the last seven.
+
+This is a correction. The rail first ended ON today, on the reasoning that the future holds nothing
+to log and drawing it would be drawing dead cells. The user asked why:
+
+> *"Why is the latest date current date? It will be aesthetic to show current date in the center …
+> that way, there would not be a need to scroll."*
+
+The original reasoning was too narrow. It asked only whether a cell could be pressed, and the row is
+not only a set of buttons — it is **where you are in the week**. A rail that stops at today can show
+only what is behind you: on a Thursday it says nothing about the weekend ahead, and on any day it
+puts the one cell pressed most often into the worst place on the screen, hard against the edge and
+against the scroll boundary. Centring also answers "why can't I scroll the other way" by removing
+the question.
+
+**The days ahead stay unpressable**, because a day that has not happened has nothing to record. They
+are dimmed rather than omitted, which is the honest shape: they are days, they are simply not yet.
+
+**None of this is a plan or a target.** There is no cell to fill, no run to keep, and an empty
+Thursday ahead is drawn exactly like an empty Thursday behind. The strip gained a tense, not a
+scoreboard.
 
 **Decision two: `logged_dates` is bounded by a date, because the strip is.**
 
