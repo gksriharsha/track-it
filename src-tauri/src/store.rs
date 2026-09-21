@@ -577,6 +577,38 @@ CREATE TABLE IF NOT EXISTS nutrient_targets (
   updated_at  TEXT NOT NULL
 );
 
+-- One day, in the user's own words.
+--
+-- Not nutrition, and never read as any. Nothing in `collect_day`, in
+-- `trackit_core::aggregate` or in the export module touches this table, so a
+-- note can say "ate late, could not weigh the sambar" without a single figure
+-- on the screen moving. That separation is the whole reason the table earns its
+-- place: a person needs somewhere to put what the arithmetic cannot hold, and
+-- the arithmetic has to stay exactly what it was.
+--
+-- Keyed by the DATE and nothing else. A day has one note, so making the date
+-- the primary key is what turns "the note for the 14th" into a lookup instead
+-- of a choice between rows, and what makes a second note for the same day
+-- unrepresentable rather than merely unexpected.
+--
+-- One person's, like `log_entries`: deliberately absent from `row_version`, so
+-- it never travels to a household peer. What somebody wrote down about their
+-- own day is not a shared fact about the kitchen.
+--
+-- No soft delete, for the reason `nutrient_targets` has none: clearing a note
+-- removes the user's own text rather than deleting a recorded fact, and nothing
+-- historical is computed from it. The CHECK is what makes a blank row
+-- impossible, so "this day has a note" is an EXISTS and never a string test --
+-- `set_day_note` trims before it writes and deletes the row when nothing is
+-- left, which is why a constraint the user could trip by typing a space cannot
+-- reach them as a constraint code.
+CREATE TABLE IF NOT EXISTS day_notes (
+  logged_on  TEXT PRIMARY KEY,
+  body       TEXT NOT NULL CHECK (TRIM(body) <> ''),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- ---------------------------------------------------------------------------
 -- Frozen history.
 --
@@ -1202,7 +1234,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -2906,6 +2938,21 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
+    // v17 -> v18: a day may carry a note in the user's own words.
+    //
+    // No arm, and the absence is the whole story. `day_notes` is a brand-new
+    // table that no existing table references and that nothing existing
+    // references back, so `CREATE TABLE IF NOT EXISTS` in SCHEMA -- which
+    // `open` runs before this function on every launch -- is the entire
+    // migration. Not one row moves and not one constraint tightens.
+    //
+    // The version is bumped anyway rather than left at 17, because
+    // SCHEMA_VERSION is what says which shape a build expects: a database
+    // stamped 17 and a build that needs `day_notes` must not read as agreeing.
+    // Re-running this function costs nothing -- every arm above is guarded on
+    // what the database actually looks like rather than on the number, so an
+    // already-current database falls through all of them.
+
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
     // column this indexes does not exist yet and the whole batch would fail.
@@ -4581,21 +4628,79 @@ pub fn day(conn: &Connection, logged_on: &str) -> Result<Vec<LogEntry>, String> 
     Ok(rows)
 }
 
-/// Dates in the last `n` days that have at least one entry — used to mark the
-/// date picker so the user can find days they actually logged.
-pub fn logged_dates(conn: &Connection, limit: u32) -> Result<Vec<String>, String> {
+/// Every date on or after `since` that has at least one entry — used to mark
+/// the date strip so the user can see which days the record holds something on.
+///
+/// Bounded by a DATE rather than by a row count, and the difference is not
+/// cosmetic. This used to take `LIMIT 60`, which meant the answer described
+/// "the sixty most recent days somebody logged" while the caller was drawing a
+/// window of the calendar: a sparse logger's sixtieth-most-recent logged day
+/// can be a year back, and a strip reaching further than the limit would print
+/// an unmarked day that in fact holds food — a dot's absence reading as "you
+/// logged nothing", which is the same class of falsehood as a nutrient rendered
+/// as 0. The caller passes the first day it will draw, so the mark and the
+/// strip cannot disagree about what they cover.
+pub fn logged_dates(conn: &Connection, since: &str) -> Result<Vec<String>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT DISTINCT logged_on FROM log_entries
-             WHERE deleted_at IS NULL ORDER BY logged_on DESC LIMIT ?1",
+             WHERE deleted_at IS NULL AND logged_on >= ?1
+             ORDER BY logged_on DESC",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([limit], |r| r.get::<_, String>(0))
+        .query_map([since], |r| r.get::<_, String>(0))
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
     Ok(rows)
+}
+
+/// What the user wrote about one day, or `None` when they wrote nothing.
+///
+/// `None` and an empty string are not two spellings of the same state here,
+/// because `set_day_note` never stores the second: a cleared note is a row that
+/// is gone. So a caller can treat this as "is there a note" without a string
+/// test, and the screen can keep silence silent.
+pub fn day_note(conn: &Connection, logged_on: &str) -> Result<Option<String>, String> {
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT body FROM day_notes WHERE logged_on = ?1",
+        [logged_on],
+        |r| r.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+/// Write the day's note, or remove it when nothing is left after trimming.
+///
+/// The trim happens HERE rather than in the webview, and that placement is what
+/// keeps `day_notes`' own CHECK from ever being the thing the user meets. A
+/// note of one space is a cleared note, not a constraint violation, and the
+/// table is the wrong place to explain that to somebody.
+///
+/// Nothing about a note is history in the sense `entry_snapshots` protects:
+/// rewriting what you said about Tuesday changes no figure Tuesday recorded.
+/// So this is an upsert and not an append, and `created_at` survives an edit —
+/// when the note was first written is worth keeping, and it is the only thing
+/// here that a later edit cannot recover.
+pub fn set_day_note(conn: &Connection, logged_on: &str, body: &str) -> Result<(), String> {
+    let body = body.trim();
+    if body.is_empty() {
+        conn.execute("DELETE FROM day_notes WHERE logged_on = ?1", [logged_on])
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    let now = now_iso(conn)?;
+    conn.execute(
+        "INSERT INTO day_notes (logged_on, body, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?3)
+         ON CONFLICT (logged_on) DO UPDATE SET body = ?2, updated_at = ?3",
+        rusqlite::params![logged_on, body, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Dates in a range that have at least one entry, with a cheap per-day count.
@@ -9535,6 +9640,133 @@ mod tests {
         // against a full weight the library no longer stands behind.
         delete_bottle(&c, &id).unwrap();
         assert!(get_bottle(&c, &id).is_err());
+    }
+
+    /// The strip asks for a span and gets the whole span, not a page of it.
+    ///
+    /// The old signature took `LIMIT 60`, which answered a different question:
+    /// "the sixty most recent days somebody logged". For a person who logs
+    /// every other day that is four months of calendar, and for a person who
+    /// logs twice a day it is still sixty days — so the caller could not know
+    /// what it had been given. A dot missing from a day that holds food reads
+    /// as "you logged nothing", and that is the failure this guards.
+    #[test]
+    fn logged_dates_answers_for_the_span_the_caller_names() {
+        let c = db();
+        for iso in ["2026-06-01", "2026-08-30", "2026-09-04", "2026-09-04", "2026-09-06"] {
+            add(&c, iso, Some("lunch"), Source::Food(1), "Rajma",
+                Quantity::Grams(120.0), None, &Tags::default()).unwrap();
+        }
+
+        // Distinct, newest first, and nothing before the bound.
+        assert_eq!(
+            logged_dates(&c, "2026-09-01").unwrap(),
+            vec!["2026-09-06", "2026-09-04"],
+        );
+        assert_eq!(
+            logged_dates(&c, "2026-01-01").unwrap(),
+            vec!["2026-09-06", "2026-09-04", "2026-08-30", "2026-06-01"],
+        );
+        // The bound is inclusive: a strip drawing the 4th must be told the 4th
+        // holds something, and an off-by-one here is a blank day that is not.
+        assert!(logged_dates(&c, "2026-09-04").unwrap().contains(&"2026-09-04".to_string()));
+
+        // A deleted day stops being a day the record holds something on.
+        let id = day(&c, "2026-09-06").unwrap()[0].id.clone();
+        remove(&c, &id).unwrap();
+        assert_eq!(logged_dates(&c, "2026-09-01").unwrap(), vec!["2026-09-04"]);
+    }
+
+    /// A note is the user's own text, so it is overwritten in place — and it is
+    /// keyed to a date, so it cannot land on the wrong day.
+    #[test]
+    fn a_days_note_is_written_read_back_and_kept_per_day() {
+        let c = db();
+        assert_eq!(day_note(&c, "2026-09-04").unwrap(), None);
+
+        set_day_note(&c, "2026-09-04", "Ate out, could not weigh the sambar.").unwrap();
+        set_day_note(&c, "2026-09-05", "Fasting.").unwrap();
+        assert_eq!(
+            day_note(&c, "2026-09-04").unwrap().as_deref(),
+            Some("Ate out, could not weigh the sambar."),
+        );
+        assert_eq!(day_note(&c, "2026-09-05").unwrap().as_deref(), Some("Fasting."));
+
+        // An edit replaces, and leaves the other day alone. One row per day is
+        // the primary key's job; this is the check that the upsert uses it.
+        set_day_note(&c, "2026-09-04", "Ate out. Guessed the portions.").unwrap();
+        assert_eq!(
+            day_note(&c, "2026-09-04").unwrap().as_deref(),
+            Some("Ate out. Guessed the portions."),
+        );
+        assert_eq!(day_note(&c, "2026-09-05").unwrap().as_deref(), Some("Fasting."));
+        let rows: i64 = c
+            .query_row("SELECT COUNT(*) FROM day_notes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 2, "an edit is not a second note");
+
+        // `created_at` survives an edit. When a thing was first written down is
+        // the one fact about a note that a later edit cannot recover.
+        let (created, updated): (String, String) = c
+            .query_row(
+                "SELECT created_at, updated_at FROM day_notes WHERE logged_on = '2026-09-04'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(created <= updated);
+    }
+
+    /// Nothing but whitespace is a cleared note, and never a row.
+    ///
+    /// The table's `CHECK (TRIM(body) <> '')` is what makes a blank note
+    /// unrepresentable, and this is the check that the user can never be the one
+    /// to meet it: typing a space and losing focus is an ordinary thing to do on
+    /// a phone, and it must read as "there is no note" rather than as an error.
+    #[test]
+    fn a_blank_note_clears_the_day_rather_than_storing_nothing() {
+        let c = db();
+        set_day_note(&c, "2026-09-04", "   Ate late.  ").unwrap();
+        assert_eq!(day_note(&c, "2026-09-04").unwrap().as_deref(), Some("Ate late."),
+            "the ends are trimmed before the write, not on the way out");
+
+        for blank in ["", "   ", "\n\t "] {
+            set_day_note(&c, "2026-09-04", blank).unwrap();
+            assert_eq!(day_note(&c, "2026-09-04").unwrap(), None);
+            let rows: i64 = c
+                .query_row("SELECT COUNT(*) FROM day_notes", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(rows, 0, "a cleared note is a row that is gone, not an empty string");
+            set_day_note(&c, "2026-09-04", "Back again.").unwrap();
+        }
+        // Clearing a day that has no note is not an error either.
+        assert!(set_day_note(&c, "2026-12-25", "").is_ok());
+    }
+
+    /// A note is not nutrition, and the day cannot see it.
+    ///
+    /// The point of having somewhere to write freely is that writing there is
+    /// safe. If a note could reach the arithmetic it would stop being safe, so
+    /// the separation is asserted rather than left to the fact that nobody
+    /// joined the table.
+    #[test]
+    fn a_note_changes_nothing_the_day_reports() {
+        let c = db();
+        add(&c, "2026-09-04", Some("lunch"), Source::Food(1), "Rajma",
+            Quantity::Grams(120.0), None, &Tags::default()).unwrap();
+        let before = day(&c, "2026-09-04").unwrap();
+
+        set_day_note(&c, "2026-09-04", "Guessed this one entirely.").unwrap();
+        let after = day(&c, "2026-09-04").unwrap();
+
+        assert_eq!(before.len(), after.len());
+        assert_eq!(before[0].id, after[0].id);
+        assert_eq!(before[0].grams, after[0].grams);
+        assert_eq!(before[0].description, after[0].description);
+        // And a note alone is not a logged day: the strip's marks say the
+        // record holds FOOD, and a day nobody ate on must stay blank there.
+        set_day_note(&c, "2026-09-09", "Away.").unwrap();
+        assert!(!logged_dates(&c, "2026-09-01").unwrap().contains(&"2026-09-09".to_string()));
     }
 
     #[test]

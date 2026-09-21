@@ -199,7 +199,38 @@ export const addWeighedLogEntry = (
 export const deleteLogEntry = (id: string) =>
   invoke<void>("delete_log_entry", { id });
 
-export const loggedDates = () => invoke<string[]>("logged_dates");
+/**
+ * Which days the record holds something on, from `since` forward.
+ *
+ * `since` is the first day the CALLER will draw, so the marks and the strip
+ * cover the same span by construction rather than by two constants agreeing.
+ * See `store::logged_dates` in Rust for what went wrong when this was a row
+ * count instead.
+ */
+export const loggedDates = (since: string) =>
+  invoke<string[]>("logged_dates", { since });
+
+/* ── the day, in the user's own words ──────────────────────────────────── */
+
+/**
+ * The note on one day, or null when there is none.
+ *
+ * Null rather than an empty string, and the backend never stores the second —
+ * a cleared note is a row that is gone. So "is there a note" is not a string
+ * test here either.
+ */
+export const getDayNote = (loggedOn: string) =>
+  invoke<string | null>("get_day_note", { loggedOn });
+
+/**
+ * Keep what the user wrote about a day, or clear it by passing nothing.
+ *
+ * This touches no figure. A note is not an entry, is not read as food, and is
+ * left out of every aggregate — so there is nothing to refresh after it and
+ * nothing that needs the day reloaded.
+ */
+export const setDayNote = (loggedOn: string, body: string) =>
+  invoke<void>("set_day_note", { loggedOn, body });
 
 export const getRange = (from: string, to: string) =>
   invoke<RangeView>("get_range", { from, to });

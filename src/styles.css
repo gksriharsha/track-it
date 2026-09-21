@@ -177,7 +177,63 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
 .daybar__today { flex: none; }
 .daybar__count { margin-left: auto; flex: none; }
 
-.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s1); }
+/* Twelve weeks of days, seven at a time.
+
+   The row used to be a plain seven-column grid ending on
+   today, and there was no way past its left edge — the user
+   found that on the fifth day of using the app. It is a
+   horizontal scroller now, snapping a week per swipe, which is
+   the gesture they had already tried.
+
+   No gap between the pages: the scroll arithmetic in
+   `WeekStrip` puts the selected week on screen with
+   `scrollLeft = page * clientWidth`, which is true only while
+   a page is exactly the container's width. So each page is
+   `flex-basis: 100%` with `box-sizing: border-box`, and the
+   half-gap it needs at its own edges comes out of its padding
+   — the seam between two weeks then measures the same 4px as
+   every other pair. */
+.weekwrap { display: flex; flex-direction: column; gap: var(--s1); }
+
+/* Which month is on screen, which the seven numbers cannot say
+   once they are not this week's. Follows the SCROLL and not the
+   selection, because the two are different questions the moment
+   the strip can move. */
+.week__caption { font-size: 11px; font-weight: 550; color: var(--ink-3); }
+
+.week {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  /* Android, edge-to-edge: an over-scroll at the left edge of a
+     horizontal scroller is how a WebView starts a history
+     navigation, and the left edge is also where the system back
+     gesture lives. Contained, the strip's own scroll stays the
+     strip's. */
+  overscroll-behavior-x: contain;
+  /* A scrollbar in a 44px row of dates is noise, and the seven
+     columns are the position indicator. */
+  scrollbar-width: none;
+}
+.week::-webkit-scrollbar { display: none; }
+.week__page {
+  flex: 0 0 100%;
+  box-sizing: border-box;
+  padding: 0 calc(var(--s1) / 2);
+  scroll-snap-align: start;
+  /* A week per swipe, never seven.
+
+     On the PAGE and not on the scroller, which is where this was
+     first written and where it does nothing: `scroll-snap-stop`
+     is a property of the elements that define snap positions,
+     not of the container that snaps to them. With it on `.week`
+     a flick on a phone crossed six weeks and landed in July —
+     found by swiping the real thing on a device, because the
+     rail still stopped on an exact week boundary and so looked
+     correct in every measurement of where it ended up. */
+  scroll-snap-stop: always;
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s1);
+}
 .week__day {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   padding: var(--s2) 0 7px; border-radius: var(--r-md);
@@ -200,6 +256,19 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
 .week__day[aria-current="date"] .week__dot.is-on { background: var(--accent-ink); }
 @media (hover: hover) {
   .week__day:hover:not(:disabled):not([aria-current="date"]) { background: var(--sunken); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   The day in the user's own words.
+
+   A field and nothing else. No counter counting down to a
+   limit, no prompt asking how the day went, no mark for having
+   written one — this is the one place on the screen that holds
+   no figure at all, and that is what it is for.
+   ───────────────────────────────────────────────────────────── */
+.day-note__field {
+  font-family: inherit; font-size: 15px; line-height: 1.5;
+  resize: vertical; min-height: 84px;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -1871,6 +1940,14 @@ button.row:hover { background: var(--sunken); }
   /* The day reads DOWN the wide column: what you ate, then the dishes. */
   .day-hero { grid-column: 1; grid-row: 1; }
   .day-ate  { grid-column: 1; grid-row: 2; }
+
+  /* The note goes in the narrow column, beside the day rather than under a
+     scroll of it. Placed rather than left to auto-placement: a card that lands
+     wherever the algorithm finds a hole moves the moment another section is
+     added above it. Row 2, so the quick-add strip keeps the top of the rail —
+     a thing you reach for before the day is written is worth more room than a
+     thing you reach for after. */
+  .day-note { grid-column: 2; grid-row: 2; align-self: start; }
 
   /* The triage rail. Spans both rows so it can stay put for the whole
      scroll — a findings list you have to scroll back up to re-read is a

@@ -481,11 +481,20 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** The last three weeks, most days logged — enough for the calendar to read. */
+/**
+ * Eleven weeks back, most days logged.
+ *
+ * Long enough to fill the date strip, which reaches twelve weeks: a fixture
+ * covering three weeks would leave nine scrollable weeks unmarked, and the one
+ * thing worth looking at on that strip is whether the marks are in the right
+ * place. Deliberately one week SHORT of the strip's reach, so the oldest week
+ * is genuinely blank and the difference between "no dot" and "off the end of
+ * the data" is visible here rather than only on a phone.
+ */
 function loggedDates(): string[] {
   const out: string[] = [];
   const now = new Date();
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 77; i++) {
     if (i % 7 === 4) continue; // a gap, so the calendar is not a solid block
     const d = new Date(now);
     d.setDate(d.getDate() - i);
@@ -493,6 +502,16 @@ function loggedDates(): string[] {
   }
   return out;
 }
+
+/**
+ * Notes typed in a browser tab, by date.
+ *
+ * In a module-level object rather than localStorage: the fixture is for looking
+ * at what the screen does, and a note that survived a reload would make the
+ * empty state — the state most worth looking at — the one that takes a cleared
+ * browser to reach.
+ */
+const DAY_NOTES: Record<string, string> = {};
 
 /**
  * One day's summary, for the calendar and the range report.
@@ -718,7 +737,20 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   search_foods: (a) => search(String(a.query ?? ""), Number(a.limit ?? 30)),
   get_food_detail: (a) => detail(Number(a.fdcId)),
   frequent_foods: (a) => FREQUENT.slice(0, Number(a.limit ?? 6)),
-  logged_dates: () => loggedDates(),
+  logged_dates: (a) => {
+    const since = String(a.since ?? "");
+    return loggedDates().filter((d) => d >= since);
+  },
+  get_day_note: (a) => DAY_NOTES[String(a.loggedOn ?? today())] ?? null,
+  set_day_note: (a) => {
+    const on = String(a.loggedOn ?? today());
+    const body = String(a.body ?? "").trim();
+    // Matches the backend: a note of nothing but whitespace is a cleared note,
+    // and what is stored is never the empty string.
+    if (body === "") delete DAY_NOTES[on];
+    else DAY_NOTES[on] = body;
+    return undefined;
+  },
   get_range: (a) => range(String(a.from ?? today()), String(a.to ?? today())),
   list_nutrients: () => meta(),
   get_goals: () => goals(),

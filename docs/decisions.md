@@ -1048,3 +1048,162 @@ not shop that brand — and anyone who does can still type it.
   violation reaches the user as a sentence.
 - The ingredient search no longer filters and no longer apologises. Own foods are marked "yours",
   and the builder says where to add one.
+
+## D24 — The date strip reaches twelve weeks, sits today in the middle of its week, and marks exactly what it draws
+
+Today's date row has been rebuilt twice, and the second version shipped with a hole in it that took
+five days of real use to find. The user, on the fifth day after installing:
+
+> *"So the top row of dates, cannot move? It has been 5 days since the app is installed, I am not
+> able to scroll to the next week of dates in the android app."*
+
+The first version was `‹ Thursday 11 September ›` — two bare chevrons in icon buttons, the left one
+sitting in the corner Back lives in, in a screen's title row, pointing the way Back points. Every
+reader took it for a way out of the screen, and reaching Monday took four presses with the date
+changing under you each time.
+
+The second replaced it with seven fixed dates ending on today. That fixed both faults and
+introduced a third: there was no way at all past the left edge. A fortnight ago was unreachable
+from a screen showing dates, and the only route to it was the Days calendar — for a day that is
+four cells off the side of the screen.
+
+**Decision one: the strip scrolls, a week per swipe, twelve weeks back.**
+
+The seven dates stay. The rail behind them grows to `STRIP_WEEKS × 7` days and the row becomes a
+horizontal scroller with `scroll-snap-type: x mandatory` and `scroll-snap-stop: always` — so one
+swipe is one week and a fling cannot cross a month onto dates nobody was aiming for. The gesture is
+the one the user had already tried.
+
+Twelve weeks is a reach, not a page size, and it is where a seven-day window stops being the right
+instrument. Beyond a quarter the Days calendar is better at the job: it draws a month at a time with
+the month named, and sixteen swipes through a window of seven unlabelled numbers is not navigation.
+
+**The strip's contents do not move when you pick a day.** Only the selection moves. The previous
+version re-anchored its seven days on the chosen date once that date was more than a week old,
+which is survivable for a fixed row and impossible for a scroller: you would scroll back to August,
+tap the 14th, and have the whole rail jump out from under your thumb. The one case that still
+re-anchors is a day picked out of the Days calendar that twelve weeks does not reach — that day
+ends the strip, so the day being read is on screen, and the daybar's own Today button is the way
+back.
+
+**The anchor day sits in the middle of its week, not at the end of it.** The rail runs to
+`anchor + 3`, so today is the fourth of the last seven.
+
+This is a correction. The rail first ended ON today, on the reasoning that the future holds nothing
+to log and drawing it would be drawing dead cells. The user asked why:
+
+> *"Why is the latest date current date? It will be aesthetic to show current date in the center …
+> that way, there would not be a need to scroll."*
+
+The original reasoning was too narrow. It asked only whether a cell could be pressed, and the row is
+not only a set of buttons — it is **where you are in the week**. A rail that stops at today can show
+only what is behind you: on a Thursday it says nothing about the weekend ahead, and on any day it
+puts the one cell pressed most often into the worst place on the screen, hard against the edge and
+against the scroll boundary. Centring also answers "why can't I scroll the other way" by removing
+the question.
+
+**The days ahead stay unpressable**, because a day that has not happened has nothing to record. They
+are dimmed rather than omitted, which is the honest shape: they are days, they are simply not yet.
+
+**None of this is a plan or a target.** There is no cell to fill, no run to keep, and an empty
+Thursday ahead is drawn exactly like an empty Thursday behind. The strip gained a tense, not a
+scoreboard.
+
+**Decision two: `logged_dates` is bounded by a date, because the strip is.**
+
+The marks under the dates say a day exists in the record. That read used to be
+`SELECT DISTINCT logged_on … ORDER BY logged_on DESC LIMIT 60`, which answers a different question
+from the one the caller asks: *the sixty most recent days somebody logged*. For a person who logs
+every other day that is four months of calendar; for somebody logging twice a day it is sixty days;
+and the caller cannot tell which it was given. A strip reaching further than the limit prints an
+unmarked day that in fact holds food, and a missing mark reads as "you logged nothing" — the same
+class of falsehood as a nutrient rendered as `0` (D7).
+
+So `logged_dates(since)` takes the first day the caller is going to **draw**, and `stripDays` in
+`Today.tsx` is the single definition of that span — the strip and the read call it once between
+them. Two constants agreeing would have been a comment; one function is a property.
+
+**A mark is still not a score.** The dot has one state and one colour. It says the record holds
+something on that day and never how the day went, and nothing about this row fills toward anything.
+
+**Consequences.**
+
+- `.week` is a flex scroller and each week is a `.week__page` at `flex-basis: 100%` with
+  `box-sizing: border-box`. There is deliberately **no gap between pages**: the scroll arithmetic is
+  `scrollLeft = page × clientWidth`, which is only true while a page is exactly the container's
+  width, so the half-gap each page needs at its own edges comes out of its padding.
+- `overscroll-behavior-x: contain`, because an over-scroll at the left edge of a horizontal
+  scroller is how a WebView starts a history navigation — and on an edge-to-edge Android window
+  (D21) the left edge is also where the system back gesture lives.
+- The week is put on screen in a `useLayoutEffect`, not a `useEffect`. On mount the rail is at its
+  oldest week and the right position is its newest; after paint that is a visible jump from twelve
+  weeks ago to today.
+- A caption above the strip names the month the **visible** week sits in, which is a different
+  question from which day is selected the moment the row can move. Seven bare numbers are ambiguous
+  as soon as they are not this week's, and the year is printed only when it is not this one —
+  "January" beside a December day is worse than useless, and `2026` beside every week for nine
+  months of the year is noise.
+
+## D25 — A day may carry a note, and the note is not nutrition
+
+Everything on the Today screen is arithmetic, and the arithmetic cannot hold the reasons. That the
+sambar could not be weighed because it was somebody else's pot. That a day was a fast. That the
+figures look odd because of a flight. The user asked for somewhere to put them:
+
+> *"Also when logging for today, Put a note section so that I can manually type in some notes which
+> I feel is relevant."*
+
+**Decision: one free-text note per day, in a table of its own, that no read path values.**
+
+`day_notes` is keyed by the date and nothing else — a day has one note, so the date as primary key
+turns "the note for the 14th" into a lookup rather than a choice between rows, and makes a second
+note for one day unrepresentable rather than merely unexpected.
+
+**Nothing reads it as food.** Not `collect_day`, not `trackit_core::aggregate`, not `export_log`. A
+note cannot move a figure, and that is the property that makes it safe to write freely in — which
+is the whole reason to have it. `set_day_note` is the only command in the app that performs a write
+and then deliberately does **not** call `after_write`: no number changed, so no widget and no
+screen needs refreshing. It is asserted in a test rather than left to the fact that nobody joined
+the table.
+
+**A note is not a logged day either.** `logged_dates` still reports days that hold food, so a day
+with a note and nothing eaten stays blank on the strip and blank in the calendar, and stays out of
+every period average's divisor. "You wrote something down" and "you ate something" are different
+facts and the app already has a rule about conflating those (D15).
+
+**Not frozen history.** `entry_snapshots` exists because a logged entry records something already
+eaten and its nutrition must not move afterwards. A note is the opposite: rewriting what you said
+about Tuesday changes no figure Tuesday recorded, so this is an upsert and not an append, and
+editing is the point rather than a hazard. `created_at` survives an edit, because when a thing was
+first written down is the one fact about a note a later edit cannot recover.
+
+**One person's.** Deliberately absent from `row_version`, like `log_entries` and `profile`, so it
+never reaches a household peer (D20). What somebody wrote about their own day is not a shared fact
+about the kitchen.
+
+**A blank note is a cleared note, not an error.** `CHECK (TRIM(body) <> '')` makes an empty row
+impossible, so "this day has a note" is an `EXISTS` and never a string test — and `set_day_note`
+trims before it writes and deletes the row when nothing is left. Typing a space and losing focus is
+an ordinary thing to do on a phone, and the table can only answer with a constraint code.
+
+**Consequences.**
+
+- **Schema v18.** No migration arm, and the absence is the whole story: `day_notes` is a new table
+  that nothing references and that references nothing, so `CREATE TABLE IF NOT EXISTS` in `SCHEMA`
+  is the entire migration. The version is bumped anyway, because `SCHEMA_VERSION` is what says
+  which shape a build expects and a database stamped 17 must not read as agreeing with a build that
+  needs the table.
+- The field saves itself — on a pause and on losing focus — because a note nobody pressed a button
+  for has to survive the thumb that reaches for the bottom bar. The last write happens from an
+  effect cleanup, and the date travels with the text: a note typed on Tuesday must not land on
+  Wednesday because the user tapped Wednesday first.
+- `MAX_NOTE_CHARS` bounds the command, in the spirit of `export::MAX_EXPORT_BYTES`: `body` arrives
+  from the webview and a size assertion belongs on the writing side.
+- The card sits **last** on the phone — a footnote to the day, not a headline — and **outside** the
+  empty-day branch, because a day with nothing logged is exactly when the arithmetic has least to
+  offer and there is most worth saying.
+- **A note does not leave in an export.** The exported sheet is a closed contract: `export_log`
+  decides every number and `exportSheet.ts` decides every column, out of one `LABEL_NUTRIENTS`
+  list, and a file this app writes is a file this app can read back. Free text has no column there
+  and inventing one would put a round-trip property at risk for a field the importer would have to
+  learn. Noted here as a known gap rather than settled.
