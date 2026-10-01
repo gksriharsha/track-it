@@ -12,6 +12,10 @@ nor his licence, and his licence does not reach this folder.
 | Kettlebell swing | `kettlebell-swing-start.svg`, `kettlebell-swing-halfway.svg` |
 | Plank | `plank-held.svg` (a hold, so one frame) |
 
+They are generated, not hand-edited: `tools/figures/draw.py` poses a drawn figure from joint angles
+and writes these files. To change one, change the code and run `python3 tools/figures/draw.py`;
+`python3 tools/figures/draw.py --check` confirms the files here are exactly what the code makes.
+
 Each file follows the same rules as the Everkinetic files, and `src/lib/exerciseArt.test.ts`
 checks them:
 - ink only: `fill="currentColor"` paths, with no strokes, white, masks or images, because the app
