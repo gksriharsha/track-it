@@ -114,10 +114,47 @@ export function musclesFor(lift: string): LiftMuscles | null {
   return MUSCLE_MAP.get(nameKey(lift)) ?? null;
 }
 
+/**
+ * The part of the body a lift is filed under in the exercise picker, from the
+ * first of its "mostly" muscles. Six places a lifter would look, not an anatomy
+ * chart: a hip thrust is a legs lift and a face pull a shoulders one.
+ */
+export type Area = "legs" | "back" | "chest" | "shoulders" | "arms" | "core";
+
+export const AREAS: { id: Area; label: string }[] = [
+  { id: "legs", label: "Legs" },
+  { id: "back", label: "Back" },
+  { id: "chest", label: "Chest" },
+  { id: "shoulders", label: "Shoulders" },
+  { id: "arms", label: "Arms" },
+  { id: "core", label: "Core" },
+];
+
+const AREA_OF: Record<string, Area> = {
+  quads: "legs", glutes: "legs", hamstrings: "legs", adductors: "legs", calves: "legs",
+  lats: "back", "upper back": "back", "lower back": "back", traps: "back",
+  chest: "chest",
+  shoulders: "shoulders", "front shoulders": "shoulders", "side shoulders": "shoulders", "rear shoulders": "shoulders",
+  biceps: "arms", triceps: "arms", forearms: "arms",
+  abs: "core", obliques: "core", "hip flexors": "core",
+};
+
+/** Null for a lift with no muscle row — the user's own, which shows under All only. */
+export function areaFor(lift: string): Area | null {
+  const m = musclesFor(lift);
+  return m ? AREA_OF[m.mostly[0]] ?? null : null;
+}
+
 /** "quads", "quads and glutes", "adductors, hamstrings and lower back". */
 function list(words: string[]): string {
   if (words.length <= 1) return words.join("");
   return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+/** "Quads and glutes" — the short form, for a row in a list. */
+export function mostlyLine(m: LiftMuscles): string {
+  const s = list(m.mostly);
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 /** "Mostly quads and glutes. Also adductors, hamstrings and lower back." */

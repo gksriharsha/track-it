@@ -1027,6 +1027,11 @@ pub fn recent_activities(
     recent(&conn, limit.unwrap_or(6).clamp(1, 20))
 }
 
+/// Room for every common lift after a lifetime of the user's own. The picker
+/// filters by part of the body on its side, so a cap here that cut the common
+/// list short would leave lifts that no filter could ever show.
+const MAX_EXERCISE_HITS: usize = 300;
+
 #[tauri::command]
 pub fn find_exercises(
     query: String,
@@ -1034,7 +1039,7 @@ pub fn find_exercises(
     user: State<'_, store::Store>,
 ) -> Result<Vec<ExerciseHit>, String> {
     let conn = user.0.lock().map_err(|e| e.to_string())?;
-    find(&conn, &query, session.as_deref(), 40)
+    find(&conn, &query, session.as_deref(), MAX_EXERCISE_HITS)
 }
 
 #[tauri::command]

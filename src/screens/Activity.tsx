@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { humanDate, todayIso } from "../api";
 import {
-  EFFORTS, KINDS, LOADS, addSet, byLift, deleteSession, deleteSet, findExercises, getSession,
+  EFFORTS, KINDS, addSet, byLift, deleteSession, deleteSet, findExercises, getSession,
   minutesText, recentSessions, saveSession, sessionTitle, setText, updateSet,
 } from "../lib/activity";
 import type {
-  ActivityKind, Effort, ExerciseHit, ExerciseRef, Load, RecentSession, SessionSet, SetFigures,
+  ActivityKind, Effort, ExerciseHit, ExerciseRef, RecentSession, SessionSet, SetFigures,
 } from "../lib/activity";
-import { ART_CREDIT, artFor, muscleLine, musclesFor } from "../lib/exerciseArt";
+import { ART_CREDIT, artFor, mostlyLine, muscleLine, musclesFor, nameKey } from "../lib/exerciseArt";
 import LiftFigure, { LiftFrames } from "../components/LiftFigure";
+import ExerciseSheet, { BarbellGlyph } from "../components/ExerciseSheet";
+import { useHashSheet } from "../lib/hashSheet";
 
 /**
  * The Add screen's Activity tab: something done, beside things eaten (D26).
@@ -119,7 +121,29 @@ export default function ActivityPane(p: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [lifts, setLifts] = useState<LiftBlock[]>([]);
   const [gymMinutes, setGymMinutes] = useState("");
-  const [picking, setPicking] = useState(false);
+  // The exercise sheet is a hash param, so the back gesture closes it.
+  const sheet = useHashSheet("sheet", "lift");
+  const addRef = useRef<HTMLButtonElement>(null);
+  /** The lift just added or returned to, which scrolls itself into view. */
+  const [arrived, setArrived] = useState<string | null>(null);
+  /** Whether the sheet now closing was closed by choosing a lift. */
+  const picked = useRef(false);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    // Closed without a choice: focus goes back where it came from. Closed by a
+    // choice, the chosen lift takes it instead — see LiftLedger's `arrived`.
+    if (wasOpen.current && !sheet.open && !picked.current) {
+      addRef.current?.focus({ preventScroll: true });
+    }
+    wasOpen.current = sheet.open;
+  }, [sheet.open]);
+
+  function openSheet() {
+    // Cleared on the way in, so choosing the same lift twice still arrives.
+    picked.current = false;
+    setArrived(null);
+    sheet.show();
+  }
 
   // The last one-tap log, and the way back out of it.
   const [last, setLast] = useState<{ id: string; label: string } | null>(null);
@@ -291,11 +315,22 @@ export default function ActivityPane(p: Props) {
     }
   }
 
+  /**
+   * A lift chosen in the sheet joins the session, or — if it is already in it,
+   * by name as well as by id, since a common lift has no id until its first
+   * set — the session scrolls to the one that is there.
+   */
   function addLift(ref: ExerciseRef, hit: ExerciseHit | null) {
-    setPicking(false);
-    const at = lifts.findIndex((b) => b.ref.id !== null && b.ref.id === ref.id);
-    if (at >= 0) return;
-    setLifts((ls) => [...ls, blockFrom(ref, [], hit?.last_sets ?? [], hit?.last_on ?? null)]);
+    picked.current = true;
+    sheet.hide();
+    const there = lifts.find((b) => nameKey(b.ref.name) === nameKey(ref.name));
+    if (there) {
+      setArrived(there.key);
+      return;
+    }
+    const block = blockFrom(ref, [], hit?.last_sets ?? [], hit?.last_on ?? null);
+    setLifts((ls) => [...ls, block]);
+    setArrived(block.key);
   }
 
   async function saveGymMinutes() {
@@ -431,56 +466,66 @@ export default function ActivityPane(p: Props) {
             <span className="card__note">{editingExisting ? humanDate(day) : `into ${dayWords(day)}`}</span>
           </div>
 
-          {lifts.length === 0 && !picking && (
-            <p className="activity__hint">
-              Each set is kept the moment you add it, so there is nothing to save at the end.
-            </p>
-          )}
-
           {lifts.map((b, i) => (
             <LiftLedger
               key={b.key}
               block={b}
+              // Only once the sheet has gone: closing it is a step back in
+              // history, and the browser puts the old scroll position back as
+              // it goes, which would undo a scroll made while it was open.
+              arrived={!sheet.open && b.key === arrived}
               onChange={(f) => patch(i, f)}
               onWrite={() => writeSet(i)}
               onDrop={() => dropSet(i)}
             />
           ))}
 
-          {picking ? (
-            <ExercisePicker
-              session={sessionId}
-              onPick={addLift}
-              onCancel={() => setPicking(false)}
-            />
-          ) : (
-            <button className="btn btn--quiet activity__addlift" onClick={() => setPicking(true)}>
-              Add exercise
-            </button>
+          {/* The way to the next lift, as wide as the thumb that reaches for it.
+              With nothing in the session yet it is the only thing to do, and
+              says how the session is kept. */}
+          <button ref={addRef} type="button" className="addlift" onClick={openSheet}>
+            <span className="addlift__plus" aria-hidden>+</span>
+            {lifts.length === 0 ? "Add the first exercise" : "Add exercise"}
+          </button>
+          {lifts.length === 0 && (
+            <p className="activity__hint ledger__how">
+              Each set is kept the moment you add it, so there is nothing to save at the end.
+            </p>
           )}
 
-          <div className="activity__row activity__foot">
-            <label className="activity__label" htmlFor="act-gym-min">How long</label>
-            <div className="activity__inline">
-              <input id="act-gym-min" className="field lift__field tnum" inputMode="numeric"
-                value={gymMinutes} placeholder="min" disabled={sessionId === null}
-                onChange={(e) => setGymMinutes(e.target.value)} onBlur={saveGymMinutes} />
-              <span className="activity__hint">
-                {sessionId === null ? "after the first set" : "optional"}
-              </span>
-            </div>
-          </div>
-
-          <div className="commit">
-            <button className="btn" onClick={async () => { await saveGymMinutes(); p.onDone(); }}>Done</button>
-            {sessionId !== null && editingExisting && (
-              <button className="btn btn--danger" onClick={removeSession} disabled={busy}>
-                Remove this session
-              </button>
+          <div className="ledger__foot">
+            {/* How long only once there is a session to put it on: the session
+                is made by its first set. */}
+            {sessionId !== null && (
+              <label className="ledger__mins">
+                <span className="activity__label">How long</span>
+                <span className="lift__pair">
+                  <input className="field lift__field tnum" inputMode="numeric" value={gymMinutes}
+                    placeholder="—" aria-label="How long, in minutes (optional)"
+                    onChange={(e) => setGymMinutes(e.target.value)} onBlur={saveGymMinutes} />
+                  <span className="lift__unit">min</span>
+                </span>
+              </label>
             )}
+            <div className="commit ledger__commit">
+              {sessionId !== null && editingExisting && (
+                <button className="btn btn--danger" onClick={removeSession} disabled={busy}>
+                  Remove session
+                </button>
+              )}
+              <button className="btn" onClick={async () => { await saveGymMinutes(); p.onDone(); }}>Done</button>
+            </div>
           </div>
         </section>
       )}
+
+      <ExerciseSheet
+        open={sheet.open}
+        onClose={sheet.hide}
+        session={sessionId}
+        added={new Set(lifts.map((b) => nameKey(b.ref.name)))}
+        onPick={addLift}
+      />
 
       {last && (
         <div className="toast" role="status">
@@ -501,6 +546,8 @@ export default function ActivityPane(p: Props) {
  */
 function LiftLedger(p: {
   block: LiftBlock;
+  /** Just added from the sheet, or chosen there while already here. */
+  arrived: boolean;
   onChange: (f: (b: LiftBlock) => LiftBlock) => void;
   onWrite: () => void;
   onDrop: () => void;
@@ -511,6 +558,29 @@ function LiftLedger(p: {
   const lastSet = b.sets[b.sets.length - 1];
   const ready = load === "time" ? fig.seconds !== null && fig.seconds > 0 : fig.reps !== null && fig.reps > 0;
   const repsRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // A lift chosen in the sheet is brought into view, and with a keyboard to
+  // hand its first field takes the cursor, so the set can be typed at once.
+  useEffect(() => {
+    if (!p.arrived) return;
+    const el = rootRef.current;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // A frame later, after the browser has finished restoring the scroll the
+    // history step brought with it.
+    const raf = requestAnimationFrame(() => {
+      el?.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+      const keys = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+      // With keys, the first field so the set can be typed at once; on a phone
+      // the lift's own heading, so a screen reader lands on it without the
+      // keyboard springing up.
+      const target = keys
+        ? el?.querySelector<HTMLInputElement>("input")
+        : el?.querySelector<HTMLElement>(".lift__name");
+      target?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [p.arrived]);
 
   function enter(e: KeyboardEvent<HTMLInputElement>, next?: () => void) {
     if (e.key !== "Enter") return;
@@ -526,25 +596,30 @@ function LiftLedger(p: {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="lift">
-      <div className={art ? "lift__head lift__head--art" : "lift__head"}>
+    <div className="lift" ref={rootRef}>
+      <div className="lift__head lift__head--art">
         {/* The drawing is a button because it opens the close-up: both frames
-            side by side, named, with what the drawing is a variant of and who
-            drew it. A lift the user named themselves has no drawing, and the
-            head simply has no figure in it. */}
-        {art && (
+            side by side, named, with the full muscle line, what the drawing is
+            a variant of, and who drew it. A lift with no drawing — the user's
+            own, or one the set lacks — keeps the tile, with the shape of a
+            barbell in it, so every lift's name starts in the same place. */}
+        {art ? (
           <button className="lift__art" aria-expanded={open} aria-label={`How ${b.ref.name} is done`}
             onClick={() => setOpen((o) => !o)}>
             {/* Still while the close-up is open: the same two frames are
                 standing side by side just below it. */}
             <LiftFigure lift={b.ref.name} still={art.still || open} />
           </button>
+        ) : (
+          <span className="lift__art lift__art--none" aria-hidden><BarbellGlyph /></span>
         )}
         <div className="lift__titles">
-          <h3 className="lift__name">{b.ref.name}</h3>
-          {muscles && <span className="lift__muscles">{muscleLine(muscles)}</span>}
+          <h3 className="lift__name" tabIndex={-1}>{b.ref.name}</h3>
+          {/* The short form here, the full sentence in the close-up: beside
+              the fields it is a reminder, not a lesson. */}
+          {muscles && <span className="lift__muscles">{mostlyLine(muscles)}</span>}
           {b.last.length > 0 && b.lastOn && (
-            <span className="lift__last">
+            <span className="lift__last tnum">
               {humanDate(b.lastOn)}: {b.last.map((s) => setText(s, load)).join(", ")}
             </span>
           )}
@@ -554,6 +629,7 @@ function LiftLedger(p: {
       {open && art && (
         <div className="lift__how">
           <LiftFrames lift={b.ref.name} />
+          {muscles && <p className="lift__how-muscles">{muscleLine(muscles)}</p>}
           {art.caption && <p className="lift__caption">{art.caption}.</p>}
           <p className="lift__credit">{ART_CREDIT}</p>
         </div>
@@ -620,86 +696,6 @@ function LiftLedger(p: {
           <button className="btn btn--danger lift__drop" onClick={p.onDrop}>Remove set</button>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * Choosing a lift: the person's own first, then the common ones.
- *
- * A name that matches nothing can be added as a new lift, once its kind of set
- * is chosen — weights, bodyweight, or held — because that decides which fields
- * the ledger draws and cannot be guessed from a name.
- */
-function ExercisePicker(p: {
-  session: string | null;
-  onPick: (ref: ExerciseRef, hit: ExerciseHit | null) => void;
-  onCancel: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<ExerciseHit[]>([]);
-  const [hi, setHi] = useState(0);
-
-  useEffect(() => {
-    let live = true;
-    const t = setTimeout(() => {
-      findExercises(query, p.session)
-        .then((h) => { if (live) { setHits(h); setHi(0); } })
-        .catch(() => { if (live) setHits([]); });
-    }, 120);
-    return () => { live = false; clearTimeout(t); };
-  }, [query, p.session]);
-
-  const key = (s: string) => s.trim().toLowerCase().split(/\s+/).join(" ");
-  const exact = useMemo(() => hits.some((h) => key(h.name) === key(query)), [hits, query]);
-  const shown = hits.slice(0, 12);
-
-  function pick(h: ExerciseHit) {
-    p.onPick({ id: h.id, name: h.name, load: h.load }, h);
-  }
-
-  function nav(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") { e.preventDefault(); setHi((i) => Math.min(shown.length - 1, i + 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setHi((i) => Math.max(0, i - 1)); }
-    else if (e.key === "Enter" && shown[hi]) { e.preventDefault(); pick(shown[hi]); }
-    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); p.onCancel(); }
-  }
-
-  return (
-    <div className="picker">
-      <input className="field" autoFocus value={query} placeholder="Squat, bench press, plank…"
-        aria-label="Find an exercise" onChange={(e) => setQuery(e.target.value)} onKeyDown={nav} />
-      <div className="rows picker__rows" role="listbox">
-        {shown.map((h, i) => (
-          <button key={h.id ?? h.name} className={i === hi ? "row picker__row is-hi" : "row picker__row"}
-            role="option" aria-selected={i === hi} onMouseEnter={() => setHi(i)} onClick={() => pick(h)}>
-            {/* Still, never moving: a list where every row animates at once is
-                noise. The empty slot keeps names aligned when a lift has none. */}
-            <span className="picker__fig" aria-hidden><LiftFigure lift={h.name} still /></span>
-            <span className="row__main">
-              <span className="row__title">{h.name}</span>
-              <span className="row__sub">
-                {h.own && h.last_on
-                  ? `${humanDate(h.last_on)}: ${h.last_sets.map((s) => setText(s, h.load)).join(", ")}`
-                  : h.own ? "yours" : LOADS.find((l) => l.id === h.load)?.label}
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
-      {query.trim() !== "" && !exact && (
-        <div className="picker__new">
-          <span className="activity__hint">Add “{query.trim()}” as a new exercise, counted in</span>
-          <div className="chips">
-            {LOADS.map((l) => (
-              <button key={l.id} className="chip" onClick={() => p.onPick({ id: null, name: query.trim(), load: l.id as Load }, null)}>
-                {l.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      <button className="link" onClick={p.onCancel}>Cancel</button>
     </div>
   );
 }

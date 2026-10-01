@@ -13,7 +13,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MUSCLES, allArt, artFor, muscleLine, musclesFor, nameKey } from "./exerciseArt.ts";
+import { MUSCLES, allArt, areaFor, artFor, muscleLine, musclesFor, nameKey } from "./exerciseArt.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -47,6 +47,14 @@ const crowded = Object.entries(MUSCLES).filter(([, m]) => m.mostly.length === 0 
 check("no row names more than three of each, or nothing at all", crowded.length === 0, crowded.map(([k]) => k).join(", "));
 const noArt = allArt().filter((a) => !common.some((n) => nameKey(n) === nameKey(a.lift)));
 check("every drawing is for a common lift", noArt.length === 0, noArt.map((a) => a.lift).join(", "));
+
+const unfiled = common.filter((n) => areaFor(n) === null);
+check("every common lift is filed under a part of the body", unfiled.length === 0, unfiled.join(", "));
+check(
+  "a lift is filed where a lifter would look for it",
+  areaFor("Hip thrust") === "legs" && areaFor("Face pull") === "shoulders" && areaFor("Pull-up") === "back" &&
+    areaFor("Crunch") === "core" && areaFor("Biceps curl") === "arms" && areaFor("Bench press") === "chest",
+);
 
 console.log("\nlooking a lift up");
 check("a name is found whatever its case and spacing", artFor("  bench   PRESS ")?.id === artFor("Bench press")?.id);

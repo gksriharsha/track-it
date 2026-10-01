@@ -241,7 +241,7 @@ function find(query: string, excluding: string | null): ExerciseHit[] {
     });
   const common: ExerciseHit[] = COMMON.filter(([n]) => key(n).includes(k) && !own.some((h) => key(h.name) === key(n)))
     .map(([name, load]) => ({ id: null, name, load, own: false, last_sets: [], last_on: null }));
-  return [...own, ...common].slice(0, 40);
+  return [...own, ...common].slice(0, 300);
 }
 
 function recent(limit: number): RecentSession[] {

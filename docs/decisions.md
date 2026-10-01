@@ -1369,3 +1369,32 @@ never as a body map coloured by how often a muscle was trained, which would be a
   - every variant's caption says how it is drawn.
 - **Not done:** muscle tinting on the drawing itself, which the drawings do not support; a body
   map; and drawings for the three missing lifts.
+
+**Choosing a lift is a sheet of its own.** The first version listed exercises inline, under the
+session, in a 21rem scroll box. The user called it crammed, and it was broken as well: its rows were
+flex items with a 44px floor, so the browser shrank them to fit the box and each drawing and second
+line spilled over the next row. With the keyboard up, one and a half rows were visible.
+
+**The picker now:**
+- On a phone it covers the screen: a search field, one row of filters by part of the body (Legs,
+  Back, Chest, Shoulders, Arms, Core), then "Yours", most recent first with last time's sets, then
+  "Common lifts". Each row is 76px: the drawing on a tile, the name, and one quiet line.
+- It is a hash route (`sheet=lift`, through `useHashSheet`, which the camera now shares), so the
+  system back gesture closes it.
+- With a pointer it is a dialog, with a cross, Escape, and arrow keys and Enter in the search field.
+- The filters come from the muscle table (`areaFor`): a lift is filed under its first "mostly"
+  muscle, so the hip thrust is legs and the face pull shoulders.
+- The edge-to-edge window is not resized for the keyboard (measured: the viewport stays 808px with
+  it up), so `MainActivity` publishes the keyboard's height as `--sys-ime` and the sheet ends above
+  it.
+- A lift already in the session says so, and choosing it scrolls to it rather than adding it twice.
+- On a phone the keyboard's own key only puts the keyboard away. Picking the first result unseen
+  was a review finding.
+
+**The ledger, around it:**
+- "Add exercise" is a full-width heather control.
+- A lift's head shows its short muscle line ("Quads and glutes"); the full sentence moved into the
+  close-up.
+- A lift with no drawing keeps the tile, with a barbell in it, so every name starts in the same
+  place.
+- "How long" appears only once the session has a set, beside Done.
