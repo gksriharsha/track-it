@@ -6,7 +6,8 @@ Usage:
     python3 tools/everkinetic/prepare.py /tmp/everkinetic
 
 Reads the ids listed in `src/lib/exerciseArt.json` (which lift each drawing is
-for, the app's own data and not part of the drawings), and for each of their
+for, the app's own data and not part of the drawings), skipping the entries
+marked `"by": "trackit"`, which are not Everkinetic's, and for each of their
 two frames writes `src/assets/everkinetic/<id>-<frame>.svg`, then rewrites
 CREDITS.md beside them. Run it again whenever that file changes; it only ever
 writes inside src/assets/everkinetic/, and never touches LICENSE.md there.
@@ -101,7 +102,9 @@ def main() -> None:
         old.unlink()
 
     rows = []
-    ids = sorted({l["id"] for l in lifts if l["id"]})
+    # Entries with a "by" are drawings made for TrackIt, in src/assets/figures/;
+    # they are not Everkinetic's and must never be prepared or credited as such.
+    ids = sorted({l["id"] for l in lifts if l["id"] and "by" not in l})
     for ek in ids:
         entry = catalogue.get(ek)
         if entry is None:

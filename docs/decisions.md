@@ -1334,8 +1334,24 @@ artist's. 58 files, about 3.5 KB each compressed.
   bridge, without bench or bar" for the hip thrust. A picture never claims to be what it is not
   (the same rule as no equivalence claims for foods).
 - **One shown still:** the side plank, because looping a hold reads as hips dipping and lifting.
-- **Three with no drawing:** face pull, kettlebell swing and plank. The set has nothing a lifter
-  would recognise as any of them, so they get none rather than a near miss.
+- **Three drawn for TrackIt:** face pull, kettlebell swing and plank. The set has nothing a lifter
+  would recognise as any of them. At first they got no drawing rather than a near miss, and showed
+  a barbell in the tile; the user read that as a dumbbell and as something missing. So they were
+  drawn for this app, in `src/assets/figures/`, to Everkinetic's line weight, proportions and
+  on-screen scale, which were measured from the shipped files, not judged by eye. They are not
+  traced from or adapted from Priday's drawings. They are therefore credited "Drawn for TrackIt."
+  and never under his name or his licence, and the You screen's credit line says which three are
+  not his.
+  - **Plank** is the ordinary forearm plank, one held frame, like the side plank. A reviewer
+    compared it with Everkinetic's push-up top frame, which is a straight-arm plank, captioned. The
+    forearm plank is what "plank" means in a gym, and the push-up row would have shown the same
+    picture twice.
+  - **Kettlebell swing** is the two-handed Russian swing: the hike (a hinge, the bell between the
+    thighs) and the float (standing tall, arms out at chest height).
+  - **Face pull** is a standing cable face pull with a rope, turned a little toward the viewer so
+    the high, flared elbow shows at halfway.
+  - Each was posed from joint angles a strength coach would accept, and then reviewed separately,
+    for form and for how it sits beside Everkinetic at 46 px, before it shipped.
 
 Some titles were wrong for their drawings. 0024 "Rear Deltoid Row Dumbbell" is the one-arm
 dumbbell row. The standing calf raises are all cropped above the ankle, so the seated one is used.
@@ -1357,18 +1373,21 @@ swing and the hanging leg raise, and lower back in the side plank. It is printed
 never as a body map coloured by how often a muscle was trained, which would be a scoreboard.
 
 **Consequences.**
-- **A lift the user named themselves has no drawing and no muscle line.** It is matched by the same
-  name normalisation as Rust's `name_key`, so typing "squat" finds the squat. Inventing a lift does
-  not get a guess.
+- **Every common lift has a drawing; a lift the user named themselves has no drawing and no muscle
+  line.** It is matched by the same name normalisation as Rust's `name_key`, so typing "squat"
+  finds the squat. Inventing a lift does not get a guess.
 - **`exerciseArt.test.ts` holds the promises** and runs as part of `pnpm test`:
   - every common lift Rust bundles has a muscle row;
   - every drawing a lift names has both frames;
   - every frame on disk is used and credited;
   - no frame keeps a fixed colour or its white page;
   - both frames of a lift share one canvas;
-  - every variant's caption says how it is drawn.
-- **Not done:** muscle tinting on the drawing itself, which the drawings do not support; a body
-  map; and drawings for the three missing lifts.
+  - every variant's caption says how it is drawn;
+  - every common lift has a drawing;
+  - TrackIt's own drawings keep the same file rules, live in their own folder, say inside the file
+    that they were drawn for TrackIt, and never carry Priday's name.
+- **Not done:** muscle tinting on the drawing itself, which the drawings do not support; and a
+  body map.
 
 **Choosing a lift is a sheet of its own.** The first version listed exercises inline, under the
 session, in a 21rem scroll box. The user called it crammed, and it was broken as well: its rows were
@@ -1395,6 +1414,6 @@ line spilled over the next row. With the keyboard up, one and a half rows were v
 - "Add exercise" is a full-width heather control.
 - A lift's head shows its short muscle line ("Quads and glutes"); the full sentence moved into the
   close-up.
-- A lift with no drawing keeps the tile, with a barbell in it, so every name starts in the same
-  place.
+- A lift with no drawing, which is now only one the user named, keeps the tile, with a barbell in
+  it, so every name starts in the same place.
 - "How long" appears only once the session has a set, beside Done.

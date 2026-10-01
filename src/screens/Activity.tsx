@@ -8,7 +8,7 @@ import {
 import type {
   ActivityKind, Effort, ExerciseHit, ExerciseRef, RecentSession, SessionSet, SetFigures,
 } from "../lib/activity";
-import { ART_CREDIT, artFor, mostlyLine, muscleLine, musclesFor, nameKey } from "../lib/exerciseArt";
+import { artFor, creditFor, mostlyLine, muscleLine, musclesFor, nameKey } from "../lib/exerciseArt";
 import LiftFigure, { LiftFrames } from "../components/LiftFigure";
 import ExerciseSheet, { BarbellGlyph } from "../components/ExerciseSheet";
 import { useHashSheet } from "../lib/hashSheet";
@@ -600,9 +600,10 @@ function LiftLedger(p: {
       <div className="lift__head lift__head--art">
         {/* The drawing is a button because it opens the close-up: both frames
             side by side, named, with the full muscle line, what the drawing is
-            a variant of, and who drew it. A lift with no drawing — the user's
-            own, or one the set lacks — keeps the tile, with the shape of a
-            barbell in it, so every lift's name starts in the same place. */}
+            a variant of, and who drew it. Every common lift has a drawing; a
+            lift the user named themselves has none and keeps the tile, with
+            the shape of a barbell in it, so every lift's name starts in the
+            same place. */}
         {art ? (
           <button className="lift__art" aria-expanded={open} aria-label={`How ${b.ref.name} is done`}
             onClick={() => setOpen((o) => !o)}>
@@ -631,7 +632,7 @@ function LiftLedger(p: {
           <LiftFrames lift={b.ref.name} />
           {muscles && <p className="lift__how-muscles">{muscleLine(muscles)}</p>}
           {art.caption && <p className="lift__caption">{art.caption}.</p>}
-          <p className="lift__credit">{ART_CREDIT}</p>
+          <p className="lift__credit">{creditFor(art)}</p>
         </div>
       )}
 

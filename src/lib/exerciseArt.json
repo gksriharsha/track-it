@@ -21,11 +21,14 @@
   { "lift": "Biceps curl", "id": "0211", "start": "relaxation", "caption": null },
   { "lift": "Triceps pushdown", "id": "0205", "start": "relaxation", "caption": null },
   { "lift": "Lateral raise", "id": "0018", "start": "relaxation", "caption": null },
+  { "lift": "Face pull", "by": "trackit", "id": "face-pull", "caption": null },
+  { "lift": "Kettlebell swing", "by": "trackit", "id": "kettlebell-swing", "caption": null },
   { "lift": "Pull-up", "id": "0087", "start": "relaxation", "caption": null },
   { "lift": "Chin-up", "id": "0090", "start": "relaxation", "caption": "Drawn with a narrow grip" },
   { "lift": "Push-up", "id": "0077", "start": "tension", "caption": null },
   { "lift": "Dip", "id": "0054", "start": "tension", "caption": null },
   { "lift": "Hanging leg raise", "id": "0021", "start": "relaxation", "caption": "Drawn lying on the back" },
   { "lift": "Crunch", "id": "0291", "start": "relaxation", "caption": "Drawn with the calves resting on a bench" },
+  { "lift": "Plank", "by": "trackit", "id": "plank", "caption": null, "still": true },
   { "lift": "Side plank", "id": "0113", "start": "tension", "caption": null, "still": true }
 ]

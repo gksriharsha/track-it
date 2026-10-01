@@ -4,7 +4,9 @@
  * Two different kinds of thing, kept apart on purpose. The drawings are Greg
  * Priday's, for Everkinetic, under CC BY-SA 3.0 — they live in
  * `src/assets/everkinetic/` with their licence and credits, and that licence
- * stops at that folder. Everything in THIS file is TrackIt's own: the choice of
+ * stops at that folder. The few lifts his set has nothing for were drawn for
+ * TrackIt and live apart from his, in `src/assets/figures/`, so neither is
+ * ever credited with the other's work. Everything in THIS file is TrackIt's own: the choice of
  * drawing for each lift (`exerciseArt.json`, which `tools/everkinetic/
  * prepare.py` also reads to know which drawings to prepare) and the muscle
  * table below, written for this app and cross-checked against Everkinetic's
@@ -19,10 +21,20 @@ import entries from "./exerciseArt.json" with { type: "json" };
 
 export interface LiftArt {
   lift: string;
-  /** Everkinetic's id, e.g. "0122". */
+  /**
+   * Who drew it. Absent for Everkinetic's drawings, which are most of them;
+   * "trackit" for the few lifts the set has nothing for, drawn for this app
+   * in `src/assets/figures/` and never credited to Priday.
+   */
+  by?: "trackit";
+  /** Everkinetic's id, e.g. "0122", or a TrackIt drawing's name, e.g. "face-pull". */
   id: string;
-  /** Which of the two frames is where the lift starts. */
-  start: "relaxation" | "tension";
+  /**
+   * Everkinetic's only: which of its two frames is where the lift starts.
+   * TrackIt's frames are named for what they show (`-start`, `-halfway`, or
+   * `-held` for a hold), so they need no such key.
+   */
+  start?: "relaxation" | "tension";
   /**
    * Set when the drawing is a close variant rather than the lift itself —
    * "Drawn seated" — so the picture never claims to be what it is not.
@@ -57,6 +69,22 @@ export function artFor(lift: string): LiftArt | null {
 /** Every lift that has a drawing, for the checks in exerciseArt.test.ts. */
 export function allArt(): LiftArt[] {
   return [...ART.values()];
+}
+
+/**
+ * The files a lift's frames are in, relative to `src/assets/`, start frame
+ * first. A hold drawn for TrackIt has only its held frame, so no halfway; an
+ * Everkinetic hold still has two on disk, of which the app shows the start.
+ */
+export function framesOf(a: LiftArt): { start: string; halfway: string | null } {
+  if (a.by === "trackit") {
+    return a.still
+      ? { start: `figures/${a.id}-held.svg`, halfway: null }
+      : { start: `figures/${a.id}-start.svg`, halfway: `figures/${a.id}-halfway.svg` };
+  }
+  const start = a.start ?? "relaxation";
+  const other = start === "relaxation" ? "tension" : "relaxation";
+  return { start: `everkinetic/${a.id}-${start}.svg`, halfway: `everkinetic/${a.id}-${other}.svg` };
 }
 
 /**
@@ -173,3 +201,23 @@ export function muscleLine(m: LiftMuscles): string {
 export const ART_LICENCE_URL = "creativecommons.org/licenses/by-sa/3.0";
 export const ART_CREDIT =
   `Drawing by Greg Priday for Everkinetic (everkinetic.com), CC BY-SA 3.0, ${ART_LICENCE_URL}. Recoloured for TrackIt.`;
+
+/**
+ * What a close-up says about who drew it. A drawing made for TrackIt must not
+ * carry Priday's name: crediting an artist with work that is not theirs is as
+ * wrong as leaving their name off their own.
+ */
+export function creditFor(a: LiftArt): string {
+  return a.by === "trackit" ? "Drawn for TrackIt." : ART_CREDIT;
+}
+
+/**
+ * "The face pull, kettlebell swing and plank were drawn for TrackIt, not by
+ * him.", for the credits on the You screen, so the line that credits Priday
+ * does not claim drawings that are not his. Empty when there are none.
+ */
+export function ownArtLine(): string {
+  const own = allArt().filter((a) => a.by === "trackit").map((a) => a.lift.toLowerCase());
+  if (own.length === 0) return "";
+  return `The ${list(own)} ${own.length === 1 ? "was" : "were"} drawn for TrackIt, not by him.`;
+}

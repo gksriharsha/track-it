@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { artFor } from "../lib/exerciseArt";
+import { artFor, framesOf } from "../lib/exerciseArt";
+import type { LiftArt } from "../lib/exerciseArt";
 
 /**
  * A lift's drawing: its two frames, alternating, the way a flip-book shows a
@@ -18,14 +19,16 @@ import { artFor } from "../lib/exerciseArt";
  * - `still` turns it off outright: lists, holds such as the side plank, and
  *   any figure whose close-up is open beside it.
  */
-const URLS = import.meta.glob("../assets/everkinetic/*.svg", {
+const URLS = import.meta.glob(["../assets/everkinetic/*.svg", "../assets/figures/*.svg"], {
   query: "?url",
   import: "default",
   eager: true,
 }) as Record<string, string>;
 
-function frameUrl(id: string, frame: "relaxation" | "tension"): string | null {
-  return URLS[`../assets/everkinetic/${id}-${frame}.svg`] ?? null;
+/** The two frames' URLs, start first; null for a missing file or a hold's halfway. */
+function frameUrls(art: LiftArt): [string | null, string | null] {
+  const f = framesOf(art);
+  return [URLS[`../assets/${f.start}`] ?? null, f.halfway ? URLS[`../assets/${f.halfway}`] ?? null : null];
 }
 
 function mask(url: string): CSSProperties {
@@ -65,11 +68,10 @@ export default function LiftFigure(p: {
   }, [p.still, art?.id]);
 
   if (!art) return null;
-  const finish = art.start === "relaxation" ? "tension" : "relaxation";
-  const a = frameUrl(art.id, art.start);
-  const b = frameUrl(art.id, finish);
-  if (!a || !b) return null;
-  const moving = !p.still && arrivals > 0;
+  const [a, b] = frameUrls(art);
+  if (!a || (!b && !art.still)) return null;
+  // A hold drawn for TrackIt has no second frame to play, whatever `still` says.
+  const moving = !p.still && !art.still && b !== null && arrivals > 0;
 
   return (
     <span
@@ -95,11 +97,9 @@ export default function LiftFigure(p: {
 export function LiftFrames(p: { lift: string }) {
   const art = artFor(p.lift);
   if (!art) return null;
-  const finish = art.start === "relaxation" ? "tension" : "relaxation";
-  const a = frameUrl(art.id, art.start);
-  const b = frameUrl(art.id, finish);
-  if (!a || !b) return null;
-  const shown: [string, string][] = art.still ? [["Held", a]] : [["Start", a], ["Halfway", b]];
+  const [a, b] = frameUrls(art);
+  if (!a) return null;
+  const shown: [string, string][] = art.still || !b ? [["Held", a]] : [["Start", a], ["Halfway", b]];
   return (
     <span className="frames">
       {shown.map(([label, url]) => (

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { getGoals } from "../api";
 import type { GoalsView } from "../types";
 import ScreenHead from "../components/ScreenHead";
+import { ownArtLine } from "../lib/exerciseArt";
+
+const ownArt = ownArtLine();
 
 interface Props {
   onOpenProfile: () => void;
@@ -173,7 +176,7 @@ export default function You(p: Props) {
       <p style={{ color: "var(--ink-3)", fontSize: 12, textAlign: "center", margin: "0 0 var(--s2)" }}>
         Exercise drawings by Greg Priday for Everkinetic (everkinetic.com), under CC BY-SA 3.0,
         creativecommons.org/licenses/by-sa/3.0, recoloured for this app. Their licence covers the
-        drawings only.
+        drawings only.{ownArt && ` ${ownArt}`}
       </p>
     </div>
   );
