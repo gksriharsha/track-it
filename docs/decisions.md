@@ -1208,7 +1208,7 @@ an ordinary thing to do on a phone, and the table can only answer with a constra
   and inventing one would put a round-trip property at risk for a field the importer would have to
   learn. Noted here as a known gap rather than settled.
 
-## D26 — What a person did, beside what they ate, counted by the week and never in calories
+## D26 — What a person did, beside what they ate, counted by the week, its energy a rough figure that never reaches the day's total
 
 The user asked to add fitness tracking to the same app, and said what it should cover: activities —
 walks, runs, yoga, sport — and gym sets and reps, typed in by hand. No watch writes anything for
@@ -1222,14 +1222,40 @@ each written the moment it is entered: `activities` holds the session, `activity
 `exercises` the lifts they are of. None of it is in `log_entries` — nothing about it is nutrition,
 and there is no meal, no grams and no snapshot to keep.
 
-**No "calories burned", and no activity row ever reaches the day's energy line.** It is the figure
-most fitness apps lead with, and it is the one that turns a day into a budget: eat back what you
-earned. An estimate from a session's length and a MET table misses by a fifth or more for any one
-person, and the profile's activity factor (D16) already counts habitual exercise once, so adding a
-session's estimate on top would count it twice. What Trends does instead is print what About you
-says about activity beside what the log shows — "lightly active, 1–3 days a week" beside "a typical
-week had activity on 4 days" — so the person can keep the estimate fed with the right number. That
-comparison is a sentence with no verdict in it.
+**No activity row ever reaches the day's energy line.** "Eat back what you burned" is the figure
+most fitness apps lead with, and it is the one that turns a day into a budget. The profile's
+activity factor (D16) already counts habitual exercise once, so subtracting a session's estimate
+would count it twice. What Trends does instead is print what About you says about activity beside
+what the log shows — "lightly active, 1–3 days a week" beside "a typical week had activity on 4
+days" — so the person can keep the estimate fed with the right number. That comparison is a
+sentence with no verdict in it.
+
+**A rough energy figure per day, shown apart from that line.** At first there was none at all. The
+user asked whether exercise burns calories and whether that can be estimated, and then asked for "a
+rough daily view". So the day's Activity card on Today now gives each session "about 90 kcal", and
+its foot gives the day's sum. The foot also says what the figure is: above resting, from your weight
+and published averages, out by about a third either way, and not taken off what you ate.
+- **The method** takes the MET for the kind and the talk-test effort, less one MET for resting, and
+  multiplies it by weight and by hours (`src/lib/activityEnergy.ts`).
+  - The METs are from the 2024 Adult Compendium of Physical Activities: one entry for each kind and
+    effort, each with its 2024 code. Values the Compendium marks as estimated are flagged.
+  - Counting only the energy above resting is the Institute of Medicine's (METs − 1). It keeps the
+    figure from counting resting hours that the day's estimate already counts.
+  - Where the Compendium has no entry, the nearest general one is used and the code says so. Kathak
+    has no measured figure, so a dance session is counted as dance of its effort, not as Kathak.
+    The foot says "published averages for activities like these" rather than claiming a measurement.
+  - The error is "give or take about a third". Measured METs differ between people by about 12% at a
+    set walking or running pace and 20–28% in sports (Kozey et al. 2010), and effort here is
+    self-rated.
+  - The Adult Compendium covers ages 19–59. Older adults have a Compendium of their own, which is not
+    applied yet.
+- **It is rounded** to the nearest 10 kcal and said as "about", in the same plain type as the
+  minutes. It is never a headline and never a serif figure.
+- **No weight in About you means no figure**, rather than a made-up one from an average body.
+- **A strength session logged without a time** is counted at 2 minutes a set, and the foot says so.
+  That is half a minute of lifting and the low end of the ACSM's rest guidance, so it understates a
+  session rather than inflating it.
+- **Not done:** a weekly energy figure on Trends, and any arithmetic that sets it against food.
 
 **Effort is the talk test**: Easy (could sing), Moderate (could talk, not sing), Hard (only a few
 words). Nobody typing a walk in afterwards knows their heart rate; everybody knows whether they

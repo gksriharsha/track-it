@@ -2810,6 +2810,9 @@ button.row:hover { background: var(--sunken); }
 .activity-card__row { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
 .activity-card .row + .row { border-top-color: var(--act-rule); }
 button.activity-card__row:hover { background: var(--act-press); }
+/* The day's rough energy line: the card's own rule colour, and the body ink
+   rather than the faintest, because it carries the one caveat that matters. */
+.activity-card__foot { border-top-color: var(--act-rule); color: var(--ink-2); line-height: 1.5; }
 @media (prefers-color-scheme: dark) { .activity-card { border-color: var(--act-rule); } }
 @media (min-width: 1080px) {
   /* Down the wide column, under the dishes: the day reads what was eaten,
