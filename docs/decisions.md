@@ -1290,3 +1290,82 @@ only ever wants to grow.
   The importer reads sheet one and nothing else, so the round trip is unaffected.
 - **Not done:** Health Connect, steps, a history of body weight, activity on the Days calendar, and
   pounds — kilograms only, matching every other weight in the app.
+
+## D27 — A lift is shown by an open drawing, captioned when it is a variant, and credited
+
+The user showed Hevy's exercise screens — a rendered figure performing each lift, the worked
+muscles tinted red — and asked whether TrackIt could have the same for the workouts it records.
+
+**Decision: Everkinetic's line drawings, two frames per lift, alternating; plus a line naming the
+muscles each lift mainly works.**
+
+**Why not Hevy's look.** Hevy's animations very probably come from a commercial catalogue
+(Gymvisual): its exercise pages embed video files named with that catalogue's ids, though neither
+company says so. Every commercial licence read for this decision allows bundling art in an app
+but forbids making the files available for download, and this repository is public and every
+merge publishes the APK as a free download. Bought art could therefore only ever be a private
+pack loaded onto the user's own phone, never in the repo or the build. The "free" datasets that
+carry the same art are not free: `hasaneyldrm/exercises-dataset` licenses its code under MIT and
+says in the same file that its media "is © Gym visual … Cloning this repository does not grant you
+any license to the media". The user offered those videos; they were declined for that reason, and
+the private-pack route remains open if the user ever buys the art.
+
+**Why Everkinetic.** Greg Priday drew one consistent set of strength lifts for everkinetic.com and
+released it under CC BY-SA 3.0 in 2010; `everkinetic/data` keeps an SVG copy. It is the only
+consistent, single-artist, openly licensed set found — wger's line art and the Wikimedia copies are
+the same drawings. CC BY-SA allows the files in a public repo and in the APK, on two conditions:
+credit, and the same licence on anything adapted. So the drawings live in their own folder,
+`src/assets/everkinetic/`, with a `LICENSE.md` and a generated `CREDITS.md`, and the licence stops
+at that folder. The credit is printed under every close-up and on the You screen.
+
+**What was changed, and only that.** `tools/everkinetic/prepare.py` removes the white page each
+drawing was traced on, fills the lines with `currentColor`, and drops the fixed size. Because the
+source is a two-colour trace of a flat image there are no hidden lines for the white to cover, so
+the result is exactly the drawing on a transparent ground. It is used as a CSS mask over the app's
+ink, so it themes in light and dark without a second set of files. No line is redrawn and no path
+is rounded — the paths use arc commands a number-rounder would corrupt, and the drawing is the
+artist's. 58 files, about 3.5 KB each compressed.
+
+**Every pairing was checked against the drawing, not the title.** Of the 32 common lifts:
+- **16 exact.**
+- **12 close variants, each with a caption that says how it is drawn**: "Drawn seated" for the
+  overhead press, "Drawn with the knees nearly straight" for the deadlift (the set has no
+  conventional deadlift; its bottom frame is the Romanian deadlift's, mirrored), "Drawn as a floor
+  bridge, without bench or bar" for the hip thrust. A picture never claims to be what it is not
+  (the same rule as no equivalence claims for foods).
+- **One shown still:** the side plank, because looping a hold reads as hips dipping and lifting.
+- **Three with no drawing:** face pull, kettlebell swing and plank. The set has nothing a lifter
+  would recognise as any of them, so they get none rather than a near miss.
+
+Some titles were wrong for their drawings. 0024 "Rear Deltoid Row Dumbbell" is the one-arm
+dumbbell row. The standing calf raises are all cropped above the ankle, so the seated one is used.
+The dumbbell lunge cuts off its rear knee, so the barbell lunge is used.
+
+**Motion is kept to what it is for.**
+- A figure plays only while it is on screen.
+- Lists never animate: the exercise picker shows the start frame still.
+- Under prefers-reduced-motion nothing moves. The start frame stands still, and the close-up
+  always shows both frames side by side, named "Start" and "Halfway". The second frame is the turn
+  of the rep — the bottom of a squat, the top of a curl — so it is not "Finish".
+
+**Muscles are TrackIt's own words, not the dataset's.** A 32-row table in `src/lib/exerciseArt.ts`
+gives "Mostly" (prime movers, at most three) and "Also" (helpers and stabilisers, at most three) in
+the words a lifter uses: quads, lats, rear shoulders. It was written for this app and checked twice:
+once for biomechanics, and once against Everkinetic's and free-exercise-db's muscle fields. Eight
+rows changed as a result, for example adductors in the front squat and leg press, forearms in the
+swing and the hanging leg raise, and lower back in the side plank. It is printed as a sentence,
+never as a body map coloured by how often a muscle was trained, which would be a scoreboard.
+
+**Consequences.**
+- **A lift the user named themselves has no drawing and no muscle line.** It is matched by the same
+  name normalisation as Rust's `name_key`, so typing "squat" finds the squat. Inventing a lift does
+  not get a guess.
+- **`exerciseArt.test.ts` holds the promises** and runs as part of `pnpm test`:
+  - every common lift Rust bundles has a muscle row;
+  - every drawing a lift names has both frames;
+  - every frame on disk is used and credited;
+  - no frame keeps a fixed colour or its white page;
+  - both frames of a lift share one canvas;
+  - every variant's caption says how it is drawn.
+- **Not done:** muscle tinting on the drawing itself, which the drawings do not support; a body
+  map; and drawings for the three missing lifts.

@@ -2834,3 +2834,58 @@ button.activity-card__row:hover { background: color-mix(in srgb, var(--act) 10%,
   .activity__minutes { height: 36px; }
   .activity__minutes .stepper__seg { width: 34px; font-size: 16px; }
 }
+
+/* ── Exercise drawings (D27) ─────────────────────────────────
+   Everkinetic's line art, used as a mask over the ink colour so
+   it themes with the app. Two frames stacked; when it plays, one
+   fades to the other and back, like a flip-book. It plays only
+   on screen, never in a list, and never under reduced motion.
+   ───────────────────────────────────────────────────────────── */
+.figure {
+  position: relative; display: block; flex: none;
+  width: 76px; height: 88px; color: var(--ink);
+}
+.figure--lg { width: 120px; height: 140px; }
+.figure__frame {
+  position: absolute; inset: 0;
+  background: currentColor;
+  -webkit-mask: var(--src) center / contain no-repeat;
+  mask: var(--src) center / contain no-repeat;
+}
+/* Twice, then rest on the start frame: under five seconds of motion each time
+   the figure comes on screen, so it never needs a control to stop it. */
+.figure__frame--a { animation: figure-a 2.4s ease-in-out 2 both; }
+.figure__frame--b { opacity: 0; animation: figure-b 2.4s ease-in-out 2 both; }
+.figure--still .figure__frame--a { animation: none; }
+@keyframes figure-a { 0%, 40% { opacity: 1; } 50%, 90% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes figure-b { 0%, 40% { opacity: 0; } 50%, 90% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .figure__frame--a { animation: none; }
+  .figure__frame--b { animation: none; opacity: 0; }
+}
+
+.lift__head--art { display: flex; align-items: flex-start; gap: var(--s3); flex-wrap: nowrap; }
+.lift__titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lift__muscles { color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
+.lift__art {
+  border-radius: var(--r-md); padding: var(--s1);
+  background: var(--sunken);
+  transition: background-color 140ms ease-out;
+}
+.lift__art[aria-expanded="true"] { background: var(--act-wash); }
+/* Hover only where there is a pointer: on a phone a tap leaves :hover stuck,
+   and the tint would read as "open". */
+@media (hover: hover) { .lift__art:hover { background: var(--act-wash); } }
+.lift__art[aria-expanded="true"] .figure { color: var(--act-ink); }
+.lift__how {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3); border-radius: var(--r-md); background: var(--sunken);
+}
+.frames { display: flex; gap: var(--s4); justify-content: center; flex-wrap: wrap; }
+.frames__one { display: flex; flex-direction: column; align-items: center; gap: var(--s1); }
+.frames__label { color: var(--ink-3); font-size: 12px; }
+.lift__caption { margin: 0; color: var(--ink-2); font-size: 12.5px; text-align: center; }
+.lift__credit { margin: 0; color: var(--ink-3); font-size: 11px; text-align: center; }
+
+.picker__row { grid-template-columns: 48px minmax(0, 1fr); }
+.picker__fig .figure { width: 44px; height: 50px; color: var(--ink-2); }

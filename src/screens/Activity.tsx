@@ -8,6 +8,8 @@ import {
 import type {
   ActivityKind, Effort, ExerciseHit, ExerciseRef, Load, RecentSession, SessionSet, SetFigures,
 } from "../lib/activity";
+import { ART_CREDIT, artFor, muscleLine, musclesFor } from "../lib/exerciseArt";
+import LiftFigure, { LiftFrames } from "../components/LiftFigure";
 
 /**
  * The Add screen's Activity tab: something done, beside things eaten (D26).
@@ -42,14 +44,29 @@ interface LiftBlock {
   secs: string;
   /** The set whose figures are in the fields, when one is being corrected. */
   editing: string | null;
+  /**
+   * Which row this is to React, for its whole life on the screen. Not the
+   * exercise id: a lift never logged before has none until its first set is
+   * written, and a key that changed then would remount the row and throw away
+   * what it was showing — an open close-up snapping shut mid-set.
+   */
+  key: string;
 }
 
-function blockFrom(ref: ExerciseRef, sets: SessionSet[], last: SetFigures[], lastOn: string | null): LiftBlock {
+let nextBlock = 0;
+
+function blockFrom(
+  ref: ExerciseRef,
+  sets: SessionSet[],
+  last: SetFigures[],
+  lastOn: string | null,
+  key: string = `lift-${(nextBlock += 1)}`,
+): LiftBlock {
   // Pre-filled with the set just written, or else the first set last time:
   // the next set is usually one of those two, and "Same again" is one tap.
   const seed = sets[sets.length - 1] ?? last[0] ?? null;
   return {
-    ref, sets, last, lastOn, editing: null,
+    ref, sets, last, lastOn, editing: null, key,
     kg: seed?.load_kg != null ? String(seed.load_kg) : "",
     reps: seed?.reps != null ? String(seed.reps) : "",
     secs: seed?.seconds != null ? String(seed.seconds) : "",
@@ -267,7 +284,7 @@ export default function ActivityPane(p: Props) {
     if (b.editing === null) return;
     try {
       const gone = await deleteSet(b.editing);
-      patch(i, (x) => ({ ...blockFrom(x.ref, x.sets.filter((s) => s.id !== x.editing), x.last, x.lastOn) }));
+      patch(i, (x) => blockFrom(x.ref, x.sets.filter((s) => s.id !== x.editing), x.last, x.lastOn, x.key));
       if (gone) { setSessionId(null); setEditingId(null); }
     } catch (e) {
       setError(String(e));
@@ -422,7 +439,7 @@ export default function ActivityPane(p: Props) {
 
           {lifts.map((b, i) => (
             <LiftLedger
-              key={b.ref.id ?? b.ref.name}
+              key={b.key}
               block={b}
               onChange={(f) => patch(i, f)}
               onWrite={() => writeSet(i)}
@@ -504,17 +521,43 @@ function LiftLedger(p: {
 
   const label =
     b.editing !== null ? "Save set" : b.sets.length > 0 && same(fig, lastSet) ? "Same again" : "Add set";
+  const art = artFor(b.ref.name);
+  const muscles = musclesFor(b.ref.name);
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="lift">
-      <div className="lift__head">
-        <h3 className="lift__name">{b.ref.name}</h3>
-        {b.last.length > 0 && b.lastOn && (
-          <span className="lift__last">
-            {humanDate(b.lastOn)}: {b.last.map((s) => setText(s, load)).join(", ")}
-          </span>
+      <div className={art ? "lift__head lift__head--art" : "lift__head"}>
+        {/* The drawing is a button because it opens the close-up: both frames
+            side by side, named, with what the drawing is a variant of and who
+            drew it. A lift the user named themselves has no drawing, and the
+            head simply has no figure in it. */}
+        {art && (
+          <button className="lift__art" aria-expanded={open} aria-label={`How ${b.ref.name} is done`}
+            onClick={() => setOpen((o) => !o)}>
+            {/* Still while the close-up is open: the same two frames are
+                standing side by side just below it. */}
+            <LiftFigure lift={b.ref.name} still={art.still || open} />
+          </button>
         )}
+        <div className="lift__titles">
+          <h3 className="lift__name">{b.ref.name}</h3>
+          {muscles && <span className="lift__muscles">{muscleLine(muscles)}</span>}
+          {b.last.length > 0 && b.lastOn && (
+            <span className="lift__last">
+              {humanDate(b.lastOn)}: {b.last.map((s) => setText(s, load)).join(", ")}
+            </span>
+          )}
+        </div>
       </div>
+
+      {open && art && (
+        <div className="lift__how">
+          <LiftFrames lift={b.ref.name} />
+          {art.caption && <p className="lift__caption">{art.caption}.</p>}
+          <p className="lift__credit">{ART_CREDIT}</p>
+        </div>
+      )}
 
       {b.sets.length > 0 && (
         <div className="lift__sets" aria-label={`${b.ref.name}, ${b.sets.length} sets`}>
@@ -527,7 +570,7 @@ function LiftLedger(p: {
               onClick={() =>
                 p.onChange((x) =>
                   x.editing === s.id
-                    ? blockFrom(x.ref, x.sets, x.last, x.lastOn)
+                    ? blockFrom(x.ref, x.sets, x.last, x.lastOn, x.key)
                     : {
                         ...x, editing: s.id,
                         kg: s.load_kg === null ? "" : String(s.load_kg),
@@ -630,6 +673,9 @@ function ExercisePicker(p: {
         {shown.map((h, i) => (
           <button key={h.id ?? h.name} className={i === hi ? "row picker__row is-hi" : "row picker__row"}
             role="option" aria-selected={i === hi} onMouseEnter={() => setHi(i)} onClick={() => pick(h)}>
+            {/* Still, never moving: a list where every row animates at once is
+                noise. The empty slot keeps names aligned when a lift has none. */}
+            <span className="picker__fig" aria-hidden><LiftFigure lift={h.name} still /></span>
             <span className="row__main">
               <span className="row__title">{h.name}</span>
               <span className="row__sub">

@@ -167,6 +167,14 @@ export default function You(p: Props) {
         Everything stays on this device, in the same file as your food log, until you export it
         somewhere yourself.
       </p>
+
+      {/* The credit the drawings' licence asks for, somewhere a person can find
+          it without opening a lift. It is also printed under each close-up. */}
+      <p style={{ color: "var(--ink-3)", fontSize: 12, textAlign: "center", margin: "0 0 var(--s2)" }}>
+        Exercise drawings by Greg Priday for Everkinetic (everkinetic.com), under CC BY-SA 3.0,
+        creativecommons.org/licenses/by-sa/3.0, recoloured for this app. Their licence covers the
+        drawings only.
+      </p>
     </div>
   );
 }
