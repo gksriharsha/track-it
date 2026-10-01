@@ -1266,6 +1266,29 @@ export interface ExportWaterRow {
   measured: boolean;
 }
 
+/** One activity session, on a sheet of its own (D26). */
+export interface ExportActivityRow {
+  logged_on: string;
+  kind: string;
+  label: string | null;
+  minutes: number | null;
+  effort: string | null;
+  /** How many sets a strength session holds; they are on the sets sheet. */
+  sets: number;
+  note: string | null;
+}
+
+/** One set of a strength session, under the name it was logged with. */
+export interface ExportSetRow {
+  logged_on: string;
+  exercise: string;
+  /** 1 for the first set of this lift in its session. */
+  set: number;
+  reps: number | null;
+  load_kg: number | null;
+  seconds: number | null;
+}
+
 /** Everything one export covers, decided by the backend out of what each entry
  * was frozen with. Nothing here was recomputed from today's reference data. */
 export interface ExportLog {
@@ -1276,6 +1299,8 @@ export interface ExportLog {
   rows: ExportLogRow[];
   doses: ExportDoseRow[];
   water: ExportWaterRow[];
+  activities: ExportActivityRow[];
+  sets: ExportSetRow[];
   /** (entry, nutrient) pairs left blank because the entry's frozen value was
    * not exactly known. Stated on the screen so the gaps in the file are known
    * before it is written. */
@@ -1584,7 +1609,7 @@ export interface WidgetLanding {
  * names the Foods screen's water tab rather than a food, because that is where
  * a bottle is actually logged — the bottle library is an inventory screen.
  */
-export type PickKind = "food" | "custom" | "water";
+export type PickKind = "food" | "custom" | "water" | "activity";
 
 export interface PickTarget {
   kind: PickKind;
@@ -1604,11 +1629,15 @@ export interface PickTarget {
 export function parsePick(raw: string | null): PickTarget | null {
   if (raw === null) return null;
   if (raw === "water") return { kind: "water", id: null };
+  // The Add screen's Activity tab, and with an id a session to carry on with or
+  // to correct (D26). Not a food, for the same reason water is not one.
+  if (raw === "activity") return { kind: "activity", id: null };
   const cut = raw.indexOf(":");
   if (cut === -1) return null;
   const kind = raw.slice(0, cut);
   const id = raw.slice(cut + 1);
   if (kind === "food") return /^[0-9]{1,12}$/.test(id) ? { kind, id } : null;
   if (kind === "custom") return /^[0-9a-f-]{36}$/.test(id) ? { kind, id } : null;
+  if (kind === "activity") return /^[0-9a-f-]{36}$/.test(id) ? { kind, id } : null;
   return null;
 }

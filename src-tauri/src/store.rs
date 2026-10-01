@@ -610,6 +610,75 @@ CREATE TABLE IF NOT EXISTS day_notes (
 );
 
 -- ---------------------------------------------------------------------------
+-- Activity: what a person did, beside what they ate (D26).
+--
+-- Kept out of `log_entries` because nothing about it is nutrition: no
+-- snapshot, no meal, no grams. And kept out of every day's energy figure,
+-- which no activity row is ever read by -- see `trackit_core::activity`.
+--
+-- One person's, like the log: absent from `row_version`, so none of it travels
+-- to a household peer. `exercises` included for now — a library of lifts is
+-- closer to the kitchen than to the log, and could join the shared list later,
+-- but the sets that point at it never would.
+--
+-- `minutes` and `effort` are required for every kind but strength. A walk
+-- without a length is not a fact about anything; a gym session is its sets,
+-- and how long it took is often not known.
+CREATE TABLE IF NOT EXISTS activities (
+  id           TEXT PRIMARY KEY,
+  logged_on    TEXT NOT NULL,
+  kind         TEXT NOT NULL CHECK (kind IN
+                 ('walk','run','cycle','swim','yoga','strength','sport','dance','other')),
+  label        TEXT CHECK (label IS NULL OR TRIM(label) <> ''),
+  minutes      REAL CHECK (minutes IS NULL OR (minutes > 0 AND minutes <= 1440)),
+  effort       TEXT CHECK (effort IS NULL OR effort IN ('light','moderate','vigorous')),
+  note         TEXT CHECK (note IS NULL OR TRIM(note) <> ''),
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  -- Set when the session is edited after the day it belongs to, so a changed
+  -- past says it was changed (the rule `entry_snapshots.basis` keeps for food).
+  corrected_at TEXT,
+  deleted_at   TEXT,
+  CHECK (kind = 'strength' OR (minutes IS NOT NULL AND effort IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_activity_day ON activities(logged_on) WHERE deleted_at IS NULL;
+
+-- The user's own lifts, plus any of the common ones they have used: a common
+-- lift gets a row the first time it is logged, so every set has an id to point
+-- at. Retired rather than deleted, because sets in the past still name it.
+CREATE TABLE IF NOT EXISTS exercises (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL CHECK (TRIM(name) <> ''),
+  name_key   TEXT NOT NULL,
+  load       TEXT NOT NULL CHECK (load IN ('weight','body','time')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exercise_key ON exercises(name_key) WHERE deleted_at IS NULL;
+
+-- One set, written the moment it is entered: a session half-way through at the
+-- gym loses nothing if the phone kills the app. `exercise_name` is the name as
+-- it was when the set was written, so renaming a lift later does not rename
+-- what was lifted in March.
+CREATE TABLE IF NOT EXISTS activity_sets (
+  id            TEXT PRIMARY KEY,
+  activity_id   TEXT NOT NULL REFERENCES activities(id),
+  position      INTEGER NOT NULL CHECK (position >= 0),
+  exercise_id   TEXT NOT NULL REFERENCES exercises(id),
+  exercise_name TEXT NOT NULL,
+  reps          INTEGER CHECK (reps IS NULL OR (reps BETWEEN 1 AND 1000)),
+  load_kg       REAL CHECK (load_kg IS NULL OR (load_kg >= 0 AND load_kg <= 1000)),
+  seconds       INTEGER CHECK (seconds IS NULL OR (seconds BETWEEN 1 AND 86400)),
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT,
+  CHECK (reps IS NOT NULL OR seconds IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_set_activity ON activity_sets(activity_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_set_exercise ON activity_sets(exercise_id) WHERE deleted_at IS NULL;
+
+-- ---------------------------------------------------------------------------
 -- Frozen history.
 --
 -- A logged entry records something already eaten, so its nutrition must not
@@ -1234,7 +1303,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -2952,6 +3021,12 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
     // Re-running this function costs nothing -- every arm above is guarded on
     // what the database actually looks like rather than on the number, so an
     // already-current database falls through all of them.
+
+    // v18 -> v19: activity, and the sets of a strength session (D26).
+    //
+    // No arm, for v17 -> v18's reason: `activities`, `exercises` and
+    // `activity_sets` are new tables that reference only each other, so
+    // SCHEMA creating them is the whole migration and no existing row moves.
 
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
@@ -5665,7 +5740,7 @@ pub fn set_target(
     Ok(())
 }
 
-fn new_id(conn: &Connection) -> Result<String, String> {
+pub(crate) fn new_id(conn: &Connection) -> Result<String, String> {
     conn.query_row(
         "SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
                 substr(hex(randomblob(2)),2)||'-'||

@@ -41,6 +41,7 @@ import WeightField from "../components/WeightField";
 import TagPicker from "../components/TagPicker";
 import { UndoToast, useQuickLog } from "../components/QuickLog";
 import CameraCapture from "../components/CameraCapture";
+import ActivityPane from "./Activity";
 import { bare, canStream, readBarcodeFromFile, useCameraRoute } from "../lib/camera";
 import type { Weighed } from "../components/WeightField";
 
@@ -228,7 +229,20 @@ export default function Foods(p: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] =
-    useState<"available" | "foods" | "recipes" | "supplements" | "water">("foods");
+    useState<"available" | "foods" | "recipes" | "supplements" | "water" | "activity">("foods");
+  /** A session opened from Today, to carry on with or correct (D26). */
+  const [activityId, setActivityId] = useState<string | null>(null);
+  /*
+    On a phone the tab row scrolls sideways, and with six tabs the last one is
+    past the edge. Landing on it from Today with it half off-screen hid the one
+    thing saying which tab this was, so the chosen tab is brought into view.
+  */
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabsRef.current
+      ?.querySelector<HTMLElement>('[aria-pressed="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tab]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [pickedRecipe, setPickedRecipe] = useState<Recipe | null>(null);
   /** Pots with food still in them, and the one being logged from. */
@@ -403,6 +417,12 @@ export default function Foods(p: Props) {
       // like it worked and logged nothing.
       setPicked(null); setPickedCustom(null);
       setTab("water");
+      return;
+    }
+    if (target.kind === "activity") {
+      setPicked(null); setPickedCustom(null);
+      setActivityId(target.id);
+      setTab("activity");
       return;
     }
 
@@ -785,7 +805,7 @@ export default function Foods(p: Props) {
           of a 1,100px canvas with a left-aligned search field beneath it makes
           the eye start in the wrong place. Alignment is a breakpoint decision,
           so it lives in CSS rather than in an inline style. */}
-      <div className="chips foodtabs">
+      <div className="chips foodtabs" ref={tabsRef}>
         {/* A tap on the tab already showing does nothing. It is the switch that
             unmounts the weight field; clearing `weighed` without it would leave the
             field visibly subtracting vessels while the parent logged the net as an
@@ -820,6 +840,14 @@ export default function Foods(p: Props) {
             setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
             setWeighed(null);
           }}>Water</button>
+        <button className="chip chip--act" aria-pressed={tab === "activity"}
+          onClick={() => {
+            if (tab === "activity") return;
+            setTab("activity");
+            setActivityId(null);
+            setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
+            setWeighed(null);
+          }}>Activity</button>
       </div>
 
       {/* Above the tab split: a failed save on the recipe side used to have nowhere to appear. */}
@@ -1049,6 +1077,10 @@ export default function Foods(p: Props) {
             </div>
           </section>
         )
+      ) : tab === "activity" ? (
+        /* Its own screen in its own file, drawn here so `+` reaches it one chip
+           from Water — the other thing logged to the day rather than a meal. */
+        <ActivityPane date={p.date} sessionId={activityId} onDone={p.onLogged} />
       ) : tab === "water" ? (
         pickedBottle ? (
           <section className="card">

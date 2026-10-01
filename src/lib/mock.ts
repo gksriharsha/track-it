@@ -19,6 +19,7 @@
  * exists to distinguish.
  */
 import { LABEL_NUTRIENTS } from "../types";
+import { ACTIVITY_TABLE, exportActivity } from "./mockActivity";
 import type {
   BackupStatus,
   Bottle,
@@ -845,6 +846,7 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   // here would throw mock.ts's own "not in the browser fixture" on every
   // reload of the design fixture.
   take_widget_landing: () => null,
+  ...ACTIVITY_TABLE,
 };
 
 /**
@@ -910,6 +912,7 @@ function exportLog(from: string, to: string): ExportLog {
       ml: Math.round((e.grams ?? 0) / 0.9982),
       measured: e.bottle_id === "b1",
     })),
+    ...exportActivity(from, to),
     blanks,
     rows_without_values: rows.filter((r) => r.nutrients.length === 0).length,
     unexportable: 0,

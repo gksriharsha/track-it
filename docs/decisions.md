@@ -1207,3 +1207,86 @@ an ordinary thing to do on a phone, and the table can only answer with a constra
   list, and a file this app writes is a file this app can read back. Free text has no column there
   and inventing one would put a round-trip property at risk for a field the importer would have to
   learn. Noted here as a known gap rather than settled.
+
+## D26 — What a person did, beside what they ate, counted by the week and never in calories
+
+The user asked to add fitness tracking to the same app, and said what it should cover: activities —
+walks, runs, yoga, sport — and gym sets and reps, typed in by hand. No watch writes anything for
+them, so nothing is read from Health Connect.
+
+**Decision: two shapes of record in tables of their own, read by the week, and kept out of every
+energy figure.**
+
+A walk, a swim or a class is a length and an effort, written once. A strength session is its sets,
+each written the moment it is entered: `activities` holds the session, `activity_sets` its sets,
+`exercises` the lifts they are of. None of it is in `log_entries` — nothing about it is nutrition,
+and there is no meal, no grams and no snapshot to keep.
+
+**No "calories burned", and no activity row ever reaches the day's energy line.** It is the figure
+most fitness apps lead with, and it is the one that turns a day into a budget: eat back what you
+earned. An estimate from a session's length and a MET table misses by a fifth or more for any one
+person, and the profile's activity factor (D16) already counts habitual exercise once, so adding a
+session's estimate on top would count it twice. What Trends does instead is print what About you
+says about activity beside what the log shows — "lightly active, 1–3 days a week" beside "a typical
+week had activity on 4 days" — so the person can keep the estimate fed with the right number. That
+comparison is a sentence with no verdict in it.
+
+**Effort is the talk test**: Easy (could sing), Moderate (could talk, not sing), Hard (only a few
+words). Nobody typing a walk in afterwards knows their heart rate; everybody knows whether they
+could talk. Stored under the WHO's own words — `light`, `moderate`, `vigorous` — so the reference
+line can cite the guideline without translation.
+
+**The reference is the WHO 2020 adult guideline, printed as a reference.** 150–300 minutes a week
+of moderate activity, a vigorous minute counting as two; muscle-strengthening on 2 or more days.
+Light minutes are in "time active" but not in the WHO line, because the guideline does not count
+them. Strength minutes are never aerobic minutes however hard the session was, because the
+guideline counts strength in days and folding a heavy squat into aerobic minutes answers a
+question it does not ask. The lines are hidden when the profile says the person is under 18,
+whose guideline is a different one.
+
+**Counted by the week, and only once tracking has started.** Activity happens on some days and not
+others, so a day is the wrong unit: a walk on Monday and none on Tuesday is a week with a walk in
+it, not a bad Tuesday. Weeks are rolling, ending on the period's last day, so the most recent week
+is always whole. And a week before the first activity ever logged means "not yet recorded", not
+"did nothing" — a person who started on Thursday did not have three empty weeks before it — so
+those weeks are dropped, and the one tracking began in reports how many of its days it covers. A
+quiet week after that is a real zero. The typical week is the middle of the whole weeks, taken
+for each figure separately.
+
+**A lift is summarised by what was actually lifted.** Each session's heaviest set (more reps
+breaking a tie) is that session's top set. "Usually" is the middle top set — with an even count the
+lower of the two middle ones, so it is always a set someone put on the bar, never an average of 55
+and 60 that nobody lifted. It needs three sessions. "Heaviest" is printed as a description, never
+as a record: there is no personal best, no badge, and no tonnage figure, which is one number that
+only ever wants to grow.
+
+**Consequences.**
+
+- **Schema v19.** No migration arm, for D25's reason: three new tables that reference only each
+  other. A test opens a database stamped 18 and checks it comes up at 19 with its notes and profile
+  where they were.
+- **Sets are written through.** The session row is made by its first set; removing its last set
+  removes a session with no length. A phone that kills the app between sets loses nothing, and
+  "Done" saves nothing because nothing is left to save.
+- **History keeps its names.** A set stores the lift's name as it was when written, so renaming
+  "Squat" to "Back squat" later does not rename what was lifted in March. A session edited after its
+  own day is stamped `corrected_at`, the rule `entry_snapshots.basis` keeps for food: a past that
+  changed says when it was changed.
+- **The user's own lifts rank first**, by last use, then a short bundled list of common ones
+  (`COMMON_EXERCISES`); a common lift gets a row the first time it is logged. The same order Foods
+  keeps, for the same reason.
+- **One person's.** None of the three tables is in `row_version` (D20), so nothing travels to a
+  household peer — `exercises` included for now. A library of lifts is closer to the kitchen than to
+  the log, and could join the shared list later; the sets that point at it never would. A test
+  asserts a session and a set leave nothing queued.
+- **Where it lives.** An Activity tab on the Add screen beside Water, the other thing logged to the
+  day rather than a meal, so food stays one tap away and there is no new tab or drawer row. Today
+  gets an Activity card under the dishes; Trends gets an Activity section after the food. The
+  date strip's dot stays food-only, like a note in D25.
+- **Its own colour.** The area is heather (`--act`), the one cool hue in a warm palette, so a walk
+  and a meal read apart at a glance. Not blue, which every tracking app spends on water. The colour
+  names the area and grades nothing in it: Easy, Moderate and Hard all select in the same heather.
+- **Export.** Two sheets after Water, Activity and Sets, written only when the period has some.
+  The importer reads sheet one and nothing else, so the round trip is unaffected.
+- **Not done:** Health Connect, steps, a history of body weight, activity on the Days calendar, and
+  pounds — kilograms only, matching every other weight in the app.

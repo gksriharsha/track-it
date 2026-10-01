@@ -728,6 +728,7 @@ export default function App() {
       run: () => go(t.id),
     })),
     { id: "add", label: "Add food", hint: "search, weigh and log", group: "Do", run: () => go("foods") },
+    { id: "add-activity", label: "Add activity", hint: "a walk, a class, a gym session", group: "Do", run: () => go("foods", { pick: "activity" }) },
     { id: "prev", label: "Previous day", hint: humanDate(shiftIso(date, -1)), group: "Do", run: () => { setDate(shiftIso(date, -1)); go("today"); } },
     ...(canGoForward
       ? [{ id: "next", label: "Next day", hint: humanDate(shiftIso(date, 1)), group: "Do", run: () => { setDate(shiftIso(date, 1)); go("today"); } }]
@@ -1049,6 +1050,8 @@ export default function App() {
               onSeeAll={() => go("nutrients")}
               onAddFood={() => go("foods")}
               onOpenProfile={() => go("profile", { from: "today" })}
+              onAddActivity={() => go("foods", { pick: "activity", from: "today" })}
+              onOpenActivity={(id) => go("foods", { pick: `activity:${id}`, from: "today" })}
             />
           )}
 
@@ -1200,7 +1203,7 @@ export default function App() {
         {tab === "backup" && isAndroid() && <Backup onBack={() => go(route.from ?? "you")} />}
 
         {/* No way back: this is where the app opens. */}
-        {tab === "statistics" && <Statistics />}
+        {tab === "statistics" && <Statistics onOpenProfile={() => go("profile", { from: "statistics" })} />}
 
         {/*
           No nav tab leads here, so the screen carries its own way out; it goes
