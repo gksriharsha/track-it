@@ -937,7 +937,11 @@ b, strong, th { font-weight: 600; }
    a stretched target under the text so the (i) can sit on top of it and be
    its own press. On the page, not in a cell: it is the day's heading. */
 .dayfig { position: relative; display: flex; align-items: flex-start; gap: var(--s2); padding: var(--s1) 0 var(--s2); }
-.dayfig__open { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; }
+/* `align-items: stretch` said out loud: the Android System WebView's own
+   stylesheet gives a <button> `align-items: flex-start`, which shrank the bar
+   below to three 3px stubs on a phone while a current desktop Chrome, which
+   has dropped that default, drew it full width. */
+.dayfig__open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; text-align: left; }
 .dayfig__open::after { content: ""; position: absolute; inset: 0 calc(var(--s2) * -1); border-radius: var(--r-md); }
 .dayfig__open:focus-visible { outline: none; }
 .dayfig__open:focus-visible::after { outline: 2px solid var(--focus); outline-offset: 0; }
