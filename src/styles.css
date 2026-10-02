@@ -977,11 +977,15 @@ b, strong, th { font-weight: 600; }
 .day-add .plus { width: 15px; height: 15px; }
 @media (hover: hover) { .day-add:hover { background: var(--area); color: var(--on-area); } }
 
-/* One entry: what it was, one quiet line, and its energy on the right.
-   The line is cut rather than wrapped, from the end — tags last — so
-   every row is one height and a gap in the data is what survives. */
+/* One entry: what it was, a quiet line, and its energy on the right. The
+   line may take a second line before it is cut: a pot that was never
+   weighed and a part with no figure are markers on the figure beside them,
+   and a marker cut to "some unme…" says nothing. */
 .entry { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s4); }
-.entry__sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry__sub {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
+}
 .entry__fig { text-align: right; white-space: nowrap; color: var(--ink); }
 
 /* What a sitting usually holds, and a bottle to log whole: actions,

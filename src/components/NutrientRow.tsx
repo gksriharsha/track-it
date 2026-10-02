@@ -2,6 +2,9 @@ import type { NutrientTotal } from "../types";
 import { fmtAmount, read } from "../lib/nutrient";
 import { BASIS_LABEL } from "../types";
 
+/** USDA's nutrient id for water, the total of food and drink. */
+const WATER_NUTRIENT = 1051;
+
 /**
  * One nutrient line. Shared by the day's sheet, the full panel and Days so the
  * three-state rendering can never drift between them.
@@ -33,6 +36,10 @@ export default function NutrientRow({
 }) {
   const r = read(t);
   const note = saidAbove !== null && r.note === saidAbove ? "" : r.note;
+  // The nutrient "Water" is all the water in the day, the water in food
+  // included, while Today's Water group is what was drunk. Two figures under
+  // one name, one tap apart, read as a contradiction; this one says which it is.
+  const name = t.id === WATER_NUTRIENT ? "Water, including food" : t.name;
   const stateClass =
     r.state === "measured" ? (r.over && verdict ? "is-over" : "") : `is-${r.state}`;
   // A reference that names its own system has no need of the line under the
@@ -43,7 +50,7 @@ export default function NutrientRow({
     <div className={`row nrow ${stateClass}`}>
       <span className="row__main">
         <span className="row__title" title={t.full_name}>
-          {t.name}
+          {name}
         </span>
         {note && <span className="row__sub">{note}</span>}
         {aside && <span className="row__sub tnum">{aside}</span>}

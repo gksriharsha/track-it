@@ -158,13 +158,17 @@ export function tagText(
 
 /**
  * The quiet second line of an entry's row: how much, then what the figure
- * leans on or lacks, then what it was weighed in, then where it came from. In
- * that order because a narrow phone cuts the line from the end, and a gap in
- * the data — an unweighed pot, an unmeasured line, a corrected value —
- * matters more than a cuisine.
+ * leans on or lacks, then what it was weighed in. In that order because a
+ * narrow phone cuts the line from the end, and a gap in the data — an
+ * unweighed pot, an unmeasured line, a corrected value — is what must survive.
+ *
+ * Where it came from (home, ordered in, the cuisine) is not on the row. It is
+ * a fact about the meal, not about the figure beside it; it sits on its own
+ * line in the entry's sheet, with Change; and on a phone it was the part that
+ * pushed "some unmeasured" off the end of the line.
  */
 export function rowSub(e: LogEntry, b: EntryBreakdown | undefined): string {
-  return [portionText(e, b), potNote(e, b), gapText(e, b), basisMarker(b), waterNote(e), vesselText(e), tagText(e)]
+  return [portionText(e, b), potNote(e, b), gapText(e, b), basisMarker(b), waterNote(e), vesselText(e)]
     .filter((s) => s !== null && s !== "")
     .join(" · ");
 }
