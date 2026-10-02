@@ -604,22 +604,58 @@ fn log_whole_bottle(
 ) -> Result<String, String> {
     let refconn = refdb.0.lock().map_err(|e| e.to_string())?;
     let mut conn = user.0.lock().map_err(|e| e.to_string())?;
-    after_write(&app, whole_bottle_into(&refconn, &mut conn, &logged_on, &bottle_id))
+    after_write(&app, bottle_share_into(&refconn, &mut conn, &logged_on, &bottle_id, 1.0))
 }
 
-/// The body of [`log_whole_bottle`], with both databases already held — split
-/// out for the reason [`resolve_frequent`] is: a `State` cannot be built in a
-/// test, and this is the half worth testing.
-fn whole_bottle_into(
+/// Log part of a bottle drunk, judged by eye rather than weighed.
+///
+/// The water sheet's slider runs from an empty bottle to a full one, and
+/// `share` is where it was left: more than none, and at most all of what the
+/// bottle holds. A bottle half drunk, or a refill only partly finished, is
+/// that share of its full weight less its empty one. The entry says "part of a
+/// bottle, not weighed" and stores no scale reading, because nobody took one;
+/// `log_water` is the path for a bottle that went on the scale.
+///
+/// A share of one is a whole bottle, written exactly as [`log_whole_bottle`]
+/// writes one. Refused, as a whole bottle is, for a bottle never weighed
+/// empty: without that, what it holds is not known, and so neither is any
+/// share of it.
+#[tauri::command]
+fn log_bottle_share(
+    logged_on: String,
+    bottle_id: String,
+    share: f64,
+    app: AppHandle,
+    refdb: State<'_, db::Db>,
+    user: State<'_, store::Store>,
+) -> Result<String, String> {
+    let refconn = refdb.0.lock().map_err(|e| e.to_string())?;
+    let mut conn = user.0.lock().map_err(|e| e.to_string())?;
+    after_write(&app, bottle_share_into(&refconn, &mut conn, &logged_on, &bottle_id, share))
+}
+
+/// The body of [`log_whole_bottle`] and [`log_bottle_share`], with both
+/// databases already held — split out for the reason [`resolve_frequent`] is:
+/// a `State` cannot be built in a test, and this is the half worth testing.
+fn bottle_share_into(
     refconn: &rusqlite::Connection,
     conn: &mut rusqlite::Connection,
     logged_on: &str,
     bottle_id: &str,
+    share: f64,
 ) -> Result<String, String> {
+    // Before the bottle is read, so a nonsense share is answered as that and
+    // not as whatever the bottle's own refusal would say.
+    if !(share.is_finite() && share > 0.0 && share <= 1.0) {
+        return Err(
+            "how much of the bottle was drunk must be more than none and no more than all of it".into(),
+        );
+    }
     let bottle = store::get_bottle(conn, bottle_id)?;
-    let grams = store::whole_bottle_g(&bottle)?;
-    // Valued through the same resolution every other entry is, so a whole
-    // bottle freezes exactly as a weighed one of the same mass would.
+    let grams = store::whole_bottle_g(&bottle)? * share;
+    let note = if share == 1.0 { store::WHOLE_BOTTLE_NOTE } else { store::PART_BOTTLE_NOTE };
+    // Valued through the same resolution every other entry is, so a bottle
+    // logged by eye freezes exactly as a weighed one of the same mass would.
     let (recipe, components) = resolve_contribution(
         refconn,
         conn,
@@ -634,7 +670,7 @@ fn whole_bottle_into(
         recipe,
         components,
     };
-    let id = store::add_whole_bottle(conn, logged_on, bottle_id, &bottle.name, grams, &snap)?;
+    let id = store::add_unweighed_bottle(conn, logged_on, bottle_id, &bottle.name, grams, note, &snap)?;
     // After the row, as `log_water` does, so a refused entry does not reorder
     // the bottles.
     store::touch_bottle(conn, bottle_id)?;
@@ -4813,6 +4849,7 @@ pub fn run() {
             delete_bottle,
             log_water,
             log_whole_bottle,
+            log_bottle_share,
             frequent_foods,
             list_custom_foods,
             get_custom_food,
@@ -7630,12 +7667,12 @@ mod tests {
             let cal = store::save_bottle(&uc, None, "Steel", 1050.0, Some(290.0), Some(750.0)).unwrap();
             let plain = store::save_bottle(&uc, None, "Old", 1050.0, None, None).unwrap();
 
-            let id = whole_bottle_into(&rc, &mut uc, DAY, &cal).unwrap();
+            let id = bottle_share_into(&rc, &mut uc, DAY, &cal, 1.0).unwrap();
             assert!(
                 store::get_bottle(&uc, &cal).unwrap().last_used_at.is_some(),
                 "the bottle moves to the front of the picker, as a weighed one does"
             );
-            let err = whole_bottle_into(&rc, &mut uc, DAY, &plain).unwrap_err();
+            let err = bottle_share_into(&rc, &mut uc, DAY, &plain, 1.0).unwrap_err();
             assert!(err.contains("never been weighed empty"), "{err}");
 
             let user = store::Store(Mutex::new(uc));
@@ -7647,6 +7684,36 @@ mod tests {
             assert_eq!(e.tare_note.as_deref(), Some(store::WHOLE_BOTTLE_NOTE));
             assert_eq!((e.gross_g, e.tare_g), (None, None), "no reading nobody took");
             assert!(close(sum(&by[&1051]).lower, 760.0), "760 g of it as water");
+        }
+
+        #[test]
+        fn part_of_a_bottle_logs_its_share_and_says_it_was_not_weighed() {
+            let Some(rc) = refdb() else { return };
+            let dim = nutrient_dim(&rc).unwrap();
+            let mut uc = user_db();
+            // 290 g empty and 1,050 g full: it holds 760 g, which its label calls 750 ml.
+            let cal = store::save_bottle(&uc, None, "Steel", 1050.0, Some(290.0), Some(750.0)).unwrap();
+            let plain = store::save_bottle(&uc, None, "Old", 1050.0, None, None).unwrap();
+
+            let half = bottle_share_into(&rc, &mut uc, DAY, &cal, 0.5).unwrap();
+            for bad in [0.0, -0.25, 1.5, f64::NAN, f64::INFINITY] {
+                let err = bottle_share_into(&rc, &mut uc, DAY, &cal, bad).unwrap_err();
+                assert!(err.contains("more than none"), "{bad}: {err}");
+            }
+            let err = bottle_share_into(&rc, &mut uc, DAY, &plain, 0.5).unwrap_err();
+            assert!(err.contains("never been weighed empty"), "{err}");
+
+            let user = store::Store(Mutex::new(uc));
+            let (entries, _, by) = collect_day(&rc, &user, &dim, DAY).unwrap();
+            assert_eq!(entries.len(), 1, "the refusals logged nothing");
+            let e = &entries[0];
+            assert_eq!(e.id, half);
+            assert_eq!(e.grams, Some(380.0), "half of full less empty");
+            assert_eq!(e.tare_note.as_deref(), Some(store::PART_BOTTLE_NOTE));
+            assert_eq!((e.gross_g, e.tare_g), (None, None), "a slider is not a scale");
+            let v = e.water.expect("a water entry carries a volume");
+            assert!((v.ml() - 375.0).abs() < 0.01, "half of 750 ml, on the bottle's own calibration");
+            assert!(close(sum(&by[&1051]).lower, 380.0), "380 g of it as water");
         }
     }
 

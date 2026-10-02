@@ -20,6 +20,10 @@ const PATHS = {
   drop: "M12 3.9c3.1 4 5.1 6.7 5.1 9.4a5.1 5.1 0 0 1-10.2 0c0-2.7 2-5.4 5.1-9.4z",
   walk: "M13.2 2.9a1.7 1.7 0 1 0 0 3.4a1.7 1.7 0 1 0 0-3.4M10.4 20l2.1-5.5-2.5-2.5 1-4 2.9 2 2.6.7M12.5 14.5l2.3 5.5M11 8.1L8 9.8l-.7 3",
   lift: "M6.5 8v8M17.5 8v8M4 10v4M20 10v4M6.5 12h11",
+  /* Food in general, for the + sheet's Food choice: no one sitting. */
+  bowl: "M3.5 11.5h17a8.5 8.5 0 0 1-17 0zM9 19.5h6",
+  /* Something done before, done again: a session repeated in one tap. */
+  repeat: "M16.5 3.5l3 3-3 3M4.5 11.5v-1a4 4 0 0 1 4-4h11M7.5 20.5l-3-3 3-3M19.5 12.5v1a4 4 0 0 1-4 4h-11",
 } as const;
 
 export type GlyphName = keyof typeof PATHS;

@@ -31,6 +31,8 @@ interface Props {
   date: string;
   /** A session to carry on with or correct, from Today. */
   sessionId: string | null;
+  /** Start strength on the lifts of the last session, as "Done before" does. */
+  likeLast?: boolean;
   onDone: () => void;
 }
 
@@ -192,6 +194,22 @@ export default function ActivityPane(p: Props) {
     })();
     return () => { live = false; };
   }, [p.sessionId, withLast]);
+
+  // Sent from the + sheet's one tap: the same as pressing the last strength
+  // session under "Done before", without the screen to find it on first.
+  useEffect(() => {
+    if (!p.likeLast || p.sessionId !== null) return;
+    let live = true;
+    recentSessions(6)
+      .then((rs) => {
+        const r = rs.find((x) => x.kind === "strength");
+        if (live && r) void again(r);
+      })
+      .catch(() => {});
+    return () => { live = false; };
+    // `again` is redefined each render and reads nothing this needs to follow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.likeLast, p.sessionId]);
 
   function choose(k: ActivityKind) {
     if (k === kind) return;

@@ -34,7 +34,7 @@ import type {
   SnapshotBasis,
   Volume,
 } from "../types";
-import { MEALS, WHOLE_BOTTLE_NOTE } from "../types";
+import { MEALS, PART_BOTTLE_NOTE, WHOLE_BOTTLE_NOTE } from "../types";
 import type { Part } from "./mockEnergy";
 import { dose, measured, sum, unmeasured } from "./mockEnergy";
 
@@ -144,10 +144,11 @@ function volumeOf(b: Bottle, grams: number): Volume {
 let waterSeq = 0;
 /**
  * A bottle's worth, against the day rather than a sitting. Weighed off the
- * scale unless `whole`: then the note says so and no reading is stored, the
- * way `log_whole_bottle` writes it.
+ * scale unless it carries a `note` — a whole bottle, or part of one judged by
+ * eye — and then no reading is stored, the way `log_whole_bottle` and
+ * `log_bottle_share` write it.
  */
-function water(b: Bottle, grams: number, whole = false, id?: string): Logged {
+function water(b: Bottle, grams: number, note: string | null = null, id?: string): Logged {
   waterSeq += 1;
   const e: LogEntry = {
     ...blank(id ?? `w-${waterSeq}`, null, b.name),
@@ -155,9 +156,9 @@ function water(b: Bottle, grams: number, whole = false, id?: string): Logged {
     bottle_id: b.id,
     grams,
     water: volumeOf(b, grams),
-    gross_g: whole ? null : b.full_g,
-    tare_g: whole ? null : b.full_g - grams,
-    tare_note: whole ? WHOLE_BOTTLE_NOTE : "",
+    gross_g: note !== null ? null : b.full_g,
+    tare_g: note !== null ? null : b.full_g - grams,
+    tare_note: note ?? "",
   };
   return logged(e, [measured(b.name, null, grams, 0)]);
 }
@@ -206,8 +207,8 @@ const LOG: Logged[] = [
   plain("e10", "dinner", "Paneer butter masala", 190, 380, { cuisine: "North Indian", origin: "ordered_in" }),
   // Two bottles and no meal: water is drunk across the day. One weighed, one
   // from the uncalibrated bottle, so both readings of a volume are on show.
-  water(BOTTLES[0], 884, false, "w1"),
-  water(BOTTLES[1], 612, false, "w2"),
+  water(BOTTLES[0], 884, null, "w1"),
+  water(BOTTLES[1], 612, null, "w2"),
   // Yesterday, from before values were frozen: worked out afterwards, which
   // its row says.
   backfilled(plain("y1", "breakfast", "Upma, semolina", 210, 248, { cuisine: "South Indian", origin: "home" })),
@@ -340,23 +341,31 @@ function corrected(l: Logged) {
 /** Ten minutes, as `store::RESTORE_WINDOW_SECS` has it. */
 const RESTORE_WINDOW_MS = 600_000;
 
-function logBottle(a: Record<string, unknown>, whole: boolean): string {
+/**
+ * `share` is null for a bottle put on the scale (`log_water`), and otherwise
+ * how much of it was drunk without weighing — one for a whole bottle, less for
+ * part of one judged by eye (`log_bottle_share`).
+ */
+function logBottle(a: Record<string, unknown>, share: number | null): string {
   const b = BOTTLES.find((x) => x.id === String(a.bottleId));
   if (!b) throw new Error(`bottle ${String(a.bottleId)} is no longer in the library`);
   let grams: number;
-  if (whole) {
+  if (share !== null) {
+    if (!(Number.isFinite(share) && share > 0 && share <= 1)) {
+      throw new Error("how much of the bottle was drunk must be more than none and no more than all of it");
+    }
     if (b.empty_g === null) {
       throw new Error(
         `${b.name} has never been weighed empty, so what a full one holds is not known — ` +
           "weigh it after drinking instead, or add its empty weight in Water bottles",
       );
     }
-    grams = b.full_g - b.empty_g;
+    grams = (b.full_g - b.empty_g) * share;
   } else {
     grams = b.full_g - Number(a.currentG);
     if (!(grams > 0)) throw new Error(`${b.name} reads no less than its full weight — nothing to log`);
   }
-  const l = water(b, grams, whole);
+  const l = water(b, grams, share === null ? null : share === 1 ? WHOLE_BOTTLE_NOTE : PART_BOTTLE_NOTE);
   l.entry.logged_on = String(a.loggedOn ?? localToday());
   LOG.push(l);
   b.last_used_at = new Date().toISOString();
@@ -411,8 +420,9 @@ export const DAY_TABLE: Record<string, (a: Record<string, unknown>) => unknown> 
     l.removedAt = null;
     return undefined;
   },
-  log_water: (a) => logBottle(a, false),
-  log_whole_bottle: (a) => logBottle(a, true),
+  log_water: (a) => logBottle(a, null),
+  log_whole_bottle: (a) => logBottle(a, 1),
+  log_bottle_share: (a) => logBottle(a, Number(a.share)),
 
   get_entry_snapshot: (a) => snapshot(find(String(a.entryId))),
   // Rescales every part by the same ratio, as the real correction does, and

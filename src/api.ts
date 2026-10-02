@@ -581,6 +581,15 @@ export const logWater = (loggedOn: string, bottleId: string, currentG: number) =
 export const logWholeBottle = (loggedOn: string, bottleId: string) =>
   invoke<string>("log_whole_bottle", { loggedOn, bottleId });
 
+/**
+ * Log part of a bottle, judged by eye: `share` of what it holds, more than
+ * none and at most all of it. Noted as `PART_BOTTLE_NOTE` (a share of one as
+ * a whole bottle), with no scale reading stored, and refused, as a whole one
+ * is, for a bottle never weighed empty.
+ */
+export const logBottleShare = (loggedOn: string, bottleId: string, share: number) =>
+  invoke<string>("log_bottle_share", { loggedOn, bottleId, share });
+
 /* ── spreadsheet import ───────────────────────────────────────────────── */
 
 /**

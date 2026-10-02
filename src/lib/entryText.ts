@@ -1,5 +1,5 @@
 import type { EntryBreakdown, LogEntry, Origin, SnapshotBasis } from "../types";
-import { ORIGIN_LABEL, WHOLE_BOTTLE_NOTE, describeVolume } from "../types";
+import { ORIGIN_LABEL, PART_BOTTLE_NOTE, WHOLE_BOTTLE_NOTE, describeVolume } from "../types";
 
 /*
   The words a logged entry is described in, shared by its row on Today and by
@@ -117,11 +117,11 @@ export function provenanceText(s: { basis: SnapshotBasis; frozen_at: string; cor
 
 /**
  * How a water entry's amount was arrived at, when it was not off the scale.
- * The bottle's own note, and only that one: a weighed bottle's note is empty,
+ * The bottle's own notes, and only those: a weighed bottle's note is empty,
  * and a corrected one's is null.
  */
 export function waterNote(e: LogEntry): string | null {
-  return e.tare_note === WHOLE_BOTTLE_NOTE ? WHOLE_BOTTLE_NOTE : null;
+  return e.tare_note === WHOLE_BOTTLE_NOTE || e.tare_note === PART_BOTTLE_NOTE ? e.tare_note : null;
 }
 
 /**

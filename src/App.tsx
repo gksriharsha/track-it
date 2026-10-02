@@ -25,19 +25,22 @@ import UnlockLog from "./components/UnlockLog";
 import Logo from "./components/Logo";
 import CommandPalette from "./components/CommandPalette";
 import type { Command } from "./components/CommandPalette";
+import LogSheet from "./components/LogSheet";
 import { AnnounceProvider } from "./components/UndoBar";
 import { MOD, isAndroid, useHotkeys } from "./lib/desktop";
+import { useHashSheet } from "./lib/hashSheet";
 import { getDay, humanDate, shiftIso, takeWidgetLanding, todayIso } from "./api";
 import type { DayView, Meal } from "./types";
 import { parsePick } from "./types";
 import "./styles.css";
 
 /**
- * Add food is not here: it is an action wanted from every one of these places,
+ * Adding is not here: it is an action wanted from every one of these places,
  * not a place of its own, so it is drawn as the bottom bar's raised centre
  * button on mobile (see `.bar__add`) and the sidebar's own primary button on
  * desktop — never a tab that would sit at equal weight beside things you
- * actually navigate *to*.
+ * actually navigate *to*. Both open the same sheet, which asks food or
+ * activity (LogSheet).
  *
  * Desktop's list. The phone's is `BAR_LEFT`/`BAR_RIGHT` below, and it is
  * deliberately shorter: five equal slots on a 390pt screen leaves no room for
@@ -411,6 +414,11 @@ interface Nav {
   /** A scanned barcode, on its way to the custom-food editor. See `Route.code`. */
   code?: string;
   /**
+   * A sheet to arrive with open, read by the screen that owns it (see
+   * `useHashSheetValue`): the + sheet's water row lands on Today's water sheet.
+   */
+  sheet?: string;
+  /**
    * Overwrite the current history entry instead of pushing a new one.
    *
    * Used only by the drawer's own rows. Pushing would stack the destination on
@@ -542,6 +550,7 @@ function useHashRoute() {
     if (nav.q) q.set("q", nav.q);
     if (nav.pick) q.set("pick", nav.pick);
     if (nav.code) q.set("code", nav.code);
+    if (nav.sheet) q.set("sheet", nav.sheet);
     const s = q.toString();
     const target = s ? `/${t}?${s}` : `/${t}`;
     if (nav.replace) {
@@ -653,6 +662,20 @@ function Shell() {
   }, [go]);
   const [date, setDate] = useState(todayIso());
   const [meal, setMeal] = useState<Meal>(defaultMeal());
+
+  /*
+    The bar's + and the sidebar's Add: one sheet that asks food or activity
+    (LogSheet). A hash param like every sheet, so Back closes it.
+  */
+  const logSheet = useHashSheet("sheet", "log");
+  const { show: showLog } = logSheet;
+  const openLog = useCallback(() => {
+    // The sitting its foods go into is the one the clock says, each time it
+    // opens. The app's meal is whichever was chosen last, which by the evening
+    // can be the morning's.
+    setMeal(defaultMeal());
+    showLog();
+  }, [showLog]);
   const [day, setDay] = useState<DayView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -795,7 +818,7 @@ function Shell() {
 
   useHotkeys([
     { key: "k", mod: true, run: () => setPalOpen((o) => !o) },
-    { key: "n", mod: true, run: () => go("foods") },
+    { key: "n", mod: true, run: openLog },
     { key: "1", mod: true, run: () => go("today") },
     { key: "2", mod: true, run: () => go("nutrients") },
     { key: "3", mod: true, run: () => go("history") },
@@ -853,6 +876,26 @@ function Shell() {
         onSearchFood={(q) => go("foods", { q })}
       />
 
+      {/* Each choice replaces the sheet's own history entry with where it
+          leads, so Back from there returns to the screen under the sheet
+          rather than reopening it. Water is Today's own sheet, so it opens
+          over Today: closing it, or logging from it, leaves Today with the
+          bottle just logged in view, not whichever screen the + was on. */}
+      <LogSheet
+        open={logSheet.open}
+        onClose={logSheet.hide}
+        date={date}
+        meal={meal}
+        onFood={() => go("foods", { replace: true })}
+        onActivity={() => go("foods", { pick: "activity", replace: true })}
+        onStrength={() => go("foods", { pick: "strength", replace: true })}
+        onWater={() => {
+          go("today", { replace: true });
+          go("today", { sheet: "water" });
+        }}
+        onChanged={refreshShown}
+      />
+
       {/* Desktop only. Brand + the one action + the four places, replacing
           the flat row of pills above 721px — see styles.css. Untouched
           below that width: this renders in the DOM but `.sidebar` stays
@@ -873,12 +916,13 @@ function Shell() {
         <button
           className="sidebar__cta"
           aria-current={tab === "foods" || overFoods ? "page" : undefined}
-          onClick={() => go("foods")}
+          aria-haspopup="dialog"
+          onClick={openLog}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="sidebar__icon">
             <path d="M12 5v14M5 12h14" strokeLinecap="round" />
           </svg>
-          Add food
+          Add
           <kbd className="kbd">{MOD}N</kbd>
         </button>
 
@@ -1309,11 +1353,13 @@ function Shell() {
             {/*
               Not a tab, and shaped so that it cannot be read as one: raised
               off the bar, filled, and the only accent-coloured thing in the
-              row. Adding food is the one thing you do here that is not going
-              somewhere, and it is wanted from every screen — including the one
-              the app opens on, which until now had no way to reach it at all.
+              row. Adding is the one thing you do here that is not going
+              somewhere, and it is wanted from every screen. It asks food or
+              activity, as the user chose: activity is logged as readily as a
+              meal, so the + cannot mean food alone.
             */}
-            <button className="bar__add" onClick={() => go("foods")} aria-label="Add food">
+            <button className="bar__add" onClick={openLog} aria-label="Add food or activity"
+              aria-haspopup="dialog">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 strokeWidth="2.4" strokeLinecap="round" aria-hidden>
                 <path d="M12 5v14M5 12h14" />

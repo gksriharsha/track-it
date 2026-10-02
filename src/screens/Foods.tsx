@@ -240,6 +240,8 @@ export default function Foods(p: Props) {
     useState<"available" | "foods" | "recipes" | "supplements" | "water" | "activity">("foods");
   /** A session opened from Today, to carry on with or correct (D26). */
   const [activityId, setActivityId] = useState<string | null>(null);
+  /** Arrived from the + sheet to start strength like last time. */
+  const [likeLast, setLikeLast] = useState(false);
   /*
     On a phone the tab row scrolls sideways, and with six tabs the last one is
     past the edge. Landing on it from Today with it half off-screen hid the one
@@ -427,9 +429,10 @@ export default function Foods(p: Props) {
       setTab("water");
       return;
     }
-    if (target.kind === "activity") {
+    if (target.kind === "activity" || target.kind === "strength") {
       setPicked(null); setPickedCustom(null);
       setActivityId(target.id);
+      setLikeLast(target.kind === "strength");
       setTab("activity");
       return;
     }
@@ -853,6 +856,7 @@ export default function Foods(p: Props) {
             if (tab === "activity") return;
             setTab("activity");
             setActivityId(null);
+            setLikeLast(false);
             setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
             setWeighed(null);
           }}>Activity</button>
@@ -1088,7 +1092,7 @@ export default function Foods(p: Props) {
       ) : tab === "activity" ? (
         /* Its own screen in its own file, drawn here so `+` reaches it one chip
            from Water — the other thing logged to the day rather than a meal. */
-        <ActivityPane date={p.date} sessionId={activityId} onDone={p.onLogged} />
+        <ActivityPane date={p.date} sessionId={activityId} likeLast={likeLast} onDone={p.onLogged} />
       ) : tab === "water" ? (
         pickedBottle ? (
           <section className="card">

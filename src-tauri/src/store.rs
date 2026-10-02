@@ -3558,6 +3558,12 @@ pub fn get_bottle(conn: &Connection, id: &str) -> Result<Bottle, String> {
 /// tell them from real ones.
 pub const WHOLE_BOTTLE_NOTE: &str = "whole bottle, not weighed";
 
+/// The note on part of a bottle, judged by eye on the water sheet's slider
+/// rather than read off a scale. The amount is a share of what the bottle
+/// holds, so it is as good as the eye that set it, and the entry says so in
+/// the place a weighed one keeps its reading.
+pub const PART_BOTTLE_NOTE: &str = "part of a bottle, not weighed";
+
 /// How much water a whole bottle holds: its full weight less its empty one.
 ///
 /// Refused for a bottle that has never been weighed empty. Without that
@@ -6460,22 +6466,25 @@ pub fn add_with_snapshot(
     Ok(id)
 }
 
-/// Log a whole bottle drunk, with no scale reading, and freeze it.
+/// Log water from a bottle with no scale reading, and freeze it: a whole
+/// bottle, or a share of one judged by eye.
 ///
 /// `add_with_snapshot` for water with one difference: the entry carries
-/// [`WHOLE_BOTTLE_NOTE`] in `tare_note` and nothing in `gross_g` or `tare_g`.
+/// `note` — [`WHOLE_BOTTLE_NOTE`] or [`PART_BOTTLE_NOTE`] — in `tare_note` and
+/// nothing in `gross_g` or `tare_g`.
 /// `add` has no way to write a note without a reading — a `Tare` IS a
 /// reading — and widening it would put a "note but no scale" case in front
 /// of every caller that weighs food. So the note is set here, inside the same
 /// transaction as the insert and the snapshot: the entry is never visible
 /// without it. The schema allows this shape and always has: the checks on
 /// `gross_g` and `tare_g` tie those two to each other, never to the note.
-pub fn add_whole_bottle(
+pub fn add_unweighed_bottle(
     conn: &mut Connection,
     logged_on: &str,
     bottle_id: &str,
     description: &str,
     grams: f64,
+    note: &str,
     snap: &Snapshot,
 ) -> Result<String, String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -6491,7 +6500,7 @@ pub fn add_whole_bottle(
     )?;
     tx.execute(
         "UPDATE log_entries SET tare_note = ?2 WHERE id = ?1",
-        rusqlite::params![id, WHOLE_BOTTLE_NOTE],
+        rusqlite::params![id, note],
     )
     .map_err(|e| e.to_string())?;
     write_snapshot(&tx, &id, snap)?;
@@ -11050,7 +11059,8 @@ mod tests {
                 values: vec![(1051, NutrientValue::Measured { amount: 100.0 })],
             }],
         };
-        let id = add_whole_bottle(&mut c, "2026-09-04", &cal, "Steel", 760.0, &snap).unwrap();
+        let id = add_unweighed_bottle(&mut c, "2026-09-04", &cal, "Steel", 760.0, WHOLE_BOTTLE_NOTE, &snap)
+            .unwrap();
 
         let entries = day(&c, "2026-09-04").unwrap();
         let e = entries.iter().find(|e| e.id == id).unwrap();
@@ -11082,6 +11092,12 @@ mod tests {
         assert!(
             ts.contains(&line),
             "src/types.ts must carry `{line}` — the screen marks a whole bottle by matching it"
+        );
+        // Part of a bottle is marked the same way, and would drift the same way.
+        let line = format!("export const PART_BOTTLE_NOTE = \"{PART_BOTTLE_NOTE}\";");
+        assert!(
+            ts.contains(&line),
+            "src/types.ts must carry `{line}` — the screen marks part of a bottle by matching it"
         );
     }
 

@@ -34,9 +34,10 @@ export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
   const onLoggedRef = useRef(onLogged);
   onLoggedRef.current = onLogged;
 
+  /** True once the entry is written: a sheet it was pressed in can go. */
   const log = useCallback(
-    async (f: FrequentFood) => {
-      if (pending !== null) return;
+    async (f: FrequentFood): Promise<boolean> => {
+      if (pending !== null) return false;
       const source =
         f.source_kind === "custom"
           ? f.custom_food_id === null
@@ -47,7 +48,7 @@ export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
             : { fdcId: f.fdc_id };
       if (source === null) {
         setError("That shortcut has lost the food behind it, so nothing was logged.");
-        return;
+        return false;
       }
       setPending(f.key);
       setError(null);
@@ -68,8 +69,10 @@ export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
             onLoggedRef.current();
           },
         });
+        return true;
       } catch (e) {
         setError(String(e));
+        return false;
       } finally {
         setPending(null);
       }

@@ -140,10 +140,12 @@
   --share-3: #b4d8d4;
 
   /* Water: neither food nor activity, so neither of their colours. A plain
-     blue, used for the water row's tile and its + and nowhere else. */
+     blue, for the water row's tile and its +, and for the controls in its
+     sheet (`.water-area`). White on it is 5.4:1. */
   --water: #2d6f9e;
   --water-ink: #1f5a85;
   --water-wash: #e1edf6;
+  --on-water: #ffffff;
 
   /* The colour of the area a control sits in: teal for food, which is most
      of the app, and plum wherever an activity is being logged or read
@@ -266,6 +268,8 @@
     --water: #8ab9dc;
     --water-ink: #a9cde8;
     --water-wash: #15283a;
+    /* 8.2:1 on the lightened blue. */
+    --on-water: #0b1d2b;
     --focus: #5ccdc0;
     --lift: none;
     --lift-hi: none;
@@ -1074,6 +1078,72 @@ b, strong, th { font-weight: 600; }
 .water-sheet { display: flex; flex-direction: column; gap: var(--s4); align-items: flex-start; }
 .water-sheet .rows { align-self: stretch; }
 
+/* The water sheet is water's own area: its chosen bottle, its slider and its
+   Log button take the water's blue, the way an activity area takes plum. */
+.water-area {
+  --area: var(--water);
+  --area-ink: var(--water-ink);
+  --area-wash: var(--water-wash);
+  --on-area: var(--on-water);
+  --focus: var(--water);
+}
+
+/* Part of a bottle, by eye (BottleShare): the bottle and its figure, a slider
+   from empty to full, and under it the four amounts people say. Each stop sits
+   where the thumb's centre lands for it, so a tap on "½" leaves the thumb over
+   the "½"; the last is held to the end, where centring would push it out. */
+.bshare { --thumb: 28px; display: flex; flex-direction: column; gap: var(--s3); align-self: stretch; }
+.bshare__read { display: flex; align-items: center; gap: var(--s3); }
+.bshare__bottle { flex: none; }
+.bshare__glass { fill: none; stroke: var(--water-ink); stroke-width: 1.5; }
+.bshare__cap { fill: var(--water-ink); }
+.bshare__water { fill: var(--water); opacity: 0.55; }
+.bshare__words { display: flex; flex-direction: column; min-width: 0; }
+.bshare__ml { font-size: var(--t-fig-sm); line-height: var(--t-fig-sm-lh); font-weight: 600; color: var(--ink); }
+.bshare__what { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.bshare__range { position: relative; }
+.bshare__input {
+  -webkit-appearance: none; appearance: none;
+  display: block; width: 100%; height: 44px; margin: 0;
+  background: transparent; cursor: pointer;
+}
+.bshare__input:focus { outline: none; }
+.bshare__input::-webkit-slider-runnable-track {
+  height: 12px; border-radius: var(--r-pill);
+  background: linear-gradient(to right,
+    var(--water) calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--f, 0)),
+    var(--sunken) 0);
+}
+.bshare__input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: var(--thumb); height: var(--thumb); margin-top: calc((12px - var(--thumb)) / 2);
+  border: 2px solid var(--water); border-radius: 50%; background: var(--surface);
+  box-shadow: 0 1px 3px rgba(15, 22, 21, 0.25);
+}
+.bshare__input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--focus); }
+.bshare__input::-moz-range-track { height: 12px; border-radius: var(--r-pill); background: var(--sunken); }
+.bshare__input::-moz-range-progress { height: 12px; border-radius: var(--r-pill); background: var(--water); }
+.bshare__input::-moz-range-thumb {
+  box-sizing: border-box; width: var(--thumb); height: var(--thumb);
+  border: 2px solid var(--water); border-radius: 50%; background: var(--surface);
+}
+.bshare__input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--focus); }
+.bshare__stops { position: relative; height: 40px; }
+.bshare__stop {
+  position: absolute; top: 0;
+  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--at));
+  transform: translateX(-50%);
+  min-width: 44px; height: 40px; padding: 0 var(--s2);
+  border-radius: var(--r-pill); color: var(--ink-2);
+  font-size: var(--t-body); line-height: 1; font-weight: 600;
+}
+/* A font's ¼ ½ ¾ are drawn small, as fractions are, and read as specks
+   beside "Whole" at the same size. */
+.bshare__stop:not(:last-child) { font-size: 21px; }
+.bshare__stop:last-child { left: auto; right: 0; transform: none; }
+.bshare__stop[aria-pressed="true"] { background: var(--area-wash); color: var(--area-ink); }
+@media (hover: hover) { .bshare__stop:hover:not([aria-pressed="true"]) { background: var(--sunken); color: var(--ink); } }
+
 /* A quiet line under a group, for what the group cannot show yet. */
 .day-sec__note { margin: var(--s2) 0 0; color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 .entry__sub {
@@ -1106,6 +1176,34 @@ b, strong, th { font-weight: 600; }
 .usual__chip:disabled { opacity: 0.55; cursor: default; }
 .usual__chip[aria-busy="true"] { border-color: var(--area); }
 @media (hover: hover) { .usual__chip:hover:not(:disabled) { border-color: var(--area); background: var(--area-wash); } }
+/* A session done again, in the + sheet: the repeat mark where a food has its +. */
+.usual__chip .glyph { flex: none; color: var(--area-ink); }
+
+/* ── the bar's +: food or activity (LogSheet) ───────────────── */
+/* Two equal choices, each in its area's own colour, so neither reads as the
+   default. Then the usual of each one tap away, then water. */
+.logsheet { display: flex; flex-direction: column; gap: var(--s5); }
+.logsheet__pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.logbig {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-height: 116px; padding: var(--s4); border-radius: var(--r-lg);
+  text-align: left; transition: background-color 140ms ease-out;
+}
+.logbig .glyph { margin-bottom: var(--s3); }
+.logbig__name { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 700; }
+.logbig__what { font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.logbig--food { background: var(--accent); color: var(--on-accent); }
+.logbig--act { background: var(--act); color: var(--on-act); }
+@media (hover: hover) {
+  .logbig--food:hover { background: var(--accent-ink); }
+  .logbig--act:hover { background: var(--act-ink); }
+}
+.logsheet__h { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s2); }
+.logsheet__h h3 { margin: 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; }
+.logsheet__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+/* A white cell on a white sheet has no edge: the page's grey gives it one. */
+.logsheet .tile { background: var(--bg); }
+@media (hover: hover) { .logsheet button.tile:hover { background: var(--sunken); } }
 
 /* The note, folded to its head until there is something in it. */
 .day-note .day-note__field { margin-top: var(--s1); }

@@ -227,6 +227,12 @@ export type Volume =
  */
 export const WHOLE_BOTTLE_NOTE = "whole bottle, not weighed";
 
+/**
+ * The same for part of a bottle, judged by eye on the water sheet's slider —
+ * `store::PART_BOTTLE_NOTE`, held to this line by the same Rust test.
+ */
+export const PART_BOTTLE_NOTE = "part of a bottle, not weighed";
+
 /** Litres past a litre, millilitres below — how people actually say it. */
 export function describeVolume(ml: number): string {
   return ml >= 1000 ? `${(ml / 1000).toFixed(1)} L` : `${Math.round(ml)} ml`;
@@ -1677,7 +1683,7 @@ export interface WidgetLanding {
  * names the Foods screen's water tab rather than a food, because that is where
  * a bottle is actually logged — the bottle library is an inventory screen.
  */
-export type PickKind = "food" | "custom" | "water" | "activity";
+export type PickKind = "food" | "custom" | "water" | "activity" | "strength";
 
 export interface PickTarget {
   kind: PickKind;
@@ -1700,6 +1706,9 @@ export function parsePick(raw: string | null): PickTarget | null {
   // The Add screen's Activity tab, and with an id a session to carry on with or
   // to correct (D26). Not a food, for the same reason water is not one.
   if (raw === "activity") return { kind: "activity", id: null };
+  // The Activity tab, with a strength session started on the lifts of the
+  // last one: the + sheet's one tap for "the gym, like last time".
+  if (raw === "strength") return { kind: "strength", id: null };
   const cut = raw.indexOf(":");
   if (cut === -1) return null;
   const kind = raw.slice(0, cut);
