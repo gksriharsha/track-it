@@ -1111,7 +1111,7 @@ mod tests {
         }
         let c = store::open(&path).unwrap();
         let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(v, 19);
+        assert_eq!(v, store::SCHEMA_VERSION);
         assert_eq!(store::day_note(&c, "2026-09-01").unwrap().as_deref(), Some("Long day"));
         let p = store::get_profile(&c).unwrap();
         assert_eq!((p.activity.as_deref(), p.weight_kg), (Some("light"), Some(61.5)));

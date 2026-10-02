@@ -721,7 +721,11 @@ CREATE TABLE IF NOT EXISTS entry_snapshots (
   -- must not change what a past day says was eaten.
   recipe_name     TEXT,
   recipe_yield_g  REAL CHECK (recipe_yield_g IS NULL OR recipe_yield_g > 0),
-  recipe_servings REAL CHECK (recipe_servings IS NULL OR recipe_servings > 0)
+  recipe_servings REAL CHECK (recipe_servings IS NULL OR recipe_servings > 0),
+  -- For a portion of a pot: 1 when recipe_yield_g was the pot weighed, 0 when
+  -- it was the recipe's expected yield because nobody weighed it. NULL for a
+  -- recipe, which has no pot, and where it was never known (see v20).
+  recipe_yield_weighed INTEGER CHECK (recipe_yield_weighed IS NULL OR recipe_yield_weighed IN (0,1))
 );
 
 CREATE TABLE IF NOT EXISTS entry_components (
@@ -1303,7 +1307,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-const SCHEMA_VERSION: i64 = 19;
+pub(crate) const SCHEMA_VERSION: i64 = 20;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -3027,6 +3031,51 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
     // No arm, for v17 -> v18's reason: `activities`, `exercises` and
     // `activity_sets` are new tables that reference only each other, so
     // SCHEMA creating them is the whole migration and no existing row moves.
+
+    // v19 -> v20: whether the pot a portion came from had been weighed.
+    //
+    // A portion of a pot is divided by the pot's yield, and that yield is the
+    // pot weighed if anybody weighed it and the recipe's expected yield if
+    // not. The snapshot froze the number and not which of the two it was, so
+    // Today printed "210 g of a 1,680 g pot" for both — an estimate read as a
+    // weighing. The column is added plain, with no rebuild: SQLite can add a
+    // nullable column with a CHECK in place, and no existing row has to move.
+    //
+    // Existing portions are then matched back to their pot, and only where
+    // the match is exact is anything written. A portion divided by the very
+    // weighing its pot carries now was taken after the pot was weighed. One
+    // divided by the pot's expected yield was taken before any weighing —
+    // had the pot been weighed by then, the weighing is what it would have
+    // been divided by — however the pot reads today. Anything else, a pot
+    // re-planned since, stays NULL, which reads as "not recorded" rather than
+    // as either answer. This writes a label beside frozen figures and never a
+    // figure: no portion's nutrition moves.
+    if !columns(conn, "entry_snapshots")?
+        .iter()
+        .any(|c| c == "recipe_yield_weighed")
+    {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            r#"
+            ALTER TABLE entry_snapshots ADD COLUMN recipe_yield_weighed INTEGER
+              CHECK (recipe_yield_weighed IS NULL OR recipe_yield_weighed IN (0,1));
+            UPDATE entry_snapshots
+               SET recipe_yield_weighed = (
+                 SELECT CASE
+                          WHEN c.weighed_yield_g IS NOT NULL
+                               AND abs(c.weighed_yield_g - entry_snapshots.recipe_yield_g) < 0.005
+                            THEN 1
+                          WHEN abs(c.expected_yield_g - entry_snapshots.recipe_yield_g) < 0.005
+                            THEN 0
+                        END
+                   FROM log_entries e JOIN cooks c ON c.id = e.cook_id
+                  WHERE e.id = entry_snapshots.entry_id AND e.source_kind = 'cook')
+             WHERE recipe_yield_g IS NOT NULL;
+            "#,
+        )
+        .map_err(|e| format!("migrating entry_snapshots to v20: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
 
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
@@ -5280,6 +5329,13 @@ pub fn frequent_foods(
 /// before this existed: the `IS NULL` arm makes the predicate vanish
 /// rather than match a NULL meal, which no food entry has anyway.
 ///
+/// A sitting's list also asks for a habit, which the whole list does not: a
+/// food counts only once it has been had at that sitting on at least two
+/// days. Today offers these under the one word "Usually", and a dish logged to
+/// dinner once is not what is usually had at dinner — the word would be the
+/// app claiming a pattern the log does not show. The unfiltered list keeps its
+/// old rule, because the widget and Add say only that a food was had before.
+///
 /// The caller is trusted to have checked `meal` against the four sittings; a
 /// value outside them matches nothing and returns an empty list, which is
 /// truthful about the log but unhelpful, so the command layer refuses it first.
@@ -5303,6 +5359,7 @@ pub fn frequent_foods_at(
                                    AND f.deleted_at IS NULL
                                    AND f.import_only = 0))
               GROUP BY e.source_kind, e.fdc_id, e.custom_food_id
+             HAVING ?3 IS NULL OR COUNT(DISTINCT e.logged_on) >= 2
               ORDER BY COUNT(DISTINCT e.logged_on) DESC,
                        MAX(e.logged_on) DESC,
                        MAX(e.created_at) DESC,
@@ -6250,6 +6307,13 @@ pub struct SnapRecipe {
     /// Kept so a past day still reads the way it did when it was written, and
     /// never backfilled: an entry frozen without one was never told a number.
     pub servings: Option<f64>,
+    /// For a portion of a pot, whether `yield_g` was the pot weighed or the
+    /// recipe's expected yield standing in for a weighing nobody made. Frozen
+    /// beside the yield it describes, so weighing the pot later cannot change
+    /// how an earlier portion reads. `None` for a recipe, which has no pot,
+    /// and for a portion frozen before this was kept whose pot the v20
+    /// migration could not match back up.
+    pub yield_weighed: Option<bool>,
 }
 
 /// One frozen contribution: what it was, how much of it, and what it contained.
@@ -6284,8 +6348,8 @@ fn write_snapshot(conn: &Connection, entry_id: &str, snap: &Snapshot) -> Result<
     conn.execute(
         "INSERT OR REPLACE INTO entry_snapshots
            (entry_id, frozen_at, basis, corrected_at,
-            recipe_name, recipe_yield_g, recipe_servings)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            recipe_name, recipe_yield_g, recipe_servings, recipe_yield_weighed)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             entry_id,
             snap.frozen_at,
@@ -6294,6 +6358,7 @@ fn write_snapshot(conn: &Connection, entry_id: &str, snap: &Snapshot) -> Result<
             snap.recipe.as_ref().map(|r| r.name.as_str()),
             snap.recipe.as_ref().map(|r| r.yield_g),
             snap.recipe.as_ref().and_then(|r| r.servings),
+            snap.recipe.as_ref().and_then(|r| r.yield_weighed).map(i64::from),
         ],
     )
     .map_err(|e| format!("freezing entry {entry_id}: {e}"))?;
@@ -6456,7 +6521,8 @@ pub fn day_snapshots(conn: &Connection, logged_on: &str) -> Result<HashMap<Strin
     let mut stmt = conn
         .prepare(
             "SELECT s.entry_id, s.frozen_at, s.basis, s.corrected_at,
-                    s.recipe_name, s.recipe_yield_g, s.recipe_servings
+                    s.recipe_name, s.recipe_yield_g, s.recipe_servings,
+                    s.recipe_yield_weighed
              FROM entry_snapshots s
              JOIN log_entries e ON e.id = s.entry_id
              WHERE e.logged_on = ?1 AND e.deleted_at IS NULL",
@@ -6471,11 +6537,12 @@ pub fn day_snapshots(conn: &Connection, logged_on: &str) -> Result<HashMap<Strin
             let name: Option<String> = r.get(4)?;
             let yield_g: Option<f64> = r.get(5)?;
             let servings: Option<f64> = r.get(6)?;
-            Ok((id, frozen_at, basis, corrected_at, name, yield_g, servings))
+            let weighed: Option<i64> = r.get(7)?;
+            Ok((id, frozen_at, basis, corrected_at, name, yield_g, servings, weighed))
         })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (id, frozen_at, basis, corrected_at, name, yield_g, servings) =
+        let (id, frozen_at, basis, corrected_at, name, yield_g, servings, weighed) =
             row.map_err(|e| e.to_string())?;
         // Name and yield are what make this a recipe entry, and they are
         // written together or not at all; requiring both means a half-written
@@ -6489,6 +6556,7 @@ pub fn day_snapshots(conn: &Connection, logged_on: &str) -> Result<HashMap<Strin
                 name,
                 yield_g,
                 servings,
+                yield_weighed: weighed.map(|w| w != 0),
             }),
             _ => None,
         };
@@ -8528,6 +8596,72 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("Tofu"), "the message must name the line: {err}");
+    }
+
+    /// v19 -> v20 writes beside each portion already taken from a pot whether
+    /// the pot had been weighed — only where the pot still shows it without
+    /// doubt, and never a figure.
+    #[test]
+    fn migrates_a_v19_portion_saying_whether_its_pot_was_weighed() {
+        let mut c = db();
+        c.execute_batch(
+            r#"
+            DROP TABLE entry_snapshots;
+            CREATE TABLE entry_snapshots (
+              entry_id   TEXT PRIMARY KEY REFERENCES log_entries(id) ON DELETE CASCADE,
+              frozen_at  TEXT NOT NULL,
+              basis      TEXT NOT NULL CHECK (basis IN ('logged','backfilled','corrected')),
+              corrected_at TEXT,
+              recipe_name     TEXT,
+              recipe_yield_g  REAL CHECK (recipe_yield_g IS NULL OR recipe_yield_g > 0),
+              recipe_servings REAL CHECK (recipe_servings IS NULL OR recipe_servings > 0)
+            );
+            INSERT INTO cooks (id,name,cooked_on,cooked_at,scale,expected_yield_g,weighed_yield_g,
+                               created_at,updated_at)
+              VALUES ('weighed','Dal','2026-09-01','t',1,1680,1500,'t','t'),
+                     ('never','Rajma','2026-09-01','t',1,1680,NULL,'t','t'),
+                     ('later','Sambar','2026-09-01','t',1,1680,1500,'t','t'),
+                     ('replanned','Kadhi','2026-09-01','t',1,1680,NULL,'t','t');
+            "#,
+        )
+        .unwrap();
+        // What each portion was divided by when it was frozen. The third pot
+        // was weighed only after its portion had been divided by the estimate;
+        // the fourth was re-planned after its portion was taken.
+        let mut ids = Vec::new();
+        for (pot, divisor) in [("weighed", 1500.0), ("never", 1680.0), ("later", 1680.0), ("replanned", 1600.0)] {
+            let id = add(
+                &c, "2026-09-02", Some("lunch"), Source::Cook(pot), pot,
+                Quantity::Grams(210.0), None, &Tags::default(),
+            )
+            .unwrap();
+            c.execute(
+                "INSERT INTO entry_snapshots (entry_id, frozen_at, basis, recipe_name, recipe_yield_g)
+                 VALUES (?1, 't', 'logged', ?2, ?3)",
+                rusqlite::params![id, pot, divisor],
+            )
+            .unwrap();
+            ids.push(id);
+        }
+        c.pragma_update(None, "user_version", 19).unwrap();
+
+        migrate(&mut c).unwrap();
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+
+        let snaps = day_snapshots(&c, "2026-09-02").unwrap();
+        let read = |id: &str| snaps[id].recipe.clone().unwrap();
+        assert_eq!(read(&ids[0]).yield_weighed, Some(true), "divided by the weighing the pot carries");
+        assert_eq!(read(&ids[1]).yield_weighed, Some(false), "divided by the estimate of a pot never weighed");
+        assert_eq!(
+            read(&ids[2]).yield_weighed,
+            Some(false),
+            "divided by the estimate, so taken before the weighing, whatever the pot says now"
+        );
+        assert_eq!(read(&ids[3]).yield_weighed, None, "matches neither, so it is not guessed at");
+        for (id, divisor) in ids.iter().zip([1500.0, 1680.0, 1680.0, 1600.0]) {
+            assert_eq!(read(id).yield_g, divisor, "a label is written; no figure moves");
+        }
     }
 
     #[test]
@@ -10931,6 +11065,26 @@ mod tests {
         assert_eq!(day_snapshots(&c, "2026-09-04").unwrap()[&id], snap);
     }
 
+    /// The note is the only thing that tells a whole bottle from a weighed
+    /// one, and the screen matches it as a string it keeps a copy of
+    /// (`WHOLE_BOTTLE_NOTE` in src/types.ts). Two copies of one sentence in two
+    /// languages drift without a word from either compiler: reword this one and
+    /// every whole bottle would quietly lose its "not weighed" on Today and
+    /// read like a weighing. So the TypeScript is read here and held to it, the
+    /// way keystore.rs holds BackupPlugin.kt to its reply keys.
+    #[test]
+    fn the_screen_matches_the_whole_bottle_note_word_for_word() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let path = root.join("../src/types.ts");
+        let ts = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        let line = format!("export const WHOLE_BOTTLE_NOTE = \"{WHOLE_BOTTLE_NOTE}\";");
+        assert!(
+            ts.contains(&line),
+            "src/types.ts must carry `{line}` — the screen marks a whole bottle by matching it"
+        );
+    }
+
     #[test]
     fn a_days_water_comes_back_as_a_volume_and_its_food_does_not() {
         // Water is the one thing here measured in a unit it is not stored in.
@@ -13175,20 +13329,22 @@ mod tests {
     #[test]
     fn a_meals_list_counts_only_what_was_had_at_that_meal() {
         let c = db();
-        // Curd most days, but at dinner; idli twice, both at breakfast.
+        // Curd most days, but at dinner; idli three times, all at breakfast.
         logged_at(&c, 111, "2026-09-01", "dinner", 120.0);
         logged_at(&c, 111, "2026-09-02", "dinner", 120.0);
         logged_at(&c, 111, "2026-09-03", "dinner", 120.0);
+        logged_at(&c, 222, "2026-09-01", "breakfast", 156.0);
         logged_at(&c, 222, "2026-09-02", "breakfast", 156.0);
         logged_at(&c, 222, "2026-09-03", "breakfast", 156.0);
-        // And one spoonful of curd at breakfast, the most recent of all its
-        // helpings: it must put curd on the breakfast list, ranked by the one
-        // day it was had there, and open on its own weight.
+        // And two spoonfuls of curd at breakfast, the later the most recent of
+        // all its helpings: they must put curd on the breakfast list, ranked by
+        // the two days it was had there, and open on its own weight.
+        logged_at(&c, 111, "2026-09-02", "breakfast", 35.0);
         logged_at(&c, 111, "2026-09-04", "breakfast", 40.0);
 
         let breakfast = frequent_foods_at(&c, SINCE, 6, Some("breakfast")).unwrap();
         let ids: Vec<Option<i64>> = breakfast.iter().map(|r| r.fdc_id).collect();
-        assert_eq!(ids, vec![Some(222), Some(111)], "two breakfasts of idli outrank one of curd");
+        assert_eq!(ids, vec![Some(222), Some(111)], "three breakfasts of idli outrank two of curd");
         assert_eq!(breakfast[1].last_grams, 40.0, "the breakfast spoonful, not the dinner bowl");
 
         let dinner = frequent_foods_at(&c, SINCE, 6, Some("dinner")).unwrap();
@@ -13198,6 +13354,30 @@ mod tests {
             "the last helping AT DINNER, though a later one was had at breakfast"
         );
         assert!(frequent_foods_at(&c, SINCE, 6, Some("snack")).unwrap().is_empty());
+    }
+
+    /// "Usually" is the one word Today says about these, so a sitting's list
+    /// holds only what has been had at it on more than one day. The whole list
+    /// is still every food had before.
+    #[test]
+    fn a_food_had_at_a_sitting_once_is_not_what_is_usually_had_at_it() {
+        let c = db();
+        logged_at(&c, 111, "2026-09-01", "dinner", 120.0);
+        logged_at(&c, 111, "2026-09-02", "dinner", 120.0);
+        logged_at(&c, 222, "2026-09-03", "dinner", 156.0);
+        logged_at(&c, 333, "2026-09-03", "lunch", 80.0);
+        logged_at(&c, 333, "2026-09-03", "lunch", 60.0);
+
+        let dinner = frequent_foods_at(&c, SINCE, 6, Some("dinner")).unwrap();
+        let ids: Vec<Option<i64>> = dinner.iter().map(|r| r.fdc_id).collect();
+        assert_eq!(ids, vec![Some(111)], "two dinners of curd are a habit; one of idli is not");
+        assert!(
+            frequent_foods_at(&c, SINCE, 6, Some("lunch")).unwrap().is_empty(),
+            "two helpings on ONE day are one day, not a habit"
+        );
+        let all: Vec<Option<i64>> =
+            frequent_foods(&c, SINCE, 6).unwrap().iter().map(|r| r.fdc_id).collect();
+        assert_eq!(all.len(), 3, "the whole list is every food had before, once or not: {all:?}");
     }
 
     #[test]

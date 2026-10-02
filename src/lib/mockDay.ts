@@ -7,15 +7,18 @@
  * Kept apart from `mock.ts` for the reason `mockActivity.ts` is. Like the rest
  * of the fixture it is deliberately uneven: most entries are measured, one dish
  * is only partly measured (its drumstick pods have no data), one pack carries
- * nothing at all, and a vitamin states no energy. A day where every row read
- * cleanly would hide the three states a row exists to tell apart.
+ * nothing at all, two vitamins state no energy (one on a US panel, which
+ * bounds it, one on an Indian panel, which cannot), a pot was never weighed
+ * and one entry was corrected. A day where every row read cleanly would hide
+ * the states a row exists to tell apart.
  *
  * Energy is the only nutrient modelled entry by entry. It is the one figure a
  * row, a meal and the day all print, and the one a remove and its undo visibly
- * move, so it is worked out here from the entries the way the backend does.
- * Every other nutrient on the day stays the fixed figure `mock.ts` prints. The
- * arithmetic mirrors `trackit_core::aggregate::sum` closely enough to draw the
- * screen and no more; the real one is tested in Rust.
+ * move, so it is worked out here from the entries the way the backend does —
+ * water and a dose that states no energy left out of the day as they are left
+ * out of its rows and meals (see `collect_day`). Every other nutrient on the
+ * day stays the fixed figure `mock.ts` prints. The arithmetic is in
+ * `mockEnergy.ts`.
  */
 import type {
   Bottle,
@@ -32,6 +35,8 @@ import type {
   Volume,
 } from "../types";
 import { MEALS, WHOLE_BOTTLE_NOTE } from "../types";
+import type { Part } from "./mockEnergy";
+import { dose, measured, sum, unmeasured } from "./mockEnergy";
 
 /** A local calendar date, as the app's own `todayIso` writes it — never UTC. */
 export function localIso(d: Date): string {
@@ -45,76 +50,13 @@ export function localToday(): string {
 
 const ENERGY = 1008;
 
-/* ── one component's energy, already scaled to what was had ─────────────── */
-
-/**
- * What one component contributed to the day's energy. `grams` is null for a
- * dose, which has no mass and stays out of the coverage denominator.
- */
-interface Part {
-  description: string;
-  fdc_id: number | null;
-  grams: number | null;
-  lower: number;
-  /** Null when nothing bounds it above — the component is unmeasured. */
-  upper: number | null;
-  covered: boolean;
-  /** False when nothing at all is known about it, so the row can say so. */
-  has_data: boolean;
-}
-
-function measured(description: string, fdc_id: number | null, grams: number, kcal: number): Part {
-  return { description, fdc_id, grams, lower: kcal, upper: kcal, covered: true, has_data: true };
-}
-
-function unmeasured(description: string, grams: number): Part {
-  return { description, fdc_id: null, grams, lower: 0, upper: null, covered: false, has_data: false };
-}
-
-/** `aggregate::sum` for energy, and nothing more. */
-function sum(parts: Part[]): DailyTotal {
-  let lower = 0;
-  let upper: number | null = 0;
-  let mass = 0;
-  let massCovered = 0;
-  let covered = 0;
-  let doses = 0;
-  let dosesCovered = 0;
-  let supLower = 0;
-  let supUpper: number | null = 0;
-  for (const p of parts) {
-    lower += p.lower;
-    upper = upper === null || p.upper === null ? null : upper + p.upper;
-    if (p.covered) covered += 1;
-    if (p.grams === null) {
-      doses += 1;
-      supLower += p.lower;
-      supUpper = supUpper === null || p.upper === null ? null : supUpper + p.upper;
-      if (p.covered) dosesCovered += 1;
-    } else {
-      mass += p.grams;
-      if (p.covered) massCovered += p.grams;
-    }
-  }
-  return {
-    lower,
-    upper,
-    coverage: mass > 0 ? massCovered / mass : null,
-    items_total: parts.length,
-    items_covered: covered,
-    from_supplements:
-      doses > 0
-        ? { lower: supLower, upper: supUpper, doses_total: doses, doses_covered: dosesCovered }
-        : null,
-  };
-}
-
 /* ── the log ────────────────────────────────────────────────────────────── */
 
 interface Logged {
   entry: LogEntry;
   parts: Part[];
-  recipe: { name: string; yield_g: number; servings: number | null } | null;
+  /** `weighed` is for a pot: whether its yield was a weighing (see SnapRecipe). */
+  recipe: { name: string; yield_g: number; servings: number | null; weighed: boolean | null } | null;
   /** When it was removed, in milliseconds, or null while it is on the day. */
   removedAt: number | null;
   basis: SnapshotBasis;
@@ -163,7 +105,7 @@ function plain(id: string, meal: Meal, description: string, grams: number, kcal:
   return logged(e, [measured(description, 168874, grams, kcal)]);
 }
 
-/** A dish portioned out of a recipe, one part per ingredient. */
+/** A dish portioned out of a recipe or, with `pot`, out of a pot that was cooked. */
 function dish(
   id: string,
   meal: Meal,
@@ -172,11 +114,13 @@ function dish(
   recipe: NonNullable<Logged["recipe"]>,
   parts: Part[],
   t: Tags,
+  pot = false,
 ): Logged {
   const e = {
     ...blank(id, meal, description),
-    source_kind: "recipe" as const,
-    recipe_id: `r-${id}`,
+    source_kind: pot ? ("cook" as const) : ("recipe" as const),
+    recipe_id: pot ? null : `r-${id}`,
+    cook_id: pot ? `k-${id}` : null,
     grams,
     origin: t.origin ?? null,
     cuisine: t.cuisine ?? null,
@@ -221,7 +165,7 @@ function water(b: Bottle, grams: number, whole = false, id?: string): Logged {
 const LOG: Logged[] = [
   plain("e1", "breakfast", "Idli, steamed rice cake", 156, 228, { cuisine: "South Indian", origin: "home" }),
   // Partly measured: nothing knows drumstick pods, so the dish reads "≥".
-  dish("e2", "breakfast", "Sambar, lentil and vegetable stew", 210, { name: "Sambar", yield_g: 1680, servings: 8 }, [
+  dish("e2", "breakfast", "Sambar, lentil and vegetable stew", 210, { name: "Sambar", yield_g: 1680, servings: 8, weighed: null }, [
     measured("Lentils, toor, raw", 172420, 48, 165),
     unmeasured("Drumstick pods, raw", 70),
     measured("Tamarind pulp", 168196, 18, 43),
@@ -231,20 +175,24 @@ const LOG: Logged[] = [
   // figure, and nothing a row should print as energy.
   logged(
     { ...blank("s1", "breakfast", "Vitamin D3, 1,000 IU"), source_kind: "supplement", supplement_id: "sup1", units: 1 },
-    [{
-      description: "Vitamin D3 — 1 off the panel, 14 bounded by what the panel must declare, 32 the panel does not mention",
-      fdc_id: null, grams: null, lower: 0, upper: 5, covered: true, has_data: true,
-    }],
+    [dose("Vitamin D3 — 1 off the panel, 14 bounded by what the panel must declare, 32 the panel does not mention", 0, 5, true)],
   ),
-  // Mostly measured: the ghee line has no data, which is 12 g of 219.
-  dish("e4", "lunch", "Dal tadka (urad and toor)", 285, { name: "Dal tadka", yield_g: 1140, servings: 4 }, [
+  // An Indian panel bounds nothing it leaves out, so its energy is simply not
+  // known — and still not food: it stays off the day as it stays off the row.
+  logged(
+    { ...blank("s2", "breakfast", "Vitamin B12, 500 mcg"), source_kind: "supplement", supplement_id: "sup2", units: 1 },
+    [dose("Vitamin B12 — 1 off the panel, 46 the panel does not mention", 0, null, false)],
+  ),
+  // Mostly measured: the ghee line has no data, which is 12 g of 219. Out of a
+  // pot nobody weighed, so the portion was divided by the recipe's estimate.
+  dish("e4", "lunch", "Dal tadka (urad and toor)", 285, { name: "Dal tadka", yield_g: 1140, servings: null, weighed: false }, [
     measured("Lentils, urad, raw", 172421, 62, 211),
     measured("Lentils, toor, raw", 172420, 38, 130),
     measured("Onions, raw", 170000, 45, 18),
     measured("Tomatoes, red, ripe", 170457, 60, 11),
     unmeasured("Ghee", 12),
     measured("Turmeric, ground", 170933, 2, 6),
-  ], { cuisine: "North Indian", origin: "home" }),
+  ], { cuisine: "North Indian", origin: "home" }, true),
   plain("e5", "lunch", "Chapati, whole wheat", 96, 285, { cuisine: "North Indian", origin: "home" }),
   plain("e6", "lunch", "Bhindi masala", 168, 156, { cuisine: "North Indian", origin: "home" }),
   plain("e7", "lunch", "Curd, plain whole milk", 120, 73, { origin: "home" }),
@@ -260,7 +208,20 @@ const LOG: Logged[] = [
   // from the uncalibrated bottle, so both readings of a volume are on show.
   water(BOTTLES[0], 884, false, "w1"),
   water(BOTTLES[1], 612, false, "w2"),
+  // Yesterday, from before values were frozen: worked out afterwards, which
+  // its row says.
+  backfilled(plain("y1", "breakfast", "Upma, semolina", 210, 248, { cuisine: "South Indian", origin: "home" })),
 ];
+// The curd was weighed in the wrong bowl and set right: a correction, dated.
+corrected(LOG.find((l) => l.entry.id === "e7")!);
+
+function backfilled(l: Logged): Logged {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  l.entry.logged_on = localIso(d);
+  l.basis = "backfilled";
+  return l;
+}
 
 /* ── what get_day reads ─────────────────────────────────────────────────── */
 
@@ -270,8 +231,13 @@ export function dayEntries(iso: string): LogEntry[] {
   return live(iso).map((l) => ({ ...l.entry }));
 }
 
-/** Null for a dose whose panel states no energy, exactly as `collect_day` decides it. */
+/**
+ * Null for what is not food, exactly as `collect_day` decides it: water, and a
+ * dose whose panel states no energy. (The backend also keeps a dose that
+ * prints only its protein; the fixture models energy alone.)
+ */
 function energyOf(l: Logged): DailyTotal | null {
+  if (l.entry.source_kind === "water") return null;
   const t = sum(l.parts);
   return l.entry.source_kind === "supplement" && t.lower <= 0 ? null : t;
 }
@@ -294,6 +260,10 @@ export function dayBreakdowns(iso: string): EntryBreakdown[] {
     recipe_name: l.recipe?.name ?? null,
     recipe_yield_g: l.recipe?.yield_g ?? null,
     recipe_servings: l.recipe?.servings ?? null,
+    recipe_yield_weighed: l.recipe?.weighed ?? null,
+    basis: l.basis,
+    frozen_at: l.frozenAt,
+    corrected_at: l.correctedAt,
     energy: energyOf(l),
   }));
 }
@@ -310,10 +280,14 @@ export function dayMeals(iso: string): MealEnergy[] {
   return out;
 }
 
-/** The day's energy, from every live entry — doses included, as the day's is. */
-export function dayEnergy(iso: string): DailyTotal | null {
-  const all = live(iso);
-  return all.length === 0 ? null : sum(all.flatMap((l) => l.parts));
+/**
+ * The day's energy, from every entry that is food — a softgel that prints its
+ * calories included, water and a vitamin not — so it is its meals added up.
+ * An empty day is the empty sum, as the backend's is: nothing to count, which
+ * reads "—" and never a measured 0.
+ */
+export function dayEnergy(iso: string): DailyTotal {
+  return sum(live(iso).filter((l) => energyOf(l) !== null).flatMap((l) => l.parts));
 }
 
 /* ── correcting an entry ────────────────────────────────────────────────── */

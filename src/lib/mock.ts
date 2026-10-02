@@ -173,14 +173,22 @@ const MACRO_RANGES: MacroRange[] = [
 
 function day(iso: string): DayView {
   // The day's energy follows its entries, so a remove and its undo move the
-  // figure the way they do in the app. Everything else is the fixed fixture.
+  // figure the way they do in the app. Everything else is the fixed fixture —
+  // except on a day with no food on it at all, where the macronutrients are
+  // the same empty sum energy is, rather than the fixture's figures for a day
+  // that was eaten.
   const energy = dayEnergy(iso);
+  const nothingEaten = energy.items_total === 0;
+  const fromEntries = (t: NutrientTotal): NutrientTotal =>
+    t.id === 1008 || (nothingEaten && (t.id === 1003 || t.id === 1004 || t.id === 1005))
+      ? { ...t, total: energy }
+      : t;
   return {
     logged_on: iso,
     entries: dayEntries(iso),
     breakdowns: dayBreakdowns(iso),
     meals: dayMeals(iso),
-    totals: SPECS.map(total).map((t) => (t.id === 1008 && energy !== null ? { ...t, total: energy } : t)),
+    totals: SPECS.map(total).map(fromEntries),
     energy_target: ENERGY_TARGET,
     macro_ranges: MACRO_RANGES,
   };
@@ -343,22 +351,27 @@ const FREQUENT: FrequentFood[] = [
 ];
 
 /**
- * Which sittings each of those has been had at, for `frequent_foods` with a
- * meal. Uneven on purpose: curd at every meal, ghee only at dinner, and
- * nothing at all as a snack — so a meal's short list, and an empty one, are
- * both reachable in a browser.
+ * What each sitting has had on more than one day, most days first, with the
+ * last helping AT that sitting — the two things `frequent_foods_at` narrows
+ * for a meal, so the chips under "Usually" open on the amount the app would
+ * open them on (curd is a 150 g bowl at breakfast and the 1,200 g pot's worth
+ * only in the whole list). Uneven on purpose: nothing at all as a snack, so a
+ * meal's short list and an empty one are both reachable in a browser.
  */
-const FREQUENT_AT: Record<string, Meal[]> = {
-  "food:168874": ["lunch", "dinner"],
-  "food:172421": ["lunch"],
-  "food:171287": ["breakfast", "lunch", "dinner"],
-  "food:171705": ["dinner"],
-  "food:170554": ["lunch", "dinner"],
+const FREQUENT_AT: Record<Meal, [key: string, grams: number][]> = {
+  breakfast: [["food:171287", 150]],
+  lunch: [["food:172421", 60], ["food:168874", 120], ["food:170554", 90]],
+  dinner: [["food:168874", 85], ["food:171287", 200], ["food:171705", 12]],
+  snack: [],
 };
 
 function frequent(limit: number, meal: Meal | null): FrequentFood[] {
-  const rows = meal === null ? FREQUENT : FREQUENT.filter((f) => FREQUENT_AT[f.key]?.includes(meal));
-  return rows.slice(0, limit);
+  if (meal === null) return FREQUENT.slice(0, limit);
+  return FREQUENT_AT[meal].slice(0, limit).flatMap(([key, grams]) => {
+    const f = FREQUENT.find((x) => x.key === key);
+    // `fmtAmount`'s way of writing a weight, which is the label's whole job.
+    return f ? [{ ...f, last_grams: grams, last_amount_label: `${grams.toLocaleString("en-US")} g` }] : [];
+  });
 }
 
 /* ── the library ────────────────────────────────────────────────────────── */

@@ -222,7 +222,8 @@ export type Volume =
  * The `tare_note` of a water entry logged as a whole bottle without a scale —
  * `store::WHOLE_BOTTLE_NOTE` in Rust, which writes it. Matched against rather
  * than inferred from a null `gross_g`, because an amount corrected by hand
- * carries no reading either, and that is a different fact.
+ * carries no reading either, and that is a different fact. A Rust test reads
+ * this line and fails if the two sentences ever differ by a character.
  */
 export const WHOLE_BOTTLE_NOTE = "whole bottle, not weighed";
 
@@ -254,15 +255,34 @@ export interface EntryBreakdown {
   recipe_yield_g: number | null;
   recipe_servings: number | null;
   /**
+   * For a portion of a pot, whether `recipe_yield_g` was the pot weighed —
+   * as it stood when the portion was taken. False means the portion was
+   * divided by the recipe's estimate, which its row says ("pot not
+   * weighed"). Null for a recipe, which has no pot, and for an older portion
+   * whose pot could not be matched back up: not recorded, so not claimed.
+   */
+  recipe_yield_weighed: boolean | null;
+  /**
+   * How the values came to be what they are: frozen as the entry was logged,
+   * worked out later for an entry logged before freezing existed, or changed
+   * on purpose. Only "logged" is a record of what was believed at the time,
+   * so the other two are said on the row and on the sheet.
+   */
+  basis: SnapshotBasis;
+  frozen_at: string;
+  corrected_at: string | null;
+  /**
    * This entry's own energy, in kcal, summed exactly the way the day's is —
    * so it reads "228", "≥ 112" or "—" by the same rule, and the rows of a day
    * add up to the day. Read it through the same three states as any total:
    * `coverage` of 0 is unmeasured ("—"), never 0 kcal.
    *
-   * Null for a supplement whose panel states no energy, which is almost all of
-   * them: a tablet is not a zero-calorie food, so it gets no figure at all. A
-   * softgel whose label prints its calories keeps them, with `coverage` null
-   * (a dose has no mass) and `from_supplements` set.
+   * Null for what is not food, which the day's energy leaves out too: water,
+   * and a supplement whose panel states neither energy nor protein,
+   * carbohydrate or fat — almost all of them. A tablet is not a zero-calorie
+   * food, so it gets no figure at all. A softgel whose label prints its
+   * calories keeps them, with `coverage` null (a dose has no mass) and
+   * `from_supplements` set.
    */
   energy: DailyTotal | null;
 }
