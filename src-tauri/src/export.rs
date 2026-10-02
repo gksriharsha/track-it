@@ -127,6 +127,31 @@ pub struct ExportWaterRow {
     pub measured: bool,
 }
 
+/// One activity session, on a sheet the importer never looks at (D26).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ExportActivityRow {
+    pub logged_on: String,
+    pub kind: String,
+    pub label: Option<String>,
+    pub minutes: Option<f64>,
+    pub effort: Option<String>,
+    /// How many sets a strength session holds; they are on the sets sheet.
+    pub sets: usize,
+    pub note: Option<String>,
+}
+
+/// One set of a strength session, under the name it was logged with.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ExportSetRow {
+    pub logged_on: String,
+    pub exercise: String,
+    /// 1 for the first set of this lift in its session.
+    pub set: usize,
+    pub reps: Option<u32>,
+    pub load_kg: Option<f64>,
+    pub seconds: Option<u32>,
+}
+
 /// Everything one export covers, decided.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ExportLog {
@@ -137,6 +162,8 @@ pub struct ExportLog {
     pub rows: Vec<ExportLogRow>,
     pub doses: Vec<ExportDoseRow>,
     pub water: Vec<ExportWaterRow>,
+    pub activities: Vec<ExportActivityRow>,
+    pub sets: Vec<ExportSetRow>,
     /// How many (entry, nutrient) pairs were left blank because the entry's
     /// frozen value for that nutrient was not exactly known.
     ///
@@ -279,6 +306,8 @@ fn assemble(conn: &rusqlite::Connection, from: &str, to: &str) -> Result<ExportL
         rows: Vec::new(),
         doses: Vec::new(),
         water: Vec::new(),
+        activities: Vec::new(),
+        sets: Vec::new(),
         blanks: 0,
         rows_without_values: 0,
         unexportable: 0,
@@ -347,6 +376,41 @@ fn assemble(conn: &rusqlite::Connection, from: &str, to: &str) -> Result<ExportL
                 nutrients,
             });
         }
+    }
+
+    // Activity is read whole rather than per logged day: `days` counts days
+    // with food on them, and a day with only a walk on it is still a walk.
+    for a in crate::activity::between(conn, from, to)? {
+        let mut seen: Vec<(String, usize)> = Vec::new();
+        for s in &a.sets {
+            let n = match seen.iter_mut().find(|(id, _)| *id == s.exercise_id) {
+                Some((_, n)) => {
+                    *n += 1;
+                    *n
+                }
+                None => {
+                    seen.push((s.exercise_id.clone(), 1));
+                    1
+                }
+            };
+            out.sets.push(ExportSetRow {
+                logged_on: a.logged_on.clone(),
+                exercise: s.exercise_name.clone(),
+                set: n,
+                reps: s.reps,
+                load_kg: s.load_kg,
+                seconds: s.seconds,
+            });
+        }
+        out.activities.push(ExportActivityRow {
+            logged_on: a.logged_on,
+            kind: a.kind,
+            label: a.label,
+            minutes: a.minutes,
+            effort: a.effort,
+            sets: a.sets.len(),
+            note: a.note,
+        });
     }
 
     Ok(out)
@@ -755,6 +819,40 @@ mod tests {
     /// is the only guard worth having across a boundary neither compiler sees.
     /// A parse that finds nothing is itself a failure: this test refusing to
     /// run quietly would put us straight back where we started.
+    #[test]
+    fn a_day_with_only_a_walk_on_it_still_reaches_the_file() {
+        use crate::activity::{add_set, save, ActivityInput, ExerciseRef, SetInput};
+        let c = user_db();
+        let today = store::today_iso(&c).unwrap();
+        save(
+            &c,
+            ActivityInput {
+                id: None,
+                logged_on: today.clone(),
+                kind: "walk".into(),
+                label: Some("Evening walk".into()),
+                minutes: Some(35.0),
+                effort: Some("moderate".into()),
+                note: None,
+            },
+        )
+        .unwrap();
+        let squat = ExerciseRef { id: None, name: "Squat".into(), load: "weight".into() };
+        let lift = SetInput { reps: Some(5), load_kg: Some(60.0), seconds: None };
+        let a = add_set(&c, None, &today, &squat, lift).unwrap();
+        add_set(&c, Some(&a.activity_id), &today, &squat, lift).unwrap();
+
+        let log = assemble(&c, &today, &today).unwrap();
+        assert_eq!(log.days, 0, "no food that day, and `days` still counts food");
+        assert_eq!(log.activities.len(), 2);
+        assert_eq!(log.activities[0].label.as_deref(), Some("Evening walk"));
+        assert_eq!(log.activities[1].sets, 2);
+        assert_eq!(
+            log.sets.iter().map(|s| (s.exercise.as_str(), s.set)).collect::<Vec<_>>(),
+            vec![("Squat", 1), ("Squat", 2)]
+        );
+    }
+
     #[test]
     fn the_two_label_lists_cannot_drift_apart() {
         let ts = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -10,6 +10,7 @@ import { plural, read, unassessable } from "../lib/nutrient";
 import TagPicker from "../components/TagPicker";
 import DayTabs from "../components/DayTabs";
 import { QuickAddStrip, UndoToast, useQuickLog } from "../components/QuickLog";
+import ActivityCard from "../components/ActivityCard";
 
 interface Props {
   day: DayView | null;
@@ -29,6 +30,9 @@ interface Props {
   onAddFood: () => void;
   /** The profile, reached from the hero when there is no target to show. */
   onOpenProfile: () => void;
+  /** The Add screen's Activity tab, and a session already on this day. */
+  onAddActivity: () => void;
+  onOpenActivity: (id: string) => void;
 }
 
 /**
@@ -499,6 +503,11 @@ export default function Today(p: Props) {
           weighing — and the empty state is exactly when the arithmetic has
           least to offer. Last, because it is a footnote to the day and not a
           headline: the screen still opens on what was eaten. */}
+      {/* Outside the branch for the note's reason: a day with nothing eaten
+          on it can still have had a walk in it. Before the note, because what
+          was done is a fact about the day and the note is a footnote to it. */}
+      <ActivityCard date={p.date} canAdd onAdd={p.onAddActivity} onOpen={p.onOpenActivity} />
+
       <DayNote date={p.date} />
 
       <UndoToast last={q.last} onUndo={q.undo} />

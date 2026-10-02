@@ -1,3 +1,4 @@
+mod activity;
 mod awake;
 mod backup;
 mod db;
@@ -4566,7 +4567,17 @@ pub fn run() {
             remove_sealed_backup,
             restore_backup,
             unlock_log,
-            take_widget_landing
+            take_widget_landing,
+            activity::list_activities,
+            activity::get_activity,
+            activity::save_activity,
+            activity::delete_activity,
+            activity::add_activity_set,
+            activity::update_activity_set,
+            activity::delete_activity_set,
+            activity::recent_activities,
+            activity::find_exercises,
+            activity::get_activity_range
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

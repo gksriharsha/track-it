@@ -205,6 +205,12 @@ class MainActivity : TauriActivity() {
       val bars = insets.getInsets(
         WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
       )
+      // The keyboard, separately: an edge-to-edge window is not resized when it
+      // opens, so the page is the full height with the keyboard drawn over its
+      // bottom third. Measured on the emulator: innerHeight and
+      // visualViewport.height both stay 808 with it up. A sheet with a search
+      // field (the exercise picker) uses this to end above the keys.
+      val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
       val d = resources.displayMetrics.density
       fun css(px: Int) = if (d > 0f) (px / d).toInt() else px
       webView.evaluateJavascript(
@@ -212,7 +218,8 @@ class MainActivity : TauriActivity() {
           "s.setProperty('--sys-top','${css(bars.top)}px');" +
           "s.setProperty('--sys-right','${css(bars.right)}px');" +
           "s.setProperty('--sys-bottom','${css(bars.bottom)}px');" +
-          "s.setProperty('--sys-left','${css(bars.left)}px');}catch(e){}})()",
+          "s.setProperty('--sys-left','${css(bars.left)}px');" +
+          "s.setProperty('--sys-ime','${css(ime.bottom)}px');}catch(e){}})()",
         null,
       )
       // Passed on rather than consumed: this is a measurement, not a claim to

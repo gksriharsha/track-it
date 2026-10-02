@@ -30,6 +30,21 @@
   --over: #b4553a;
   --over-wash: #f8ede9;
 
+  /* Activity (D26): the one cool hue in a warm palette, so a walk and a meal
+     read apart at a glance on the same screen. Heather rather than blue, which
+     every tracking app spends on water. The same saturation and value as the
+     sage, so the two sit together. It names an area and grades nothing in it:
+     effort is never coloured by level. */
+  --act: #675086;
+  --act-ink: #564370;
+  --act-wash: #f2eef6;
+  --on-act: #ffffff;
+  /* The heather mixed into its own wash, precomputed rather than color-mix(),
+     which Android WebView before 111 does not read at all. */
+  --act-line: #a697b8;
+  --act-rule: #d9d2e2;
+  --act-press: #e4dee9;
+
   --focus: #4a7c59;
 
   /* 4px base scale */
@@ -77,6 +92,8 @@
   --sys-right: 0px;
   --sys-bottom: 0px;
   --sys-left: 0px;
+  /* The software keyboard, when it is up (Android only; see MainActivity). */
+  --sys-ime: 0px;
   --safe-top: max(env(safe-area-inset-top, 0px), var(--sys-top));
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--sys-bottom));
 }
@@ -97,6 +114,13 @@
     --on-accent: #15140f;
     --over: #d98a6f;
     --over-wash: #302019;
+    --act: #b4a2cd;
+    --act-ink: #c9bade;
+    --act-wash: #25212c;
+    --on-act: #15140f;
+    --act-line: #74688a;
+    --act-rule: #3f3849;
+    --act-press: #332e3c;
     --focus: #85b393;
     --lift: none;
     --lift-hi: none;
@@ -2694,3 +2718,326 @@ button.row:hover { background: var(--sunken); }
   line-height: 1.6;
   color: var(--ink-2);
 }
+
+/* ── Activity (D26) ──────────────────────────────────────────
+   The Add screen's Activity tab, the Today card and the Trends
+   section. Everything here keys off the `--act` family, so a
+   session reads as a different kind of record from a meal
+   without a single new shape: the same chips, cards, rows and
+   strip, in the other colour.
+   ───────────────────────────────────────────────────────────── */
+.chip--act[aria-pressed="true"],
+.activity .chip[aria-pressed="true"] { background: var(--act); border-color: var(--act); color: var(--on-act); }
+.activity .btn:not(.btn--quiet):not(.btn--danger):not(.btn--again) { background: var(--act); color: var(--on-act); }
+.activity .btn:not(.btn--quiet):not(.btn--danger):not(.btn--again):hover { background: var(--act-ink); }
+.activity .btn:disabled { opacity: 0.5; cursor: default; }
+.activity .link, .activity-card .link { color: var(--act-ink); }
+.activity .link:hover, .activity-card .link:hover { color: var(--act); background: var(--act-wash); }
+.activity .again__amt { background: var(--act-wash); color: var(--act-ink); }
+.activity .again__tile[aria-busy="true"] { border-color: var(--act); }
+.activity .chip:disabled { opacity: 0.4; cursor: default; }
+
+.activity { display: flex; flex-direction: column; gap: var(--s5); max-width: var(--measure); width: 100%; margin: 0 auto; }
+.activity__q { font-size: 15px; margin-bottom: var(--s3); }
+.activity__form { display: flex; flex-direction: column; gap: var(--s4); }
+.activity__row { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); align-items: center; gap: var(--s3); }
+.activity__row:has(.activity__hint) { align-items: start; }
+.activity__row:has(.activity__hint) > .activity__label { padding-top: var(--s2); }
+.activity__label { color: var(--ink-2); font-size: 14px; }
+.activity__hint { margin: var(--s2) 0 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
+.activity__minutes { justify-self: start; height: 44px; }
+.activity__minutes .stepper__seg { width: 44px; font-size: 18px; }
+.activity__minutes .stepper__mid { min-width: 0; padding: 0 var(--s3); gap: var(--s1); }
+.activity__mins { width: 4ch; border: none; background: transparent; text-align: right; font-size: 17px; font-weight: 550; }
+.activity__mins:focus { outline: none; }
+.activity__unit { color: var(--ink-3); font-size: 14px; }
+
+@media (max-width: 420px) {
+  .activity__row { grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
+  .activity__row:has(.activity__hint) > .activity__label { padding-top: 0; }
+}
+
+/* The ledger: sets written left to right, the way a notebook reads.
+   The run of figures is the one thing on this screen with any presence. */
+.ledger { display: flex; flex-direction: column; gap: var(--s5); }
+.ledger .card__head { margin-bottom: 0; }
+.lift { display: flex; flex-direction: column; gap: var(--s2); }
+.lift + .lift { padding-top: var(--s4); border-top: 1px solid var(--line); }
+.lift__head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+.lift__name { font-size: 15px; }
+.lift__last { color: var(--ink-3); font-size: 12px; }
+.lift__sets { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin: var(--s1) 0 var(--s1) calc(var(--s2) * -1); }
+.lift__set {
+  padding: var(--s1) var(--s2); border-radius: var(--r-sm);
+  font-size: 18px; font-weight: 500; letter-spacing: -0.01em; color: var(--ink);
+  min-height: 40px;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+.lift__set:hover { background: var(--act-wash); }
+.lift__set[aria-pressed="true"] { background: var(--act-wash); color: var(--act-ink); box-shadow: inset 0 -2px 0 var(--act); }
+/* One row however narrow the phone: the fields share what the button leaves,
+   and the unit sits inside its field rather than beside it. */
+.lift__entry {
+  display: grid; align-items: center; gap: var(--s2);
+  grid-template-columns: minmax(0, 7rem) auto minmax(0, 7rem) auto;
+  justify-content: start;
+}
+.lift__entry--held { grid-template-columns: minmax(0, 7rem) auto; }
+.lift__entry > .lift__drop { grid-column: 1 / -1; justify-self: start; }
+.lift__pair { position: relative; display: block; min-width: 0; }
+.lift__field {
+  width: 100%; text-align: right; min-height: 44px; font-size: 16px;
+  padding: var(--s2) 2.6em var(--s2) var(--s2);
+}
+.lift__unit {
+  position: absolute; right: var(--s3); top: 50%; transform: translateY(-50%);
+  color: var(--ink-3); font-size: 13px; pointer-events: none;
+}
+.lift__x { color: var(--ink-3); font-size: 15px; }
+.btn--again {
+  background: transparent; color: var(--act-ink);
+  border: 1.5px solid var(--act); min-height: 44px; padding: 0 var(--s4);
+}
+.activity .btn.btn--again { background: transparent; color: var(--act-ink); }
+.activity .btn.btn--again:hover:not(:disabled) { background: var(--act-wash); }
+.lift__drop { min-height: 44px; }
+
+
+/* Today: the same card, tinted, so it is never mistaken for food. */
+.activity-card { background: var(--act-wash); box-shadow: none; }
+.activity-card .card__head { margin-bottom: 0; }
+.activity-card .rows { margin-top: 0; }
+.activity-card__row { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
+.activity-card .row + .row { border-top-color: var(--act-rule); }
+button.activity-card__row:hover { background: var(--act-press); }
+/* The day's rough energy line: the card's own rule colour, and the body ink
+   rather than the faintest, because it carries the one caveat that matters. */
+.activity-card__foot { border-top-color: var(--act-rule); color: var(--ink-2); line-height: 1.5; }
+@media (prefers-color-scheme: dark) { .activity-card { border-color: var(--act-rule); } }
+@media (min-width: 1080px) {
+  /* Down the wide column, under the dishes: the day reads what was eaten,
+     then what was done. */
+  .day-ate ~ .activity-card { grid-column: 1; grid-row: 3; }
+  .activity-card { align-self: start; }
+  /* On a day with nothing eaten the empty state spans the grid, and the card
+     follows it rather than being pinned above it. */
+  .screen--today > .empty ~ .activity-card { grid-column: 1; }
+}
+
+/* Trends: the strip and its middle mark in the activity colour. */
+.stats__block--act .spread__band { background: var(--act-wash); }
+.stats__block--act .spread__mid { background: var(--act); }
+.stats__block--act .link { color: var(--act-ink); }
+.stats__list--one { display: block; }
+
+/* Desktop with a pointer: denser, the way the rest of the app is there. */
+@media (min-width: 721px) and (pointer: fine) {
+  .lift__field, .lift__drop, .btn--again { min-height: 34px; }
+  .lift__set { min-height: 32px; font-size: 17px; }
+  .activity__minutes { height: 36px; }
+  .activity__minutes .stepper__seg { width: 34px; font-size: 16px; }
+}
+
+/* ── Exercise drawings (D27) ─────────────────────────────────
+   Everkinetic's line art, used as a mask over the ink colour so
+   it themes with the app. Two frames stacked; when it plays, one
+   fades to the other and back, like a flip-book. It plays only
+   on screen, never in a list, and never under reduced motion.
+   ───────────────────────────────────────────────────────────── */
+.figure {
+  position: relative; display: block; flex: none;
+  width: 76px; height: 88px; color: var(--ink);
+}
+.figure--lg { width: 120px; height: 140px; }
+.figure__frame {
+  position: absolute; inset: 0;
+  background: currentColor;
+  -webkit-mask: var(--src) center / contain no-repeat;
+  mask: var(--src) center / contain no-repeat;
+}
+/* Twice, then rest on the start frame: under five seconds of motion each time
+   the figure comes on screen, so it never needs a control to stop it. */
+.figure__frame--a { animation: figure-a 2.4s ease-in-out 2 both; }
+.figure__frame--b { opacity: 0; animation: figure-b 2.4s ease-in-out 2 both; }
+.figure--still .figure__frame--a { animation: none; }
+@keyframes figure-a { 0%, 40% { opacity: 1; } 50%, 90% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes figure-b { 0%, 40% { opacity: 0; } 50%, 90% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .figure__frame--a { animation: none; }
+  .figure__frame--b { animation: none; opacity: 0; }
+}
+
+.lift__head--art { display: flex; align-items: flex-start; gap: var(--s3); flex-wrap: nowrap; }
+.lift__titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lift__muscles { color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
+.lift__art {
+  border-radius: var(--r-md); padding: var(--s1);
+  background: var(--sunken);
+  transition: background-color 140ms ease-out;
+}
+.lift__art[aria-expanded="true"] { background: var(--act-wash); }
+/* Hover only where there is a pointer: on a phone a tap leaves :hover stuck,
+   and the tint would read as "open". */
+@media (hover: hover) { .lift__art:hover { background: var(--act-wash); } }
+.lift__art[aria-expanded="true"] .figure { color: var(--act-ink); }
+.lift__how {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3); border-radius: var(--r-md); background: var(--sunken);
+}
+.frames { display: flex; gap: var(--s4); justify-content: center; flex-wrap: wrap; }
+.frames__one { display: flex; flex-direction: column; align-items: center; gap: var(--s1); }
+.frames__label { color: var(--ink-3); font-size: 12px; }
+.lift__caption { margin: 0; color: var(--ink-2); font-size: 12.5px; text-align: center; }
+.lift__credit { margin: 0; color: var(--ink-3); font-size: 11px; text-align: center; }
+
+
+/* ── The session's foot, and the way to the next lift (D27) ─── */
+.addlift {
+  display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  width: 100%; min-height: 52px; padding: var(--s3) var(--s4);
+  border: 1.5px solid var(--act-line);
+  border-radius: var(--r-md); background: var(--act-wash);
+  color: var(--act-ink); font-size: 15px; font-weight: 600;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out;
+}
+.addlift__plus { font-size: 20px; line-height: 1; font-weight: 500; }
+@media (hover: hover) { .addlift:hover { border-color: var(--act); } }
+.ledger__how { margin: calc(var(--s3) * -1) 0 0; }
+.ledger__foot {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding-top: var(--s4); border-top: 1px solid var(--line);
+}
+.ledger__mins { display: flex; align-items: center; gap: var(--s3); }
+.ledger__mins .lift__pair { width: 6.5rem; }
+.ledger__commit { margin: 0 0 0 auto; }
+
+/* ── The exercise sheet ──────────────────────────────────────
+   Full screen on a phone, because a search field, a row of
+   filters and more than two results only fit above a keyboard
+   that way; a dialog where there is a pointer. Above the bar and
+   the toast, below the ⌘K palette.
+   ───────────────────────────────────────────────────────────── */
+.xsheet { position: fixed; inset: 0; z-index: 70; display: flex; }
+.xsheet__box {
+  /* min-width 0: as a flex item it would otherwise grow to the width of the
+     one-line chip row inside it, and push the whole sheet off the screen. */
+  flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  background: var(--bg);
+  padding-top: var(--safe-top);
+}
+.xsheet__head {
+  display: flex; flex-direction: column; gap: var(--s3);
+  padding: var(--s4) var(--s4) var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.xsheet__bar { display: flex; align-items: center; justify-content: space-between; }
+.xsheet__title { font-size: 20px; letter-spacing: -0.015em; }
+.xsheet__close {
+  display: none; width: 32px; height: 32px; border-radius: var(--r-sm);
+  color: var(--ink-2); font-size: 20px; line-height: 1;
+}
+.xsheet__search { font-size: 16px; padding: var(--s3) var(--s4); background: var(--surface); }
+.xsheet__areas {
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+  margin: calc(var(--s1) * -1) calc(var(--s4) * -1); padding: var(--s1) var(--s4);
+}
+.xsheet__areas::-webkit-scrollbar { display: none; }
+.xsheet__areas .chip { flex: none; }
+.xsheet__areas .chip[aria-pressed="true"] { background: var(--act); border-color: var(--act); color: var(--on-act); }
+.xsheet__list {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--s2) 0 calc(var(--s6) + var(--safe-bottom));
+}
+.xsheet__note { margin: var(--s4); color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+.xnew__note { margin: var(--s3) 0 0; }
+
+.xgroup + .xgroup { margin-top: var(--s3); }
+.xgroup__name {
+  padding: var(--s3) var(--s4) var(--s2);
+  font-size: 13px; font-weight: 600; color: var(--ink-2);
+}
+.xrow {
+  display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center;
+  gap: var(--s3); width: 100%; min-height: 76px;
+  padding: var(--s2) var(--s4); text-align: left;
+  transition: background-color 120ms ease-out;
+}
+.xrow + .xrow { box-shadow: inset 0 1px 0 var(--line); }
+/* The keyboard's place in the list. Only where there is a pointer and keys: on a
+   phone the first row would sit there tinted, looking already chosen. */
+@media (hover: hover) and (pointer: fine) { .xrow[data-hi] { background: var(--act-wash); } }
+@media (hover: none) { .xrow:active { background: var(--act-wash); } }
+.xrow__tile {
+  position: relative; display: grid; place-items: center;
+  width: 56px; height: 60px; border-radius: var(--r-md); background: var(--sunken);
+}
+.xrow__tile .figure { width: 46px; height: 54px; color: var(--ink-2); }
+.xrow__glyph { width: 26px; height: 26px; color: var(--ink-3); }
+.xrow__text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.xrow__name { font-size: 16px; font-weight: 550; color: var(--ink); }
+.xrow__detail {
+  font-size: 13px; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.xrow__added {
+  padding: 3px var(--s2); border-radius: var(--r-pill);
+  background: var(--act-wash); color: var(--act-ink); font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+@media (hover: hover) and (pointer: fine) { .xrow[data-hi] .xrow__added { background: var(--surface); } }
+.xnew { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4); }
+.xnew__start {
+  align-self: flex-start; padding: var(--s3) 0;
+  color: var(--act-ink); font-size: 15px; font-weight: 600;
+}
+.xnew__q { margin: 0; font-size: 15px; font-weight: 600; }
+.xnew .chip[aria-pressed], .xnew .chip:focus-visible { border-color: var(--act); }
+
+/* With a pointer: a dialog over the session, not a page. */
+@media (min-width: 721px) and (pointer: fine) {
+  .xsheet { align-items: flex-start; justify-content: center; padding-top: 9vh; background: var(--scrim); }
+  .xsheet__box {
+    flex: none; width: min(560px, 92vw); max-height: min(720px, 84vh);
+    padding-top: 0; border-radius: var(--r-lg); overflow: hidden;
+    background: var(--surface); box-shadow: var(--lift-hi);
+  }
+  .xsheet__head { padding: var(--s4) var(--s5) var(--s3); }
+  .xsheet__areas { flex-wrap: wrap; margin: 0; padding: 0; overflow: visible; }
+  .xsheet__search { background: var(--bg); }
+  .xsheet__list { padding-bottom: var(--s3); }
+  .xrow { min-height: 64px; padding: var(--s1) var(--s5); }
+  .xrow__tile { width: 48px; height: 52px; }
+  .xrow__tile .figure { width: 40px; height: 46px; }
+  .xrow { grid-template-columns: 48px minmax(0, 1fr) auto; }
+  .xgroup__name { padding: var(--s3) var(--s5) var(--s1); }
+  .xnew { padding: var(--s4) var(--s5); }
+}
+@media (prefers-color-scheme: dark) and (min-width: 721px) and (pointer: fine) {
+  .xsheet__box { border: 1px solid var(--line); }
+}
+
+/* The lift's head in the ledger: a smaller tile, so the name and its one
+   reminder line sit beside it rather than wrapping down past it. */
+.lift__head--art .figure { width: 56px; height: 64px; }
+.lift__art--none { display: grid; place-items: center; width: 64px; height: 72px; flex: none; }
+.lift__art--none .xrow__glyph { width: 28px; height: 28px; }
+.lift__how-muscles { margin: 0; color: var(--ink-2); font-size: 13px; text-align: center; }
+
+/* The cross: wherever a pointer can hover — a Mac window of any width — but
+   not on Android, where even the emulator's mouse reports no hover and the
+   back gesture closes the sheet. A pointer has no back gesture. */
+@media (hover: hover) {
+  .xsheet__close { display: grid; place-items: center; }
+  .xsheet__close:hover { background: var(--sunken); color: var(--ink); }
+}
+/* Focus moved here by the app, not by Tab: no ring around the whole sheet or
+   a heading. */
+.xsheet__box:focus, .lift__name:focus { outline: none; }
+@media (min-width: 721px) and (pointer: fine) {
+  /* A pointer does not need a thumb-sized target. */
+  .addlift { min-height: 40px; padding: var(--s2) var(--s4); font-size: 14px; }
+}
+/* On a phone the sheet ends where the keyboard begins. The window is not
+   resized for it (edge to edge), so without this the bottom of the list sits
+   behind the keys and cannot be scrolled into view. */
+.xsheet__box { padding-bottom: var(--sys-ime); }
+@media (min-width: 721px) and (pointer: fine) { .xsheet__box { padding-bottom: 0; } }

@@ -133,6 +133,30 @@ const LOG: ExportLog = {
       measured: true,
     },
   ],
+  activities: [
+    {
+      logged_on: "2026-01-05",
+      kind: "walk",
+      label: "Evening walk",
+      minutes: 35,
+      effort: "moderate",
+      sets: 0,
+      note: null,
+    },
+    {
+      logged_on: "2026-01-06",
+      kind: "strength",
+      label: null,
+      minutes: null,
+      effort: null,
+      sets: 2,
+      note: null,
+    },
+  ],
+  sets: [
+    { logged_on: "2026-01-06", exercise: "Squat", set: 1, reps: 5, load_kg: 60, seconds: null },
+    { logged_on: "2026-01-06", exercise: "Squat", set: 2, reps: 5, load_kg: 62.5, seconds: null },
+  ],
   blanks: 0,
   rows_without_values: 1,
   unexportable: 0,
@@ -242,11 +266,29 @@ check(
 console.log("\nsheet order");
 
 const book = XLSX.read(bytesOf(xlsx.dataBase64), { type: "array" });
-same("the log is sheet one, and the other two sit behind it", book.SheetNames, [
+same("the log is sheet one, and the others sit behind it", book.SheetNames, [
   "Log",
   "Supplements",
   "Water",
+  "Activity",
+  "Sets",
 ]);
+check(
+  "the activity sheet names the effort in the screen's words",
+  XLSX.utils.sheet_to_csv(book.Sheets.Activity).includes("2026-01-05,Walk,Evening walk,35,Moderate,,"),
+);
+check(
+  "the sets sheet numbers each lift's sets from one",
+  XLSX.utils.sheet_to_csv(book.Sheets.Sets).includes("2026-01-06,Squat,2,5,62.5,"),
+);
+same(
+  "a period with no activity gets no activity sheets",
+  XLSX.read(
+    bytesOf(buildExportFile({ ...LOG, activities: [], sets: [] }, "xlsx").dataBase64),
+    { type: "array" },
+  ).SheetNames,
+  ["Log", "Supplements", "Water"],
+);
 check(
   "the supplement sheet carries the dose, in units and not in grams",
   XLSX.utils.sheet_to_csv(book.Sheets.Supplements).includes("Calcium tablets,2"),
@@ -283,6 +325,7 @@ check(
 );
 check("carries no dose", !csvText.includes("Calcium tablets"));
 check("carries no bottle", !csvText.includes("Steel bottle"));
+check("carries no activity", !csvText.includes("Evening walk") && !csvText.includes("Squat"));
 
 /* ── generation two is exact ──────────────────────────────────────────── */
 

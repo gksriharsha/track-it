@@ -1207,3 +1207,242 @@ an ordinary thing to do on a phone, and the table can only answer with a constra
   list, and a file this app writes is a file this app can read back. Free text has no column there
   and inventing one would put a round-trip property at risk for a field the importer would have to
   learn. Noted here as a known gap rather than settled.
+
+## D26 — What a person did, beside what they ate, counted by the week, its energy a rough figure that never reaches the day's total
+
+The user asked to add fitness tracking to the same app, and said what it should cover: activities —
+walks, runs, yoga, sport — and gym sets and reps, typed in by hand. No watch writes anything for
+them, so nothing is read from Health Connect.
+
+**Decision: two shapes of record in tables of their own, read by the week, and kept out of every
+energy figure.**
+
+A walk, a swim or a class is a length and an effort, written once. A strength session is its sets,
+each written the moment it is entered: `activities` holds the session, `activity_sets` its sets,
+`exercises` the lifts they are of. None of it is in `log_entries` — nothing about it is nutrition,
+and there is no meal, no grams and no snapshot to keep.
+
+**No activity row ever reaches the day's energy line.** "Eat back what you burned" is the figure
+most fitness apps lead with, and it is the one that turns a day into a budget. The profile's
+activity factor (D16) already counts habitual exercise once, so subtracting a session's estimate
+would count it twice. What Trends does instead is print what About you says about activity beside
+what the log shows — "lightly active, 1–3 days a week" beside "a typical week had activity on 4
+days" — so the person can keep the estimate fed with the right number. That comparison is a
+sentence with no verdict in it.
+
+**A rough energy figure per day, shown apart from that line.** At first there was none at all. The
+user asked whether exercise burns calories and whether that can be estimated, and then asked for "a
+rough daily view". So the day's Activity card on Today now gives each session "about 90 kcal", and
+its foot gives the day's sum. The foot also says what the figure is: above resting, from your weight
+and published averages, out by about a third either way, and not taken off what you ate.
+- **The method** takes the MET for the kind and the talk-test effort, less one MET for resting, and
+  multiplies it by weight and by hours (`src/lib/activityEnergy.ts`).
+  - The METs are from the 2024 Adult Compendium of Physical Activities: one entry for each kind and
+    effort, each with its 2024 code. Values the Compendium marks as estimated are flagged.
+  - Counting only the energy above resting is the Institute of Medicine's (METs − 1). It keeps the
+    figure from counting resting hours that the day's estimate already counts.
+  - Where the Compendium has no entry, the nearest general one is used and the code says so. Kathak
+    has no measured figure, so a dance session is counted as dance of its effort, not as Kathak.
+    The foot says "published averages for activities like these" rather than claiming a measurement.
+  - The error is "give or take about a third". Measured METs differ between people by about 12% at a
+    set walking or running pace and 20–28% in sports (Kozey et al. 2010), and effort here is
+    self-rated.
+  - The Adult Compendium covers ages 19–59. Older adults have a Compendium of their own, which is not
+    applied yet.
+- **It is rounded** to the nearest 10 kcal and said as "about", in the same plain type as the
+  minutes. It is never a headline and never a serif figure.
+- **No weight in About you means no figure**, rather than a made-up one from an average body.
+- **A strength session logged without a time** is counted at 2 minutes a set, and the foot says so.
+  That is half a minute of lifting and the low end of the ACSM's rest guidance, so it understates a
+  session rather than inflating it.
+- **Not done:** a weekly energy figure on Trends, and any arithmetic that sets it against food.
+
+**Effort is the talk test**: Easy (could sing), Moderate (could talk, not sing), Hard (only a few
+words). Nobody typing a walk in afterwards knows their heart rate; everybody knows whether they
+could talk. Stored under the WHO's own words — `light`, `moderate`, `vigorous` — so the reference
+line can cite the guideline without translation.
+
+**The reference is the WHO 2020 adult guideline, printed as a reference.** 150–300 minutes a week
+of moderate activity, a vigorous minute counting as two; muscle-strengthening on 2 or more days.
+Light minutes are in "time active" but not in the WHO line, because the guideline does not count
+them. Strength minutes are never aerobic minutes however hard the session was, because the
+guideline counts strength in days and folding a heavy squat into aerobic minutes answers a
+question it does not ask. The lines are hidden when the profile says the person is under 18,
+whose guideline is a different one.
+
+**Counted by the week, and only once tracking has started.** Activity happens on some days and not
+others, so a day is the wrong unit: a walk on Monday and none on Tuesday is a week with a walk in
+it, not a bad Tuesday. Weeks are rolling, ending on the period's last day, so the most recent week
+is always whole. And a week before the first activity ever logged means "not yet recorded", not
+"did nothing" — a person who started on Thursday did not have three empty weeks before it — so
+those weeks are dropped, and the one tracking began in reports how many of its days it covers. A
+quiet week after that is a real zero. The typical week is the middle of the whole weeks, taken
+for each figure separately.
+
+**A lift is summarised by what was actually lifted.** Each session's heaviest set (more reps
+breaking a tie) is that session's top set. "Usually" is the middle top set — with an even count the
+lower of the two middle ones, so it is always a set someone put on the bar, never an average of 55
+and 60 that nobody lifted. It needs three sessions. "Heaviest" is printed as a description, never
+as a record: there is no personal best, no badge, and no tonnage figure, which is one number that
+only ever wants to grow.
+
+**Consequences.**
+
+- **Schema v19.** No migration arm, for D25's reason: three new tables that reference only each
+  other. A test opens a database stamped 18 and checks it comes up at 19 with its notes and profile
+  where they were.
+- **Sets are written through.** The session row is made by its first set; removing its last set
+  removes a session with no length. A phone that kills the app between sets loses nothing, and
+  "Done" saves nothing because nothing is left to save.
+- **History keeps its names.** A set stores the lift's name as it was when written, so renaming
+  "Squat" to "Back squat" later does not rename what was lifted in March. A session edited after its
+  own day is stamped `corrected_at`, the rule `entry_snapshots.basis` keeps for food: a past that
+  changed says when it was changed.
+- **The user's own lifts rank first**, by last use, then a short bundled list of common ones
+  (`COMMON_EXERCISES`); a common lift gets a row the first time it is logged. The same order Foods
+  keeps, for the same reason.
+- **One person's.** None of the three tables is in `row_version` (D20), so nothing travels to a
+  household peer — `exercises` included for now. A library of lifts is closer to the kitchen than to
+  the log, and could join the shared list later; the sets that point at it never would. A test
+  asserts a session and a set leave nothing queued.
+- **Where it lives.** An Activity tab on the Add screen beside Water, the other thing logged to the
+  day rather than a meal, so food stays one tap away and there is no new tab or drawer row. Today
+  gets an Activity card under the dishes; Trends gets an Activity section after the food. The
+  date strip's dot stays food-only, like a note in D25.
+- **Its own colour.** The area is heather (`--act`), the one cool hue in a warm palette, so a walk
+  and a meal read apart at a glance. Not blue, which every tracking app spends on water. The colour
+  names the area and grades nothing in it: Easy, Moderate and Hard all select in the same heather.
+- **Export.** Two sheets after Water, Activity and Sets, written only when the period has some.
+  The importer reads sheet one and nothing else, so the round trip is unaffected.
+- **Not done:** Health Connect, steps, a history of body weight, activity on the Days calendar, and
+  pounds — kilograms only, matching every other weight in the app.
+
+## D27 — A lift is shown by an open drawing, captioned when it is a variant, and credited
+
+The user showed Hevy's exercise screens — a rendered figure performing each lift, the worked
+muscles tinted red — and asked whether TrackIt could have the same for the workouts it records.
+
+**Decision: Everkinetic's line drawings, two frames per lift, alternating; plus a line naming the
+muscles each lift mainly works.**
+
+**Why not Hevy's look.** Hevy's animations very probably come from a commercial catalogue
+(Gymvisual): its exercise pages embed video files named with that catalogue's ids, though neither
+company says so. Every commercial licence read for this decision allows bundling art in an app
+but forbids making the files available for download, and this repository is public and every
+merge publishes the APK as a free download. Bought art could therefore only ever be a private
+pack loaded onto the user's own phone, never in the repo or the build. The "free" datasets that
+carry the same art are not free: `hasaneyldrm/exercises-dataset` licenses its code under MIT and
+says in the same file that its media "is © Gym visual … Cloning this repository does not grant you
+any license to the media". The user offered those videos; they were declined for that reason, and
+the private-pack route remains open if the user ever buys the art.
+
+**Why Everkinetic.** Greg Priday drew one consistent set of strength lifts for everkinetic.com and
+released it under CC BY-SA 3.0 in 2010; `everkinetic/data` keeps an SVG copy. It is the only
+consistent, single-artist, openly licensed set found — wger's line art and the Wikimedia copies are
+the same drawings. CC BY-SA allows the files in a public repo and in the APK, on two conditions:
+credit, and the same licence on anything adapted. So the drawings live in their own folder,
+`src/assets/everkinetic/`, with a `LICENSE.md` and a generated `CREDITS.md`, and the licence stops
+at that folder. The credit is printed under every close-up and on the You screen.
+
+**What was changed, and only that.** `tools/everkinetic/prepare.py` removes the white page each
+drawing was traced on, fills the lines with `currentColor`, and drops the fixed size. Because the
+source is a two-colour trace of a flat image there are no hidden lines for the white to cover, so
+the result is exactly the drawing on a transparent ground. It is used as a CSS mask over the app's
+ink, so it themes in light and dark without a second set of files. No line is redrawn and no path
+is rounded — the paths use arc commands a number-rounder would corrupt, and the drawing is the
+artist's. 58 files, about 3.5 KB each compressed.
+
+**Every pairing was checked against the drawing, not the title.** Of the 32 common lifts:
+- **16 exact.**
+- **12 close variants, each with a caption that says how it is drawn**: "Drawn seated" for the
+  overhead press, "Drawn with the knees nearly straight" for the deadlift (the set has no
+  conventional deadlift; its bottom frame is the Romanian deadlift's, mirrored), "Drawn as a floor
+  bridge, without bench or bar" for the hip thrust. A picture never claims to be what it is not
+  (the same rule as no equivalence claims for foods).
+- **One shown still:** the side plank, because looping a hold reads as hips dipping and lifting.
+- **Three drawn for TrackIt:** face pull, kettlebell swing and plank. The set has nothing a lifter
+  would recognise as any of them. At first they got no drawing rather than a near miss, and showed
+  a barbell in the tile; the user read that as a dumbbell and as something missing. So they were
+  drawn for this app, in `src/assets/figures/`, to Everkinetic's line weight, proportions and
+  on-screen scale, which were measured from the shipped files, not judged by eye. They are not
+  traced from or adapted from Priday's drawings. They are therefore credited "Drawn for TrackIt."
+  and never under his name or his licence, and the You screen's credit line says which three are
+  not his.
+  - **Plank** is the ordinary forearm plank, one held frame, like the side plank. A reviewer
+    compared it with Everkinetic's push-up top frame, which is a straight-arm plank, captioned. The
+    forearm plank is what "plank" means in a gym, and the push-up row would have shown the same
+    picture twice.
+  - **Kettlebell swing** is the two-handed Russian swing: the hike (a hinge, the bell between the
+    thighs) and the float (standing tall, arms out at chest height).
+  - **Face pull** is a standing cable face pull with a rope, turned a little toward the viewer so
+    the high, flared elbow shows at halfway.
+  - Each was posed from joint angles a strength coach would accept, and then reviewed separately,
+    for form and for how it sits beside Everkinetic at 46 px, before it shipped.
+  - They are generated by `tools/figures/draw.py`, a small figure kit plus one module per lift, so
+    they can be changed later by changing the pose rather than retouching paths. Its `--check`
+    regenerates them and compares them byte for byte with the shipped files.
+
+Some titles were wrong for their drawings. 0024 "Rear Deltoid Row Dumbbell" is the one-arm
+dumbbell row. The standing calf raises are all cropped above the ankle, so the seated one is used.
+The dumbbell lunge cuts off its rear knee, so the barbell lunge is used.
+
+**Motion is kept to what it is for.**
+- A figure plays only while it is on screen.
+- Lists never animate: the exercise picker shows the start frame still.
+- Under prefers-reduced-motion nothing moves. The start frame stands still, and the close-up
+  always shows both frames side by side, named "Start" and "Halfway". The second frame is the turn
+  of the rep — the bottom of a squat, the top of a curl — so it is not "Finish".
+
+**Muscles are TrackIt's own words, not the dataset's.** A 32-row table in `src/lib/exerciseArt.ts`
+gives "Mostly" (prime movers, at most three) and "Also" (helpers and stabilisers, at most three) in
+the words a lifter uses: quads, lats, rear shoulders. It was written for this app and checked twice:
+once for biomechanics, and once against Everkinetic's and free-exercise-db's muscle fields. Eight
+rows changed as a result, for example adductors in the front squat and leg press, forearms in the
+swing and the hanging leg raise, and lower back in the side plank. It is printed as a sentence,
+never as a body map coloured by how often a muscle was trained, which would be a scoreboard.
+
+**Consequences.**
+- **Every common lift has a drawing; a lift the user named themselves has no drawing and no muscle
+  line.** It is matched by the same name normalisation as Rust's `name_key`, so typing "squat"
+  finds the squat. Inventing a lift does not get a guess.
+- **`exerciseArt.test.ts` holds the promises** and runs as part of `pnpm test`:
+  - every common lift Rust bundles has a muscle row;
+  - every drawing a lift names has both frames;
+  - every frame on disk is used and credited;
+  - no frame keeps a fixed colour or its white page;
+  - both frames of a lift share one canvas;
+  - every variant's caption says how it is drawn;
+  - every common lift has a drawing;
+  - TrackIt's own drawings keep the same file rules, live in their own folder, say inside the file
+    that they were drawn for TrackIt, and never carry Priday's name.
+- **Not done:** muscle tinting on the drawing itself, which the drawings do not support; and a
+  body map.
+
+**Choosing a lift is a sheet of its own.** The first version listed exercises inline, under the
+session, in a 21rem scroll box. The user called it crammed, and it was broken as well: its rows were
+flex items with a 44px floor, so the browser shrank them to fit the box and each drawing and second
+line spilled over the next row. With the keyboard up, one and a half rows were visible.
+
+**The picker now:**
+- On a phone it covers the screen: a search field, one row of filters by part of the body (Legs,
+  Back, Chest, Shoulders, Arms, Core), then "Yours", most recent first with last time's sets, then
+  "Common lifts". Each row is 76px: the drawing on a tile, the name, and one quiet line.
+- It is a hash route (`sheet=lift`, through `useHashSheet`, which the camera now shares), so the
+  system back gesture closes it.
+- With a pointer it is a dialog, with a cross, Escape, and arrow keys and Enter in the search field.
+- The filters come from the muscle table (`areaFor`): a lift is filed under its first "mostly"
+  muscle, so the hip thrust is legs and the face pull shoulders.
+- The edge-to-edge window is not resized for the keyboard (measured: the viewport stays 808px with
+  it up), so `MainActivity` publishes the keyboard's height as `--sys-ime` and the sheet ends above
+  it.
+- A lift already in the session says so, and choosing it scrolls to it rather than adding it twice.
+- On a phone the keyboard's own key only puts the keyboard away. Picking the first result unseen
+  was a review finding.
+
+**The ledger, around it:**
+- "Add exercise" is a full-width heather control.
+- A lift's head shows its short muscle line ("Quads and glutes"); the full sentence moved into the
+  close-up.
+- A lift with no drawing, which is now only one the user named, keeps the tile, with a barbell in
+  it, so every name starts in the same place.
+- "How long" appears only once the session has a set, beside Done.

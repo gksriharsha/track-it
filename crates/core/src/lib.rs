@@ -11,6 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod activity;
 pub mod aggregate;
 pub mod dri;
 pub mod barcode;

@@ -24,6 +24,8 @@ import type {
   ExportLogRow,
   ExportNutrient,
   ExportWaterRow,
+  ExportActivityRow,
+  ExportSetRow,
 } from "../types.ts";
 
 /* ── the public shapes ───────────────────────────────────────────────── */
@@ -50,6 +52,9 @@ export interface SheetFile {
 const LOG_SHEET = "Log";
 const DOSE_SHEET = "Supplements";
 const WATER_SHEET = "Water";
+/** After the others, and like them invisible to the importer (D26). */
+const ACTIVITY_SHEET = "Activity";
+const SETS_SHEET = "Sets";
 
 /* ── headers ──────────────────────────────────────────────────────────── */
 
@@ -176,6 +181,34 @@ function waterAoa(water: ExportWaterRow[]): unknown[][] {
   ];
 }
 
+/**
+ * Effort under the words the screen uses, and kind under its own name: a
+ * spreadsheet is read by a person, and "vigorous" is the WHO's word, not theirs.
+ */
+const EFFORT_WORD: Record<string, string> = { light: "Easy", moderate: "Moderate", vigorous: "Hard" };
+
+function activityAoa(rows: ExportActivityRow[]): unknown[][] {
+  return [
+    ["Date", "Activity", "Name", "Minutes", "Effort", "Sets", "Note"],
+    ...rows.map((a) => [
+      a.logged_on,
+      a.kind.charAt(0).toUpperCase() + a.kind.slice(1),
+      a.label,
+      a.minutes,
+      a.effort === null ? null : (EFFORT_WORD[a.effort] ?? a.effort),
+      a.kind === "strength" ? a.sets : null,
+      a.note,
+    ]),
+  ];
+}
+
+function setsAoa(rows: ExportSetRow[]): unknown[][] {
+  return [
+    ["Date", "Exercise", "Set", "Reps", "Weight (kg)", "Seconds"],
+    ...rows.map((s) => [s.logged_on, s.exercise, s.set, s.reps, s.load_kg, s.seconds]),
+  ];
+}
+
 /* ── bytes ────────────────────────────────────────────────────────────── */
 
 /**
@@ -226,6 +259,15 @@ export function buildExportFile(log: ExportLog, kind: ExportKind): SheetFile {
   XLSX.utils.book_append_sheet(book, logSheet, LOG_SHEET);
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(doseAoa(log.doses)), DOSE_SHEET);
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(waterAoa(log.water)), WATER_SHEET);
+  // Only when there is something on them: a nutrition log with two empty
+  // sheets named after a feature the person never used is clutter in a file
+  // they keep.
+  if (log.activities.length > 0) {
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(activityAoa(log.activities)), ACTIVITY_SHEET);
+  }
+  if (log.sets.length > 0) {
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(setsAoa(log.sets)), SETS_SHEET);
+  }
 
   // `type: "array"` yields an ArrayBuffer, not a Uint8Array, whatever the name
   // suggests. Handing the buffer itself to `toBase64` reads its `length` as
