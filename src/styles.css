@@ -109,8 +109,8 @@
      glaring, and white on that is under the 3:1 a control's glyph needs. */
   --on-accent: #ffffff;
   /* The accent on the Undo bar, which is drawn in --ink: the theme turned
-     over, so its action takes the OTHER theme's accent. 9.2:1 on the bar
-     here, and 4.9:1 in dark. */
+     over, so its action takes the OTHER theme's accent. 9.6:1 on the bar
+     here, and 4.6:1 in dark. */
   --on-ink-accent: #5ccdc0;
   --over: #b23b22;
   --over-wash: #f9e9e4;
@@ -118,7 +118,7 @@
   /* Activity (D26): its own hue, so a walk and a meal read apart at a glance
      on the same screen. Plum, beside the teal: warm against cool, and never
      the blue every tracking app spends on water. It names an area and grades
-     nothing in it: effort is never coloured by level. 6.4:1 on --surface. */
+     nothing in it: effort is never coloured by level. 7.0:1 on --surface. */
   --act: #8a3a7e;
   --act-ink: #6e2c64;
   --act-wash: #f4e7f1;
@@ -129,8 +129,8 @@
   --act-rule: #e6cfe0;
   --act-press: #ecdbe7;
   /* The muted text inside an activity area: the page's --ink-3 is a cool grey
-     that sits badly on the plum wash, so the area has its own, 5.6:1 on the
-     wash and 4.9:1 on a pressed row. */
+     that sits badly on the plum wash, so the area has its own, 5.7:1 on the
+     wash and 5.1:1 on a pressed row. */
   --act-ink-3: #625862;
 
   /* The two lighter tones of the food colour that carbohydrate and fat take
@@ -241,7 +241,7 @@
     --line: #24302e;
     --ink: #e6eeed;
     --ink-2: #a3b1af;
-    /* Measured, not eyeballed: 6.2:1 on --bg, 5.6:1 on --surface and 4.9:1 on
+    /* Measured, not eyeballed: 6.4:1 on --bg, 5.8:1 on --surface and 5.2:1 on
        --sunken, so a caption clears 4.5:1 on a cell and in a sheet as well as
        on the page. Still well under --ink-2, so the two greys stay two. */
     --ink-3: #8a9896;
