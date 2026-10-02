@@ -163,7 +163,7 @@ function Body({ e, b, onClose, onChanged }: {
         <div className="esheet__tags">
           <div className="esheet__line">
             <span className={tagText(tags) ? "" : "esheet__state"}>
-              {tagText(tags, " · ", false) || "Where it came from is not recorded"}
+              {tagText(tags, ", ", false) || "Where it came from is not recorded"}
             </span>
             <button className="link" onClick={() => setTagging((t) => !t)} aria-expanded={tagging}>
               {tagging ? "Done" : tagText(tags) ? "Change" : "Add"}
@@ -247,7 +247,7 @@ function Body({ e, b, onClose, onChanged }: {
             <div className="breakdown__row" key={i}>
               <span className={c.has_data ? "" : "no-data"}>
                 {c.description}
-                {!c.has_data && <span className="breakdown__flag"> · no data</span>}
+                {!c.has_data && <span className="breakdown__flag"> (no data)</span>}
               </span>
               <span className="tnum">
                 {c.grams === null ? "—" : `${c.grams.toFixed(c.grams < 10 ? 1 : 0)} g`}

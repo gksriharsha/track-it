@@ -54,12 +54,12 @@ export default function DaySheet(p: {
   const shares = rangeShares(ranges);
 
   return (
-    <Sheet open={p.open} onClose={p.onClose} title={`Nutrients · ${p.label}`}>
+    <Sheet open={p.open} onClose={p.onClose} title={`Nutrients for ${p.label === "Today" || p.label === "Yesterday" ? p.label.toLowerCase() : p.label}`}>
       <div className="daysheet">
         <div className="daysheet__cover">
           <span className="tnum">
             {covered} of {totals.length} measured
-            {shared !== null && <> · {shared}% of the food by weight</>}
+            {shared !== null && <>, {shared}% of the food by weight</>}
           </span>
           <Info title="How the day's nutrients are read">
             <p>
