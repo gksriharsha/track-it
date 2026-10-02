@@ -100,6 +100,12 @@ pub struct Component {
     pub has_data: bool,
 }
 
+/// What one logged entry is made of, and what it came to in energy.
+///
+/// Every live entry on a day gets exactly one of these, including a plain
+/// reference food whose `components` are empty — a screen looks breakdowns up
+/// by `entry_id`, and a missing one would read as an entry with nothing known
+/// about it.
 #[derive(Debug, Serialize)]
 pub struct EntryBreakdown {
     pub entry_id: String,
@@ -108,6 +114,37 @@ pub struct EntryBreakdown {
     pub recipe_name: Option<String>,
     pub recipe_yield_g: Option<f64>,
     pub recipe_servings: Option<f64>,
+    /// This entry's own energy, as an interval with its coverage — the same
+    /// `aggregate::sum` the day's figure is, over this entry's frozen
+    /// components only. So a row can say "228", "≥ 112" or "—" by exactly the
+    /// rule the day does, and the rows of a day add up to the day.
+    ///
+    /// `None` for a supplement dose whose panel states no energy, which is
+    /// nearly all of them: a vitamin D tablet is not a zero-calorie food, it is
+    /// not food, and a "0 kcal" beside it would be a measurement nobody made. A
+    /// softgel whose label does print calories keeps them, because the day's
+    /// total already counts them and a row that hid them would no longer add
+    /// up to it.
+    ///
+    /// Kept here rather than on `LogEntry`, which `store` builds in more than
+    /// one place and which describes what was logged rather than what it was
+    /// worth.
+    pub energy: Option<DailyTotal>,
+    /// The contributions `energy` was summed from, kept so a meal's subtotal
+    /// can be summed from them too rather than from rounded rows or from
+    /// totals whose mass has already been folded into a fraction. Not sent to
+    /// the screen; empty exactly when `energy` is `None`.
+    #[serde(skip)]
+    energy_parts: Vec<Contribution>,
+}
+
+/// One sitting's energy, summed the way the day's is.
+#[derive(Debug, Serialize)]
+pub struct MealEnergy {
+    /// "breakfast", "lunch", "dinner" or "snack". Never water, which belongs
+    /// to no sitting.
+    pub meal: String,
+    pub energy: DailyTotal,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,6 +152,10 @@ pub struct DayView {
     pub logged_on: String,
     pub entries: Vec<store::LogEntry>,
     pub breakdowns: Vec<EntryBreakdown>,
+    /// Each sitting that holds something with energy to count, in the order
+    /// the day is eaten. A sitting holding nothing but a vitamin is left out
+    /// rather than given a total of nothing, which would read as "unmeasured".
+    pub meals: Vec<MealEnergy>,
     pub totals: Vec<NutrientTotal>,
     /// What the day's energy is being read against, or `None` when the profile
     /// supplies neither a figure of the user's own nor enough to estimate one.
@@ -521,6 +562,63 @@ fn log_water(
     // picker.
     store::touch_bottle(&conn, &bottle_id)?;
     republish_widgets(&app);
+    Ok(id)
+}
+
+/// Log a whole bottle drunk, without putting it on the scale.
+///
+/// The one-tap path for the commonest case: the flask was full this morning
+/// and it is empty now. The amount is what the bottle holds — its full weight
+/// less its empty one, both weighed once when it was added — and the entry
+/// says "whole bottle, not weighed" rather than carrying a scale reading
+/// nobody took. Refused for a bottle never weighed empty, because then what it
+/// holds is not known; see `store::whole_bottle_g`.
+///
+/// Water, so no meal: the same rule `log_water` keeps.
+#[tauri::command]
+fn log_whole_bottle(
+    logged_on: String,
+    bottle_id: String,
+    app: AppHandle,
+    refdb: State<'_, db::Db>,
+    user: State<'_, store::Store>,
+) -> Result<String, String> {
+    let refconn = refdb.0.lock().map_err(|e| e.to_string())?;
+    let mut conn = user.0.lock().map_err(|e| e.to_string())?;
+    after_write(&app, whole_bottle_into(&refconn, &mut conn, &logged_on, &bottle_id))
+}
+
+/// The body of [`log_whole_bottle`], with both databases already held — split
+/// out for the reason [`resolve_frequent`] is: a `State` cannot be built in a
+/// test, and this is the half worth testing.
+fn whole_bottle_into(
+    refconn: &rusqlite::Connection,
+    conn: &mut rusqlite::Connection,
+    logged_on: &str,
+    bottle_id: &str,
+) -> Result<String, String> {
+    let bottle = store::get_bottle(conn, bottle_id)?;
+    let grams = store::whole_bottle_g(&bottle)?;
+    // Valued through the same resolution every other entry is, so a whole
+    // bottle freezes exactly as a weighed one of the same mass would.
+    let (recipe, components) = resolve_contribution(
+        refconn,
+        conn,
+        store::Source::Water(bottle_id),
+        &bottle.name,
+        store::Quantity::Grams(grams),
+    )?;
+    let snap = store::Snapshot {
+        basis: store::SnapBasis::Logged,
+        frozen_at: store::now_iso(conn)?,
+        corrected_at: None,
+        recipe,
+        components,
+    };
+    let id = store::add_whole_bottle(conn, logged_on, bottle_id, &bottle.name, grams, &snap)?;
+    // After the row, as `log_water` does, so a refused entry does not reorder
+    // the bottles.
+    store::touch_bottle(conn, bottle_id)?;
     Ok(id)
 }
 
@@ -961,6 +1059,22 @@ fn delete_log_entry(
     after_write(&app, store::remove(&conn, &id))
 }
 
+/// Undo of a remove: the entry that was removed comes back as it was.
+///
+/// Not a second log of the same food. The entry keeps its id, its place in the
+/// day and the nutrition frozen when it was first logged; a helping out of a
+/// pot goes back into the pot's draws. See `store::restore` for the window and
+/// the refusals.
+#[tauri::command]
+fn restore_log_entry(
+    id: String,
+    app: AppHandle,
+    user: State<'_, store::Store>,
+) -> Result<(), String> {
+    let mut conn = user.0.lock().map_err(|e| e.to_string())?;
+    after_write(&app, store::restore(&mut conn, &id))
+}
+
 /// Which days the record holds something on, from `since` forward.
 ///
 /// `since` is the first day the caller is going to DRAW, not a preference. See
@@ -1054,20 +1168,46 @@ const FREQUENT_POOL_FACTOR: u32 = 3;
 /// denormalising it. This is a shortcut to logging the food AS IT IS NOW.
 ///
 /// The window is not a parameter — see [`store::FREQUENT_WINDOW_DAYS`].
+///
+/// `meal`, when given, narrows the list to what this person has at that
+/// sitting: only entries logged to it count towards the ranking, and the
+/// amount a row opens on is the last one logged to it — the dal at lunch, not
+/// the spoonful at dinner. Without it the list is exactly what it always was,
+/// which is what the home-screen widget, which has no sitting, still reads.
 #[tauri::command]
 fn frequent_foods(
     limit: Option<u32>,
+    meal: Option<String>,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<Vec<store::FrequentFood>, String> {
     let want = limit.unwrap_or(6);
+    check_meal_filter(meal.as_deref())?;
     let refconn = refdb.0.lock().map_err(|e| e.to_string())?;
     let conn = user.0.lock().map_err(|e| e.to_string())?;
 
     let since = store::days_ago_iso(&conn, store::FREQUENT_WINDOW_DAYS)?;
-    let candidates = store::frequent_foods(&conn, &since, want.saturating_mul(FREQUENT_POOL_FACTOR))?;
+    let candidates = store::frequent_foods_at(
+        &conn,
+        &since,
+        want.saturating_mul(FREQUENT_POOL_FACTOR),
+        meal.as_deref(),
+    )?;
     let overridden = store::overridden_fdc_ids(&conn)?;
     Ok(resolve_frequent(&refconn, candidates, &overridden, want))
+}
+
+/// A sitting to narrow the quick-add list to, checked against the four before
+/// it reaches SQL — so a misspelt one is a sentence rather than a list that is
+/// silently empty and reads as "you never have anything at lunch".
+fn check_meal_filter(meal: Option<&str>) -> Result<(), String> {
+    match meal {
+        Some(m) if !MEALS.contains(&m) => Err(format!(
+            "{m:?} is not a meal; it is one of {}",
+            MEALS.join(", ")
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// The reference-database half of [`frequent_foods`], with both databases
@@ -1187,7 +1327,10 @@ pub struct ImportSummary {
 
 /// Mirrors the `log_entries.meal` CHECK constraint's own list, so a bad meal
 /// is refused with a sentence here rather than a constraint code from SQLite.
-const IMPORT_MEALS: [&str; 4] = ["breakfast", "lunch", "dinner", "snack"];
+///
+/// In the order a day is eaten, which is the order a day's meal subtotals are
+/// handed back in (`meals_from`).
+const MEALS: [&str; 4] = ["breakfast", "lunch", "dinner", "snack"];
 
 /// True for a string that is both `YYYY-MM-DD` shaped and a real calendar
 /// date — rejects a plainly invalid date like 2024-02-30 rather than trusting
@@ -1238,11 +1381,11 @@ fn import_one_row(
     if !valid_iso_date(&row.logged_on) {
         return Err(format!("\"{}\" is not a valid date", row.logged_on));
     }
-    if !IMPORT_MEALS.contains(&row.meal.as_str()) {
+    if !MEALS.contains(&row.meal.as_str()) {
         return Err(format!(
             "\"{}\" is not one of the meals this app records ({})",
             row.meal,
-            IMPORT_MEALS.join(", ")
+            MEALS.join(", ")
         ));
     }
     // The contract's own rule: a row with literally nothing in it must not
@@ -1306,7 +1449,7 @@ fn import_one_row(
         conn,
         &row.logged_on,
         // An imported row always names a meal — it is validated against
-        // IMPORT_MEALS before we get here — and it lands as a custom food,
+        // MEALS before we get here — and it lands as a custom food,
         // never as water.
         Some(&row.meal),
         store::Source::Custom(&food_id),
@@ -3304,7 +3447,13 @@ fn collect_day(
             recipe_name: snap.recipe.as_ref().map(|r| r.name.clone()),
             recipe_yield_g: snap.recipe.as_ref().map(|r| r.yield_g),
             recipe_servings: snap.recipe.as_ref().and_then(|r| r.servings),
+            energy: None,
+            energy_parts: Vec::new(),
         };
+        // This entry's share of the day's energy, collected component by
+        // component from the very values the day-wide loop below pours into
+        // `by_nutrient`, so the two cannot be worked out differently.
+        let mut energy_parts: Vec<Contribution> = Vec::new();
 
         for c in &snap.components {
             // A plain reference food, or water, is its own breakdown: the
@@ -3328,22 +3477,79 @@ fn collect_day(
                 // was logged, nothing knew a value for it. That is a gap the
                 // day reports, never a zero it counts.
                 let value = values.get(id).cloned().unwrap_or(NutrientValue::Absent);
-                by_nutrient
-                    .entry(*id)
-                    .or_default()
-                    .push(match c.quantity {
-                        // Mass enters the coverage denominator; a dose never
-                        // does, because a tablet's nutrients did not arrive in
-                        // proportion to its weight.
-                        store::SnapQuantity::Grams(grams) => Contribution::Food { value, grams },
-                        store::SnapQuantity::Servings(units) => Contribution::Dose { value, units },
-                    });
+                let part = contribution_of(c, value);
+                if *id == ENERGY_ID {
+                    energy_parts.push(part.clone());
+                }
+                by_nutrient.entry(*id).or_default().push(part);
             }
+        }
+
+        // A dose states its energy or it does not, and almost none do. One
+        // that does not is left without a figure rather than given a zero —
+        // see `EntryBreakdown::energy` — and its contribution, which adds
+        // nothing to the day's lower bound, stays out of its meal's subtotal
+        // too, so a vitamin taken with breakfast cannot turn breakfast's
+        // energy into "≥".
+        let energy = sum(&energy_parts);
+        let states_energy = entry.source_kind != "supplement" || energy.lower > 0.0;
+        if states_energy {
+            b.energy = Some(energy);
+            b.energy_parts = energy_parts;
         }
         breakdowns.push(b);
     }
 
     Ok((entries, breakdowns, by_nutrient))
+}
+
+/// FoodData Central's nutrient id for energy, in kcal.
+const ENERGY_ID: i64 = 1008;
+
+/// One frozen component's contribution to one nutrient.
+///
+/// The single place the choice is made, used both for the day-wide totals and
+/// for each entry's own energy, so an entry cannot be summed by a different
+/// law from the day it belongs to.
+fn contribution_of(c: &store::SnapComponent, value: NutrientValue) -> Contribution {
+    match c.quantity {
+        // Mass enters the coverage denominator; a dose never does, because a
+        // tablet's nutrients did not arrive in proportion to its weight.
+        store::SnapQuantity::Grams(grams) => Contribution::Food { value, grams },
+        store::SnapQuantity::Servings(units) => Contribution::Dose { value, units },
+    }
+}
+
+/// Each sitting's energy, summed from the same contributions its entries were.
+///
+/// From the contributions and not from the entries' totals: a total has
+/// already folded its mass into a coverage fraction, and two fractions cannot
+/// be added without the masses they were fractions of. Summing rounded rows
+/// would be worse again: the subtotals would drift from the day's own figure by
+/// up to half a calorie a row, and a page whose meals do not add up to its day
+/// reads as an app that cannot add.
+///
+/// Water carries no meal and so never reaches here; that is the schema's rule
+/// (see the `meal` column in store.rs), not a filter this has to remember.
+fn meals_from(entries: &[store::LogEntry], breakdowns: &[EntryBreakdown]) -> Vec<MealEnergy> {
+    MEALS
+        .iter()
+        .filter_map(|meal| {
+            let parts: Vec<Contribution> = entries
+                .iter()
+                .filter(|e| e.meal.as_deref() == Some(*meal))
+                .filter_map(|e| breakdowns.iter().find(|b| b.entry_id == e.id))
+                .flat_map(|b| b.energy_parts.iter().cloned())
+                .collect();
+            if parts.is_empty() {
+                return None;
+            }
+            Some(MealEnergy {
+                meal: (*meal).to_string(),
+                energy: sum(&parts),
+            })
+        })
+        .collect()
 }
 
 /// The whole reference set for one request: who the user is, what each nutrient
@@ -3551,6 +3757,7 @@ fn get_day(
     let (entries, breakdowns, by_nutrient) = collect_day(&conn, &user, &dim, &logged_on)?;
     Ok(DayView {
         logged_on,
+        meals: meals_from(&entries, &breakdowns),
         entries,
         breakdowns,
         totals: totals_from(&dim, &by_nutrient, &goals),
@@ -4491,6 +4698,7 @@ pub fn run() {
             get_food_detail,
             add_log_entry,
             delete_log_entry,
+            restore_log_entry,
             logged_dates,
             get_day_note,
             set_day_note,
@@ -4522,6 +4730,7 @@ pub fn run() {
             save_bottle,
             delete_bottle,
             log_water,
+            log_whole_bottle,
             frequent_foods,
             list_custom_foods,
             get_custom_food,
@@ -6921,6 +7130,274 @@ mod tests {
         let candidates = store::frequent_foods(&uc, "2026-08-01", 18).unwrap();
         assert!(candidates.len() >= 2, "the pool holds all of them");
         assert_eq!(resolve_frequent(&rc, candidates, &[], 1).len(), 1);
+    }
+
+    #[test]
+    fn a_quick_add_list_for_a_sitting_names_one_of_the_four() {
+        assert!(check_meal_filter(None).is_ok(), "no sitting is the unfiltered list");
+        for m in MEALS {
+            assert!(check_meal_filter(Some(m)).is_ok(), "{m}");
+        }
+        let err = check_meal_filter(Some("brunch")).unwrap_err();
+        assert!(err.contains("not a meal"), "{err}");
+    }
+
+    /// Each entry's own energy, each meal's, and the day's, as one arithmetic.
+    mod entry_energy {
+        use super::*;
+
+        const DAY: &str = "2026-09-04";
+
+        /// A fish-oil softgel whose US panel prints its calories, which most
+        /// supplements do not.
+        fn softgel() -> store::Supplement {
+            let mut s = b12_tablet();
+            s.name = "Fish oil".into();
+            s.unit_noun = "softgel".into();
+            s.nutrients = vec![store::SupplementNutrient {
+                nutrient_id: ENERGY_ID,
+                position: 0,
+                label_amount: 10.0,
+                label_unit: "kcal".into(),
+                label_form: "unspecified".into(),
+                kind: "measured".into(),
+                amount: Some(10.0),
+                upper: None,
+                convert_note: None,
+            }];
+            s
+        }
+
+        /// A day holding every state an entry's energy can be in: measured, a
+        /// dish half of whose raw weight nothing measured, a pack that prints
+        /// no energy at all, a vitamin that states none, a softgel that does,
+        /// and a bottle of water.
+        fn mixed_day(rc: &Connection) -> store::Store {
+            fn add(
+                rc: &Connection,
+                uc: &mut Connection,
+                meal: Option<&str>,
+                src: store::Source<'_>,
+                d: &str,
+                q: store::Quantity,
+            ) {
+                add_frozen(rc, uc, DAY, meal, src, d, q, None, &store::Tags::default()).unwrap();
+            }
+            let mut uc = user_db();
+            add(rc, &mut uc, Some("lunch"), store::Source::Food(328637), "Cheddar", store::Quantity::Grams(100.0));
+
+            let rid = store::save_recipe(
+                &mut uc, "Sambar", 100.0, None, None,
+                &[
+                    store::RecipeIngredient {
+                        id: String::new(), position: 0, fdc_id: Some(328637),
+                        custom_food_id: None, description: "Cheddar".into(),
+                        raw_g: 50.0, optional: false,
+                    },
+                    store::RecipeIngredient {
+                        id: String::new(), position: 1, fdc_id: None,
+                        custom_food_id: None, description: "Drumstick pods".into(),
+                        raw_g: 50.0, optional: false,
+                    },
+                ],
+                &[], &store::Tags::default(),
+            )
+            .unwrap();
+            add(rc, &mut uc, Some("lunch"), store::Source::Recipe(&rid), "Sambar", store::Quantity::Grams(100.0));
+
+            // Fat and sodium off the pack, and no energy line at all.
+            let bar_id = store::save_custom_food(&mut uc, None, &bar(None)).unwrap();
+            add(rc, &mut uc, Some("snack"), store::Source::Custom(&bar_id), "Milk chocolate bar", store::Quantity::Grams(BAR));
+
+            let b12 = store::save_supplement(&mut uc, None, &b12_tablet()).unwrap();
+            add(rc, &mut uc, Some("breakfast"), store::Source::Supplement(&b12), "B12", store::Quantity::Units(1.0));
+            let oil = store::save_supplement(&mut uc, None, &softgel()).unwrap();
+            add(rc, &mut uc, Some("dinner"), store::Source::Supplement(&oil), "Fish oil", store::Quantity::Units(2.0));
+
+            let bottle = store::save_bottle(&uc, None, "Steel", 1050.0, Some(290.0), Some(750.0)).unwrap();
+            add(rc, &mut uc, None, store::Source::Water(&bottle), "Steel", store::Quantity::Grams(500.0));
+            store::Store(Mutex::new(uc))
+        }
+
+        fn energy_of<'a>(
+            entries: &[store::LogEntry],
+            breakdowns: &'a [EntryBreakdown],
+            description: &str,
+        ) -> Option<&'a DailyTotal> {
+            let e = entries.iter().find(|e| e.description == description).unwrap();
+            breakdowns.iter().find(|b| b.entry_id == e.id).unwrap().energy.as_ref()
+        }
+
+        #[test]
+        fn every_entry_has_a_breakdown_and_the_entries_add_up_to_the_day() {
+            let Some(rc) = refdb() else { return };
+            let dim = nutrient_dim(&rc).unwrap();
+            let user = mixed_day(&rc);
+            let (entries, breakdowns, by) = collect_day(&rc, &user, &dim, DAY).unwrap();
+
+            assert_eq!(entries.len(), 6);
+            for e in &entries {
+                assert!(
+                    breakdowns.iter().any(|b| b.entry_id == e.id),
+                    "{} has no breakdown, so a screen looking it up by id finds nothing",
+                    e.description
+                );
+            }
+
+            let day = sum(&by[&ENERGY_ID]);
+            let rows: f64 = breakdowns.iter().filter_map(|b| b.energy.as_ref()).map(|t| t.lower).sum();
+            assert!(
+                close(rows, day.lower),
+                "the rows say {rows} kcal and the day says {}",
+                day.lower
+            );
+        }
+
+        #[test]
+        fn each_entry_reads_its_own_energy_in_the_state_it_is_in() {
+            let Some(rc) = refdb() else { return };
+            let dim = nutrient_dim(&rc).unwrap();
+            let user = mixed_day(&rc);
+            let (entries, breakdowns, _) = collect_day(&rc, &user, &dim, DAY).unwrap();
+
+            let cheddar = energy_of(&entries, &breakdowns, "Cheddar").expect("a food has energy");
+            assert!(close(cheddar.lower, 408.0), "100 g of cheddar at 408 kcal/100 g");
+            assert_eq!(cheddar.coverage, Some(1.0));
+            assert_eq!(cheddar.upper, Some(cheddar.lower));
+
+            // Half the dish's raw weight is unmeasured: what is known is a
+            // floor, and the coverage says how much of the dish it covers.
+            let sambar = energy_of(&entries, &breakdowns, "Sambar").expect("a dish has energy");
+            assert!(close(sambar.lower, 204.0), "50 g of cheddar is all it accounts for");
+            let cov = sambar.coverage.expect("a dish has mass");
+            assert!(cov > 0.0 && cov < 1.0, "partly measured, got {cov}");
+            assert!(close(cov, 0.5));
+            assert_eq!(sambar.upper, None, "an unmeasured line bounds nothing above");
+
+            // The pack prints no energy: nothing is known, which is not zero.
+            let bar = energy_of(&entries, &breakdowns, "Milk chocolate bar").expect("a pack has a reading");
+            assert_eq!(bar.coverage, Some(0.0));
+            assert_eq!(bar.lower, 0.0);
+            assert_eq!(bar.upper, None);
+
+            assert!(
+                energy_of(&entries, &breakdowns, "B12").is_none(),
+                "a vitamin states no energy, and is given no figure rather than a zero"
+            );
+            let oil = energy_of(&entries, &breakdowns, "Fish oil")
+                .expect("a softgel that prints its calories keeps them");
+            assert!(close(oil.lower, 20.0), "two softgels of 10 kcal");
+            assert_eq!(oil.coverage, None, "a dose has no mass to cover");
+
+            let water = energy_of(&entries, &breakdowns, "Steel").expect("water is a known zero");
+            assert_eq!(water.lower, 0.0);
+            assert_eq!(water.upper, Some(0.0));
+        }
+
+        #[test]
+        fn the_meals_add_up_to_the_day_and_water_is_in_none_of_them() {
+            let Some(rc) = refdb() else { return };
+            let dim = nutrient_dim(&rc).unwrap();
+            let user = mixed_day(&rc);
+            let (entries, breakdowns, by) = collect_day(&rc, &user, &dim, DAY).unwrap();
+            let meals = meals_from(&entries, &breakdowns);
+
+            let names: Vec<&str> = meals.iter().map(|m| m.meal.as_str()).collect();
+            assert_eq!(
+                names,
+                vec!["lunch", "dinner", "snack"],
+                "in the order a day is eaten, and no breakfast: a vitamin alone has no energy to count"
+            );
+            let day = sum(&by[&ENERGY_ID]);
+            let meals_lower: f64 = meals.iter().map(|m| m.energy.lower).sum();
+            assert!(close(meals_lower, day.lower), "meals {meals_lower}, day {}", day.lower);
+
+            // Lunch is summed from contributions, so its coverage is weighted
+            // by mass across both entries — 150 of its 200 g measured — rather
+            // than averaged from two fractions.
+            let lunch = &meals[0].energy;
+            assert!(close(lunch.lower, 612.0));
+            assert!(close(lunch.coverage.unwrap(), 0.75));
+            assert_eq!(lunch.items_total, 3, "cheddar, and the sambar's two lines");
+        }
+
+        #[test]
+        fn a_day_of_nothing_but_water_has_no_meal_energy() {
+            let Some(rc) = refdb() else { return };
+            let dim = nutrient_dim(&rc).unwrap();
+            let mut uc = user_db();
+            let bottle = store::save_bottle(&uc, None, "Steel", 1050.0, None, None).unwrap();
+            add_frozen(
+                &rc, &mut uc, DAY, None, store::Source::Water(&bottle), "Steel",
+                store::Quantity::Grams(700.0), None, &store::Tags::default(),
+            )
+            .unwrap();
+            let user = store::Store(Mutex::new(uc));
+            let (entries, breakdowns, _) = collect_day(&rc, &user, &dim, DAY).unwrap();
+            assert!(meals_from(&entries, &breakdowns).is_empty());
+            assert_eq!(breakdowns.len(), 1, "the bottle still has its breakdown");
+        }
+
+        #[test]
+        fn undoing_a_remove_brings_the_day_back_to_what_it_was() {
+            let Some(rc) = refdb() else { return };
+            let dim = nutrient_dim(&rc).unwrap();
+            let user = mixed_day(&rc);
+            let before = collect_day(&rc, &user, &dim, DAY).unwrap();
+            let sambar = before.0.iter().find(|e| e.description == "Sambar").unwrap().id.clone();
+            let totals = |by: &HashMap<i64, Vec<Contribution>>| -> Vec<(i64, DailyTotal)> {
+                let mut t: Vec<(i64, DailyTotal)> = by.iter().map(|(id, c)| (*id, sum(c))).collect();
+                t.sort_by_key(|(id, _)| *id);
+                t
+            };
+
+            {
+                let c = user.0.lock().unwrap();
+                store::remove(&c, &sambar).unwrap();
+            }
+            let removed = collect_day(&rc, &user, &dim, DAY).unwrap();
+            assert_eq!(removed.0.len(), before.0.len() - 1);
+            assert_ne!(totals(&removed.2), totals(&before.2), "the remove moved the day");
+
+            {
+                let mut c = user.0.lock().unwrap();
+                store::restore(&mut c, &sambar).unwrap();
+            }
+            let after = collect_day(&rc, &user, &dim, DAY).unwrap();
+            assert_eq!(totals(&after.2), totals(&before.2), "every nutrient is back exactly");
+            assert_eq!(
+                energy_of(&after.0, &after.1, "Sambar"),
+                energy_of(&before.0, &before.1, "Sambar"),
+                "and the dish reads as it did, from the values frozen when it was logged"
+            );
+        }
+
+        #[test]
+        fn a_whole_bottle_logs_what_it_holds_and_freezes_like_a_weighed_one() {
+            let Some(rc) = refdb() else { return };
+            let dim = nutrient_dim(&rc).unwrap();
+            let mut uc = user_db();
+            let cal = store::save_bottle(&uc, None, "Steel", 1050.0, Some(290.0), Some(750.0)).unwrap();
+            let plain = store::save_bottle(&uc, None, "Old", 1050.0, None, None).unwrap();
+
+            let id = whole_bottle_into(&rc, &mut uc, DAY, &cal).unwrap();
+            assert!(
+                store::get_bottle(&uc, &cal).unwrap().last_used_at.is_some(),
+                "the bottle moves to the front of the picker, as a weighed one does"
+            );
+            let err = whole_bottle_into(&rc, &mut uc, DAY, &plain).unwrap_err();
+            assert!(err.contains("never been weighed empty"), "{err}");
+
+            let user = store::Store(Mutex::new(uc));
+            let (entries, _, by) = collect_day(&rc, &user, &dim, DAY).unwrap();
+            assert_eq!(entries.len(), 1, "the refusal logged nothing");
+            let e = &entries[0];
+            assert_eq!(e.id, id);
+            assert_eq!(e.grams, Some(760.0), "full less empty");
+            assert_eq!(e.tare_note.as_deref(), Some(store::WHOLE_BOTTLE_NOTE));
+            assert_eq!((e.gross_g, e.tare_g), (None, None), "no reading nobody took");
+            assert!(close(sum(&by[&1051]).lower, 760.0), "760 g of it as water");
+        }
     }
 
     /// The two Android home-screen widgets, tested where their figures are

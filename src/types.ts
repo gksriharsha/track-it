@@ -121,6 +121,11 @@ export interface LogEntry {
   /**
    * The vessel names, joined. Denormalised for the same reason `description` is:
    * deleting a vessel must not change what a past day says it weighed.
+   *
+   * Also the one note a water entry logged without a scale carries —
+   * `WHOLE_BOTTLE_NOTE` — with `gross_g` and `tare_g` null, because no reading
+   * was taken. Worth showing as a marker on the row: it is how that amount
+   * was arrived at.
    */
   tare_note: string | null;
   /**
@@ -213,6 +218,14 @@ export type Volume =
   | { kind: "measured"; ml: number }
   | { kind: "assumed"; ml: number };
 
+/**
+ * The `tare_note` of a water entry logged as a whole bottle without a scale —
+ * `store::WHOLE_BOTTLE_NOTE` in Rust, which writes it. Matched against rather
+ * than inferred from a null `gross_g`, because an amount corrected by hand
+ * carries no reading either, and that is a different fact.
+ */
+export const WHOLE_BOTTLE_NOTE = "whole bottle, not weighed";
+
 /** Litres past a litre, millilitres below — how people actually say it. */
 export function describeVolume(ml: number): string {
   return ml >= 1000 ? `${(ml / 1000).toFixed(1)} L` : `${Math.round(ml)} ml`;
@@ -228,18 +241,53 @@ export interface Component {
   has_data: boolean;
 }
 
+/**
+ * What one entry is made of, and what it came to in energy.
+ *
+ * Every live entry on a day has exactly one, a plain food included (its
+ * `components` are empty), so a row can look its own up by `entry_id`.
+ */
 export interface EntryBreakdown {
   entry_id: string;
   components: Component[];
   recipe_name: string | null;
   recipe_yield_g: number | null;
   recipe_servings: number | null;
+  /**
+   * This entry's own energy, in kcal, summed exactly the way the day's is —
+   * so it reads "228", "≥ 112" or "—" by the same rule, and the rows of a day
+   * add up to the day. Read it through the same three states as any total:
+   * `coverage` of 0 is unmeasured ("—"), never 0 kcal.
+   *
+   * Null for a supplement whose panel states no energy, which is almost all of
+   * them: a tablet is not a zero-calorie food, so it gets no figure at all. A
+   * softgel whose label prints its calories keeps them, with `coverage` null
+   * (a dose has no mass) and `from_supplements` set.
+   */
+  energy: DailyTotal | null;
+}
+
+/**
+ * One sitting's energy, summed from its entries' own contributions rather
+ * than from their rounded rows — so its coverage is weighted by mass across
+ * the whole meal. Never water, which belongs to no sitting.
+ */
+export interface MealEnergy {
+  meal: Meal;
+  energy: DailyTotal;
 }
 
 export interface DayView {
   logged_on: string;
   entries: LogEntry[];
   breakdowns: EntryBreakdown[];
+  /**
+   * Each sitting that holds something with energy to count, in the order the
+   * day is eaten. Absent for a sitting holding only a vitamin, and for one
+   * with nothing in it — look a meal up by name, and treat a miss as "no
+   * subtotal", not as zero.
+   */
+  meals: MealEnergy[];
   totals: NutrientTotal[];
   /**
    * What the day's energy is read against, or null when the profile gives

@@ -8,8 +8,11 @@
  * to answer without a full native rebuild.
  *
  * This is a fixture, not a second implementation. It answers the read commands
- * the screens need in order to draw themselves and it accepts the writes
- * without persisting them, so `pnpm dev` in a browser is a design surface. It
+ * the screens need in order to draw themselves and it accepts the writes, so
+ * `pnpm dev` in a browser is a design surface. Most writes are accepted and
+ * forgotten; the ones a screen's own feedback depends on — removing an entry
+ * and undoing it, a bottle drunk, an activity — are kept for the life of the
+ * tab (`mockDay.ts`, `mockActivity.ts`), and a reload is a fresh day. It
  * is never reached from the real app: `bridge.ts` prefers Tauri whenever Tauri
  * is there, and this module is only imported for its side-effect-free data.
  *
@@ -20,9 +23,18 @@
  */
 import { LABEL_NUTRIENTS } from "../types";
 import { ACTIVITY_TABLE, exportActivity } from "./mockActivity";
+import {
+  BOTTLES,
+  DAY_TABLE,
+  dayBreakdowns,
+  dayEnergy,
+  dayEntries,
+  dayMeals,
+  localIso,
+  localToday,
+} from "./mockDay";
 import type {
   BackupStatus,
-  Bottle,
   Cook,
   CustomFood,
   DaySummary,
@@ -33,8 +45,8 @@ import type {
   FoodHit,
   FrequentFood,
   GoalsView,
-  LogEntry,
   MacroRange,
+  Meal,
   NutrientMeta,
   NutrientTotal,
   Profile,
@@ -140,69 +152,11 @@ function total(s: Spec): NutrientTotal {
 
 /* ── the day ────────────────────────────────────────────────────────────── */
 
-const ENTRIES: LogEntry[] = [
-  entry("e1", "breakfast", "Idli, steamed rice cake", 156, { cuisine: "South Indian", origin: "home" }),
-  entry("e2", "breakfast", "Sambar, lentil and vegetable stew", 210, { cuisine: "South Indian", origin: "home" }),
-  entry("e3", "breakfast", "Coffee, brewed, with whole milk", 240, { origin: "home" }),
-  entry("e4", "lunch", "Dal tadka (urad and toor)", 285, { cuisine: "North Indian", origin: "home" }),
-  entry("e5", "lunch", "Chapati, whole wheat", 96, { cuisine: "North Indian", origin: "home" }),
-  entry("e6", "lunch", "Bhindi masala", 168, { cuisine: "North Indian", origin: "home" }),
-  entry("e7", "lunch", "Curd, plain whole milk", 120, { origin: "home" }),
-  entry("e8", "snack", "Roasted chana, salted", 45, { origin: "packaged" }),
-  entry("e9", "dinner", "Vegetable pulao", 320, { cuisine: "North Indian", origin: "ordered_in" }),
-  entry("e10", "dinner", "Paneer butter masala", 190, { cuisine: "North Indian", origin: "ordered_in" }),
-  // Two bottles, and neither carries a meal. A bottle is refilled and drunk
-  // from across the whole day, so `meal` is null — which is what puts these in
-  // their own group on Today rather than under whichever sitting the clock
-  // happened to be nearest. The fixture has to exercise that: a day of food
-  // alone would never draw the group.
-  water("w1", "Steel flask (1 L)", 884),
-  water("w2", "Desk bottle (750 ml)", 612),
-];
-
-/** One bottle's worth, logged against the day rather than against a sitting. */
-function water(id: string, name: string, grams: number): LogEntry {
-  return {
-    ...entry(id, null, name, grams),
-    source_kind: "water",
-    fdc_id: null,
-    bottle_id: id === "w1" ? "b1" : "b2",
-    // Water is always weighed off a registered bottle: full weight less what
-    // it reads now. The tare travels with it for the same reason a vessel's
-    // does — the figure has to be checkable against where it came from.
-    gross_g: grams + 400,
-    tare_g: 400,
-  };
-}
-
-function entry(
-  id: string,
-  meal: LogEntry["meal"],
-  description: string,
-  grams: number,
-  extra: { cuisine?: string; origin?: LogEntry["origin"] } = {},
-): LogEntry {
-  return {
-    id,
-    logged_on: today(),
-    meal,
-    source_kind: id === "e8" ? "custom" : id === "e4" || id === "e2" ? "recipe" : "food",
-    fdc_id: 168874,
-    recipe_id: null,
-    cook_id: null,
-    custom_food_id: null,
-    supplement_id: null,
-    bottle_id: null,
-    description,
-    grams,
-    units: null,
-    gross_g: null,
-    tare_g: null,
-    tare_note: null,
-    origin: extra.origin ?? null,
-    cuisine: extra.cuisine ?? null,
-  };
-}
+/*
+  The entries themselves — what was had, what each came to, and the writes
+  that change them — live in `mockDay.ts`. What is here is what a day is read
+  against, which does not move when an entry does.
+*/
 
 const ENERGY_TARGET: EnergyTarget = {
   kcal: 2240,
@@ -218,37 +172,15 @@ const MACRO_RANGES: MacroRange[] = [
 ];
 
 function day(iso: string): DayView {
+  // The day's energy follows its entries, so a remove and its undo move the
+  // figure the way they do in the app. Everything else is the fixed fixture.
+  const energy = dayEnergy(iso);
   return {
     logged_on: iso,
-    entries: iso === today() ? ENTRIES : [],
-    breakdowns: [
-      {
-        entry_id: "e4",
-        components: [
-          { description: "Lentils, urad, raw", fdc_id: 172421, grams: 62, has_data: true },
-          { description: "Lentils, toor, raw", fdc_id: 172420, grams: 38, has_data: true },
-          { description: "Onions, raw", fdc_id: 170000, grams: 45, has_data: true },
-          { description: "Tomatoes, red, ripe", fdc_id: 170457, grams: 60, has_data: true },
-          { description: "Ghee", fdc_id: null, grams: 12, has_data: false },
-          { description: "Turmeric, ground", fdc_id: 170933, grams: 2, has_data: true },
-        ],
-        recipe_name: "Dal tadka",
-        recipe_yield_g: 1140,
-        recipe_servings: 4,
-      },
-      {
-        entry_id: "e2",
-        components: [
-          { description: "Lentils, toor, raw", fdc_id: 172420, grams: 48, has_data: true },
-          { description: "Drumstick pods, raw", fdc_id: null, grams: 70, has_data: false },
-          { description: "Tamarind pulp", fdc_id: 168196, grams: 18, has_data: true },
-        ],
-        recipe_name: "Sambar",
-        recipe_yield_g: 1680,
-        recipe_servings: 8,
-      },
-    ],
-    totals: SPECS.map(total),
+    entries: dayEntries(iso),
+    breakdowns: dayBreakdowns(iso),
+    meals: dayMeals(iso),
+    totals: SPECS.map(total).map((t) => (t.id === 1008 && energy !== null ? { ...t, total: energy } : t)),
     energy_target: ENERGY_TARGET,
     macro_ranges: MACRO_RANGES,
   };
@@ -410,6 +342,25 @@ const FREQUENT: FrequentFood[] = [
   },
 ];
 
+/**
+ * Which sittings each of those has been had at, for `frequent_foods` with a
+ * meal. Uneven on purpose: curd at every meal, ghee only at dinner, and
+ * nothing at all as a snack — so a meal's short list, and an empty one, are
+ * both reachable in a browser.
+ */
+const FREQUENT_AT: Record<string, Meal[]> = {
+  "food:168874": ["lunch", "dinner"],
+  "food:172421": ["lunch"],
+  "food:171287": ["breakfast", "lunch", "dinner"],
+  "food:171705": ["dinner"],
+  "food:170554": ["lunch", "dinner"],
+};
+
+function frequent(limit: number, meal: Meal | null): FrequentFood[] {
+  const rows = meal === null ? FREQUENT : FREQUENT.filter((f) => FREQUENT_AT[f.key]?.includes(meal));
+  return rows.slice(0, limit);
+}
+
 /* ── the library ────────────────────────────────────────────────────────── */
 
 const VESSELS: Vessel[] = [
@@ -417,11 +368,6 @@ const VESSELS: Vessel[] = [
   { id: "v2", name: "Dinner thali", grams: 412, last_used_at: "2026-09-05T13:05:00Z" },
   { id: "v3", name: "Small glass bowl", grams: 186, last_used_at: null },
   { id: "v4", name: "Melamine plate", grams: 240, last_used_at: "2026-09-01T20:00:00Z" },
-];
-
-const BOTTLES: Bottle[] = [
-  { id: "b1", name: "Steel flask (1 L)", full_g: 1284, empty_g: 294, volume_ml: 1000, last_used_at: "2026-09-06T09:10:00Z" },
-  { id: "b2", name: "Desk bottle (750 ml)", full_g: 968, empty_g: null, volume_ml: null, last_used_at: null },
 ];
 
 const RECIPES: Recipe[] = [];
@@ -478,8 +424,13 @@ function meta(): NutrientMeta[] {
 
 /* ── dates ──────────────────────────────────────────────────────────────── */
 
+/**
+ * The local calendar date, as the app asks for it. This used to be the UTC
+ * date, which west of Greenwich is tomorrow by the evening — and the fixture
+ * then answered the app's "today" with an empty day.
+ */
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localToday();
 }
 
 /**
@@ -499,7 +450,7 @@ function loggedDates(): string[] {
     if (i % 7 === 4) continue; // a gap, so the calendar is not a solid block
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    out.push(d.toISOString().slice(0, 10));
+    out.push(localIso(d));
   }
   return out;
 }
@@ -593,9 +544,9 @@ function range(from: string, to: string): RangeView {
 
 /**
  * Read commands answer with a fixture; write commands accept and return the
- * shape the caller expects. Nothing is persisted — a reload is a fresh day,
- * which is the right behaviour for a design fixture and the wrong behaviour
- * for anything else, so this must never be reachable inside Tauri.
+ * shape the caller expects. Nothing outlives the tab — a reload is a fresh
+ * day, which is the right behaviour for a design fixture and the wrong
+ * behaviour for anything else, so this must never be reachable inside Tauri.
  */
 /**
  * A household with one other device in it.
@@ -737,7 +688,7 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   save_exported_file: () => null,
   search_foods: (a) => search(String(a.query ?? ""), Number(a.limit ?? 30)),
   get_food_detail: (a) => detail(Number(a.fdcId)),
-  frequent_foods: (a) => FREQUENT.slice(0, Number(a.limit ?? 6)),
+  frequent_foods: (a) => frequent(Number(a.limit ?? 6), (a.meal as Meal | null | undefined) ?? null),
   logged_dates: (a) => {
     const since = String(a.since ?? "");
     return loggedDates().filter((d) => d >= since);
@@ -756,7 +707,9 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   list_nutrients: () => meta(),
   get_goals: () => goals(),
   list_vessels: () => VESSELS,
-  list_bottles: () => BOTTLES,
+  // A copy: logging from a bottle moves its `last_used_at`, and handing back
+  // the same array would let React skip the re-render that shows it.
+  list_bottles: () => structuredClone(BOTTLES),
   list_recipes: () => RECIPES,
   list_open_cooks: () => COOKS,
   list_supplements: () => SUPPLEMENTS,
@@ -764,9 +717,6 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   list_cuisines: () => ["South Indian", "North Indian", "Gujarati", "Bengali"],
   recall_tags: () => ({ origin: null, cuisine: null }),
   add_log_entry: () => `mock-${Math.random().toString(36).slice(2, 8)}`,
-  // Takes no meal, matching the real command — a bottle belongs to no sitting.
-  log_water: () => `mock-${Math.random().toString(36).slice(2, 8)}`,
-  delete_log_entry: () => undefined,
   set_entry_tags: () => undefined,
   save_profile: () => undefined,
   set_nutrient_target: () => undefined,
@@ -846,6 +796,9 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   // here would throw mock.ts's own "not in the browser fixture" on every
   // reload of the design fixture.
   take_widget_landing: () => null,
+  // The day's writes — remove and its undo, a bottle weighed or drunk whole,
+  // the corrections — which change the day `get_day` reads back.
+  ...DAY_TABLE,
   ...ACTIVITY_TABLE,
 };
 
@@ -893,7 +846,10 @@ const BACKUP: BackupStatus = {
 function exportLog(from: string, to: string): ExportLog {
   const known = (n: number) =>
     LABEL_NUTRIENTS.slice(0, n).map((n2, i) => ({ nutrient_id: n2.id, amount: 4 + i * 3.5 }));
-  const rows = ENTRIES.filter((e) => e.source_kind !== "water").map((e, i) => ({
+  const entries = dayEntries(today());
+  // Food only: a dose goes on its own sheet in the real export, and this
+  // fixture leaves that sheet empty rather than inventing a panel for it.
+  const rows = entries.filter((e) => e.source_kind !== "water" && e.source_kind !== "supplement").map((e, i) => ({
     logged_on: from,
     meal: e.meal ?? "snack",
     description: e.description,
@@ -906,7 +862,7 @@ function exportLog(from: string, to: string): ExportLog {
     days: 1,
     rows,
     doses: [],
-    water: ENTRIES.filter((e) => e.source_kind === "water").map((e) => ({
+    water: entries.filter((e) => e.source_kind === "water").map((e) => ({
       logged_on: from,
       description: e.description,
       ml: Math.round((e.grams ?? 0) / 0.9982),
