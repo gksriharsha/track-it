@@ -58,3 +58,18 @@ export function dayFigure(t: DailyTotal | null | undefined): string {
   if (t == null || t.coverage === null) return "—";
   return rowFigure(t);
 }
+
+/**
+ * A sitting's subtotal, or null for none — by the day's rule, not a row's.
+ *
+ * A meal is a part of the day, so what holds for the day holds for it: a
+ * sitting at which nothing with a mass was had has no energy to total. Read
+ * the way a row is, a dinner of two fish-oil softgels headed itself "20 kcal"
+ * under a day line reading "—" for the same twenty calories. No subtotal at
+ * all, rather than a dash, because the softgel's own row already says what
+ * it carried — the same as a sitting holding only a vitamin.
+ */
+export function mealFigure(t: DailyTotal | null | undefined): string | null {
+  if (t == null || t.coverage === null) return null;
+  return rowFigure(t);
+}

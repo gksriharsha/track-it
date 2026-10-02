@@ -102,20 +102,22 @@ export default function DayWater(p: {
 
       {whole.length > 0 && (
         <div className="usual">
-          {whole.map((b) => (
-            <button
-              key={b.id}
-              className="usual__chip"
-              onClick={() => drink(b)}
-              disabled={pending !== null}
-              aria-busy={pending === b.id}
-              aria-label={`Log a whole ${b.name}${b.volume_ml === null ? "" : `, ${describeVolume(b.volume_ml)}`}`}
-            >
-              <PlusGlyph />
-              <span className="usual__name">{b.name}</span>
-              {b.volume_ml !== null && <span className="usual__amt tnum">{describeVolume(b.volume_ml)}</span>}
-            </button>
-          ))}
+          <div className="usual__chips">
+            {whole.map((b) => (
+              <button
+                key={b.id}
+                className="usual__chip"
+                onClick={() => drink(b)}
+                disabled={pending !== null}
+                aria-busy={pending === b.id}
+                aria-label={`Log a whole ${b.name}${b.volume_ml === null ? "" : `, ${describeVolume(b.volume_ml)}`}`}
+              >
+                <PlusGlyph />
+                <span className="usual__name">{b.name}</span>
+                {b.volume_ml !== null && <span className="usual__amt tnum">{describeVolume(b.volume_ml)}</span>}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

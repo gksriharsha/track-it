@@ -123,6 +123,13 @@
   --act-line: #a697b8;
   --act-rule: #d9d2e2;
   --act-press: #e4dee9;
+  /* The muted text inside an activity area. The page's --ink-3 measured
+     4.9:1 on the ground but 4.48:1 on the heather wash the Today card sits
+     on — under AA on the very line that says "about 120 kcal", the one
+     caveat on a session's figure. This is 5.5:1 on the wash and 4.8:1 on a
+     pressed row. In dark mode the page's own value already clears the wash
+     (4.7:1), so there it is the same grey. */
+  --act-ink-3: #665f55;
 
   /* The colour of the area a control sits in: sage for food, which is most
      of the app, and heather wherever an activity is being logged or read
@@ -235,6 +242,7 @@
     --act-line: #74688a;
     --act-rule: #3f3849;
     --act-press: #332e3c;
+    --act-ink-3: #938b7e;
     --focus: #85b393;
     --lift: none;
     --lift-hi: none;
@@ -922,9 +930,10 @@ b, strong, th { font-weight: 600; }
 .dayline__chev { margin-left: auto; color: var(--ink-3); font-size: var(--t-head); line-height: 1; }
 @media (hover: hover) { .dayline:hover { background: var(--sunken); } }
 
-/* A day with nothing in it: one line, and the way to fill it. */
+/* A day with nothing eaten on it: one line. The way to fill it is each
+   sitting's + under it, and the bar's own. */
 .day-empty {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  display: flex; align-items: center; gap: var(--s3);
   min-height: var(--row-h);
 }
 .day-empty p { margin: 0; color: var(--ink-2); }
@@ -939,6 +948,17 @@ b, strong, th { font-weight: 600; }
 .day-sec__fig { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500; white-space: nowrap; }
 .day-sec__aside { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 .day-sec__aside.link { color: var(--area-ink); font-size: var(--t-sm); line-height: var(--t-sm-lh); padding: var(--s1) var(--s2); margin-right: calc(var(--s2) * -1); }
+/* A text action standing alone at the end of a line — "Add a note", and an
+   entry's "Change" beside its tags — is a thumb's 44px tall on a phone, as
+   every other control on Today is; it measured 27. The negative margin hands
+   the height back, so the line it ends is no taller for it. */
+@media (max-width: 720px) {
+  .day-sec__aside.link,
+  .esheet__line .link {
+    display: inline-flex; align-items: center;
+    min-height: 44px; margin-block: -8.5px;
+  }
+}
 .day-sec .alert { margin-top: var(--s2); }
 
 /* The + beside a sitting's name: a small washed disc, so it reads as a
@@ -967,8 +987,12 @@ b, strong, th { font-weight: 600; }
 /* What a sitting usually holds, and a bottle to log whole: actions,
    not choices, so they are drawn as quiet outlined pills with a + in
    the area's ink — never the wash a chosen chip wears. */
-.usual { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s1) 0 var(--s2); }
-.usual__label { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+/* The word, then the chips in a box of their own: a chip that wraps lines up
+   under the first chip, not under "Usually" at the left edge. On a baseline,
+   so the word sits on the first chip's line rather than halfway down two. */
+.usual { display: flex; align-items: baseline; gap: var(--s2); padding: var(--s1) 0 var(--s2); }
+.usual__label { flex: none; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.usual__chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); flex: 1 1 auto; min-width: 0; }
 .usual__chip {
   display: inline-flex; align-items: center; gap: 6px;
   flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 44px;
@@ -994,6 +1018,9 @@ b, strong, th { font-weight: 600; }
 .esheet__energy { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--s2); }
 .esheet__energy > .tnum { font-weight: 600; }
 .esheet__state { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+/* A corrected or filled-in entry's history: a state of the figures above it,
+   so in the sheet's own body text rather than a footnote's grey. */
+.esheet__history { margin: 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); }
 .esheet__line { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
 .esheet__line .link { padding: var(--s1) var(--s2); margin-right: calc(var(--s2) * -1); }
 .esheet__tags .tags { margin-top: var(--s3); }
@@ -3176,6 +3203,9 @@ b, strong, th { font-weight: 600; }
   --area-wash: var(--act-wash);
   --on-area: var(--on-act);
   --focus: var(--act);
+  /* Muted text a shade darker here, because an activity area is where the
+     heather wash is laid under text (see --act-ink-3). */
+  --ink-3: var(--act-ink-3);
 }
 .activity .again__amt { background: var(--act-wash); color: var(--act-ink); }
 .activity .again__tile[aria-busy="true"] { border-color: var(--act); }
@@ -3252,9 +3282,13 @@ b, strong, th { font-weight: 600; }
 
 /* Today: the same card, tinted, so it is never mistaken for food. */
 .activity-card { background: var(--act-wash); box-shadow: none; }
-/* Centred rather than on a baseline: the head holds an (i) and a 44px
-   "Add activity", neither of which has a line of text to line up on. */
-.activity-card .card__head { margin-bottom: 0; align-items: center; }
+/* The head of every other group on Today: the name, the + beside it, and
+   centred rather than on a baseline, because neither the + nor the (i) has a
+   line of text to line up on. */
+.activity-card .card__head { margin-bottom: 0; align-items: center; gap: var(--s1); min-height: 44px; }
+/* The + is a wash disc everywhere else, and the card IS the wash: drawn in
+   the card's own rule colour instead, so it still reads as a control. */
+.activity-card .day-add { background: var(--act-rule); }
 .activity-card .rows { margin-top: 0; }
 .activity-card__row { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
 .activity-card .rows > * + *::before { background: var(--act-rule); }

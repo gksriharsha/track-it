@@ -9,9 +9,10 @@
  * nothing at all; a label that does print calories keeps them; and every one
  * of those answers is the one `read` gives the same total, so a row cannot
  * disagree with the nutrient panel about what is known. The day's own line
- * reads a day with no food on it as "—", not as the pills' few calories.
+ * reads a day with no food on it as "—", not as the pills' few calories, and
+ * a sitting's subtotal follows the day's rule rather than a row's.
  */
-import { dayFigure, rowFigure } from "./energy.ts";
+import { dayFigure, mealFigure, rowFigure } from "./energy.ts";
 import { read } from "./nutrient.ts";
 import type { DailyTotal, NutrientTotal } from "../types.ts";
 
@@ -88,6 +89,26 @@ is("a day of food reads like a row", dayFigure(measured), "228");
 is("a partly measured day says at least", dayFigure(partial), "≥208");
 is("a day holding only a supplement is not the supplement's calories", dayFigure(softgel), "—");
 is("a day with no figure at all is a dash", dayFigure(undefined), "—");
+// What the backend sends for a day of nothing but water: the bottles carry no
+// energy, so there is nothing to sum, which is not a measured nought.
+is("a day of nothing but water is a dash, not 0", dayFigure(total({
+  lower: 0, upper: 0, coverage: null, items_total: 0, items_covered: 0,
+})), "—");
+
+console.log("a sitting's subtotal, by the day's rule");
+is("a meal of food reads like the day", String(mealFigure(measured)), "228");
+is("a partly measured meal says at least", String(mealFigure(partial)), "≥208");
+is("an unmeasured meal is a dash", String(mealFigure(unknown)), "—");
+check("a meal of nothing but softgels has no subtotal, as the day has no figure",
+  mealFigure(softgel) === null && dayFigure(softgel) === "—");
+check("a sitting with nothing to total has no subtotal", mealFigure(null) === null && mealFigure(undefined) === null);
+// Food and a softgel at one sitting: the food has a mass, so the meal is a
+// meal, and the softgel's printed calories are in it — as they are in the day.
+const withSoftgel = total({
+  lower: 238, upper: 238, coverage: 1, items_total: 2, items_covered: 2,
+  from_supplements: { lower: 10, upper: 10, doses_total: 1, doses_covered: 1 },
+});
+is("food with a softgel counts the softgel's calories", String(mealFigure(withSoftgel)), "238");
 
 console.log(failed === 0 ? `\nall ${held} claims held` : `\n${failed} of ${held + failed} claims FAILED`);
 if (failed > 0) throw new Error(`${failed} claim(s) failed`);

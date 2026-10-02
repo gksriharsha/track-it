@@ -3,7 +3,9 @@ import { deleteLogEntry, restoreLogEntry, setEntryTags } from "../api";
 import type { DayView, EntryBreakdown, LogEntry, Origin } from "../types";
 import { rowFigure } from "../lib/energy";
 import { stateOf } from "../lib/nutrient";
-import { gapText, portionText, tagText, vesselText, waterNote } from "../lib/entryText";
+import {
+  densityNote, gapText, portionText, potNote, provenanceText, tagText, vesselText, waterNote,
+} from "../lib/entryText";
 import CorrectEntry from "./CorrectEntry";
 import Info from "./Info";
 import Sheet from "./Sheet";
@@ -24,8 +26,10 @@ import { useAnnounce } from "./UndoBar";
  * What it holds, top to bottom: how much, what that came to in energy, where
  * it came from on one line, what it was made of, and the two things that can
  * be done to it — correct it, or remove it. The method behind each reading is
- * behind an (i) beside it; the state — "≥", "no data", "whole bottle, not
- * weighed" — is on the line it qualifies.
+ * behind an (i) beside it; the state — "≥", "95% measured", "no data", "pot
+ * not weighed", "whole bottle, not weighed", corrected or filled in later — is
+ * on the line it qualifies, and stays there whether or not the correction form
+ * is open.
  *
  * Open on an entry id in the hash (`entry=<id>`), so the Android back gesture
  * closes it rather than leaving Today, and an (i) opened inside it closes back
@@ -111,9 +115,20 @@ function Body({ e, b, onClose, onChanged }: {
     });
   }
 
-  const amount = [portionText(e, b, true), waterNote(e), vesselText(e) && `weighed in ${vesselText(e)}`]
+  const amount = [
+    portionText(e, b, true),
+    potNote(e, b, true),
+    waterNote(e),
+    densityNote(e),
+    vesselText(e) && `weighed in ${vesselText(e)}`,
+  ]
     .filter(Boolean)
     .join(", ");
+  // Logged as it is, the entry's history is method and sits in the (i). A
+  // correction, or values worked out after the fact, is a state of THESE
+  // figures, so it is said on the sheet itself — it used to be the first line
+  // of the correction form, and went behind the "Correct" button with it.
+  const history = b && b.basis !== "logged" ? provenanceText(b) : null;
 
   return (
     <div className="esheet">
@@ -127,18 +142,21 @@ function Body({ e, b, onClose, onChanged }: {
           {energyState(b.energy) && <span className="esheet__state">{energyState(b.energy)}</span>}
           <Info title="How an entry's energy is counted">
             <p>
-              What this entry was worth when it was logged. Its values were frozen then, so changing
-              the food or the recipe since has not moved them; correcting the entry is the way to
-              change them on purpose.
+              An entry keeps the values it was frozen with — when it was logged, unless this sheet
+              says it was corrected or filled in later — so changing the food or the recipe since
+              has not moved them. Correcting the entry is the way to change them on purpose.
             </p>
             <p>
-              Where part of it by weight has no energy figure it reads “≥”, at least this much, and
-              where none of it has one it reads “—”. Neither is counted as zero. The day's figure is
+              Where at least four-fifths of it by weight has an energy figure, it reads as a figure,
+              with how much was measured beside it. Where less does, it reads “≥”, at least this
+              much, and where none of it does, “—”. Neither is counted as zero. The day's figure is
               these added up, entry by entry, by the same rule.
             </p>
           </Info>
         </div>
       )}
+
+      {history && <p className="esheet__history">{history}</p>}
 
       {/* Neither a supplement nor a bottle is a dish, and neither has a cuisine. */}
       {!isSupplement && !isWater && (
@@ -246,7 +264,7 @@ function Body({ e, b, onClose, onChanged }: {
       {correcting && (
         <section className="esheet__part">
           <h3 className="esheet__head">Correct this entry</h3>
-          <CorrectEntry entryId={e.id} onChanged={onChanged} />
+          <CorrectEntry entryId={e.id} onChanged={onChanged} showProvenance={history === null} />
         </section>
       )}
 
@@ -262,10 +280,19 @@ function Body({ e, b, onClose, onChanged }: {
   );
 }
 
-/** The marker after an entry's energy, when it is not simply a figure. */
+/**
+ * The marker after an entry's energy, when it is not simply a figure.
+ *
+ * Including when it is a figure with a gap under it: up to a fifth of an
+ * entry by weight can lack an energy figure and it still reads as one, by the
+ * rule every total in the app follows. Twelve grams of ghee with no data in a
+ * bowl of dal is that case, and ghee is the densest thing in the bowl — so
+ * the share that was measured is said, the way the day's sheet says it.
+ */
 function energyState(t: NonNullable<EntryBreakdown["energy"]>): string | null {
   const s = stateOf(t);
   if (s === "unknown" || rowFigure(t) === "—") return "no energy figure in it";
   if (s === "partial") return "part of it has no energy figure";
+  if (t.coverage !== null && t.coverage < 1) return `${Math.round(t.coverage * 100)}% measured`;
   return null;
 }

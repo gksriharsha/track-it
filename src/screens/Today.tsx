@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { frequentFoods, loggedDates, todayIso } from "../api";
 import type { DayView, EntryBreakdown, FrequentFood, LogEntry, Meal } from "../types";
 import { MEALS } from "../types";
-import { dayFigure, rowFigure } from "../lib/energy";
+import { dayFigure, mealFigure, rowFigure } from "../lib/energy";
 import { rowSub } from "../lib/entryText";
 import { useHashSheet, useHashSheetValue } from "../lib/hashSheet";
 import { plural } from "../lib/nutrient";
@@ -118,6 +118,10 @@ export default function Today(p: Props) {
   // sitting lands here without this needing to know about it.
   const water = entries.filter((e) => e.meal === null);
   const isToday = p.date === todayIso();
+  // A day of nothing but water has nothing eaten to add up: the bottles carry
+  // no energy, so its line would be four dashes. It is said in a sentence
+  // instead, and the water is right there in its own group below.
+  const onlyWater = entries.length > 0 && water.length === entries.length;
 
   return (
     // screen--today: hook for the desktop-only two-column layout in
@@ -142,12 +146,18 @@ export default function Today(p: Props) {
       <div className="day-log">
         {p.loading ? (
           <Skeleton />
-        ) : entries.length === 0 ? (
-          /* One line and the way to fill it. Not "your first food": on a day
-             already behind you, there is nothing first about it. */
+        ) : entries.length === 0 || onlyWater ? (
+          /* One line. Not "your first food": on a day already behind you,
+             there is nothing first about it. And no button: each sitting's +
+             is right under it, and the bar's own + (the sidebar's, on a
+             desktop) is the screen's one filled action — a second "Add food"
+             here was two primary buttons doing one thing. */
           <div className="day-empty">
-            <p>{isToday ? "Nothing logged yet today." : "Nothing logged on this day."}</p>
-            <button className="btn" onClick={() => p.onAddFood()}>Add food</button>
+            <p>
+              {onlyWater
+                ? isToday ? "No food logged yet today." : "No food logged on this day."
+                : isToday ? "Nothing logged yet today." : "Nothing logged on this day."}
+            </p>
           </div>
         ) : (
           <DayLine day={day!} onOpen={daySheet.show} />
@@ -203,7 +213,10 @@ export default function Today(p: Props) {
  * question for the day's sheet, which this line opens, and for Trends.
  *
  * Each figure reads in the three states. A day only partly measured says "≥",
- * one with no figure "—", and never 0.
+ * one with no figure "—", and never 0. The four are read over what was EATEN:
+ * the backend leaves water out of them, and a pill that states none of them,
+ * so the day is the sum of its sittings and a litre of water cannot pass a
+ * day of unmeasured food off as a measured one.
  */
 function DayLine({ day, onOpen }: { day: DayView; onOpen: () => void }) {
   const t = (id: number) => day.totals.find((x) => x.id === id)?.total;
@@ -218,13 +231,16 @@ function DayLine({ day, onOpen }: { day: DayView; onOpen: () => void }) {
       </button>
       <Info title="How the day's energy is counted">
         <p>
-          Added up from every entry, the same way each row's figure is: the energy each one was
-          worth when it was logged. P, C and F are protein, carbohydrate and fat, in grams.
+          Added up from every entry, the same way each row's figure is, from the values each entry
+          was frozen with. P, C and F are protein, carbohydrate and fat, in grams. Water is not in
+          them, and nor is a supplement whose label states none of the four.
         </p>
         <p>
-          Where part of what was eaten has no figure, the day reads “≥” — at least this much — and
-          where nothing could be measured it reads “—”. Neither is counted as zero. A day holding
-          only supplements reads “—” too: a pill's few calories are not the day's energy.
+          Where at least four-fifths of what was eaten, by weight, has a figure, the day reads as a
+          figure, and the day's sheet says how much of it was measured. Where less does, it reads
+          “≥” — at least this much — and where nothing could be measured, “—”. Neither is counted
+          as zero. A day holding only supplements reads “—” too: a pill's few calories are not the
+          day's energy.
         </p>
         <p>
           Activity is not taken off it. Pressing the day's line opens every nutrient in the day,
@@ -249,14 +265,19 @@ function DayLine({ day, onOpen }: { day: DayView; onOpen: () => void }) {
  *
  * Still a shortcut, and drawn as one: no count on a chip, no rank, no
  * "favourites" — a tally beside a food name is a leaderboard of your own
- * eating. "Usually" is the whole of what it says about why these two.
+ * eating. "Usually" is the whole of what it says about why these two, so the
+ * backend offers only a food had at this sitting on more than one day.
  */
 function MealGroup(p: {
   meal: Meal;
   date: string;
   entries: LogEntry[];
   breakdown: (e: LogEntry) => EntryBreakdown | undefined;
-  /** Null for a sitting with nothing, or nothing but a tablet: no subtotal, never 0. */
+  /**
+   * Null for a sitting with nothing, or nothing but a tablet: no subtotal,
+   * never 0. Read by the day's rule (`mealFigure`), so a sitting of nothing
+   * but softgels has none either.
+   */
   subtotal: NonNullable<EntryBreakdown["energy"]> | null;
   usual: FrequentFood[];
   onOpen: (id: string) => void;
@@ -268,6 +289,7 @@ function MealGroup(p: {
   // "breakfast" would print as the meal's id.
   const name = p.meal.charAt(0).toUpperCase() + p.meal.slice(1);
   const id = `meal-${p.meal}`;
+  const fig = mealFigure(p.subtotal);
   return (
     <section className="day-sec meal" aria-labelledby={id}>
       <div className="day-sec__head">
@@ -275,7 +297,7 @@ function MealGroup(p: {
         <button className="day-add" onClick={() => p.onAdd(p.meal)} aria-label={`Add to ${p.meal}`}>
           <PlusGlyph />
         </button>
-        {p.subtotal && <span className="day-sec__fig tnum">{rowFigure(p.subtotal)} kcal</span>}
+        {fig !== null && <span className="day-sec__fig tnum">{fig} kcal</span>}
       </div>
 
       {p.entries.length > 0 ? (
@@ -285,20 +307,24 @@ function MealGroup(p: {
       ) : p.usual.length > 0 ? (
         <div className="usual">
           <span className="usual__label">Usually</span>
-          {p.usual.map((f) => (
-            <button
-              key={f.key}
-              className="usual__chip"
-              onClick={() => q.log(f)}
-              disabled={q.pending !== null}
-              aria-busy={q.pending === f.key}
-              aria-label={`Log ${f.description}, ${f.last_amount_label}, to ${p.meal}`}
-            >
-              <PlusGlyph />
-              <span className="usual__name">{f.description}</span>
-              <span className="usual__amt tnum">{f.last_amount_label}</span>
-            </button>
-          ))}
+          {/* Their own box, so a chip that wraps lines up under the first
+              chip rather than under the word. */}
+          <div className="usual__chips">
+            {p.usual.map((f) => (
+              <button
+                key={f.key}
+                className="usual__chip"
+                onClick={() => q.log(f)}
+                disabled={q.pending !== null}
+                aria-busy={q.pending === f.key}
+                aria-label={`Log ${f.description}, ${f.last_amount_label}, to ${p.meal}`}
+              >
+                <PlusGlyph />
+                <span className="usual__name">{f.description}</span>
+                <span className="usual__amt tnum">{f.last_amount_label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 

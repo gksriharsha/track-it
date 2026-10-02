@@ -2,6 +2,7 @@ import { useState } from "react";
 import NutrientRow from "../components/NutrientRow";
 import type { DayView, NutrientTotal, TargetBasis } from "../types";
 import { read } from "../lib/nutrient";
+import { rangeFor, referenceFor } from "../lib/reference";
 import ScreenHead from "../components/ScreenHead";
 
 type Filter = "all" | "measured" | "unknown";
@@ -23,6 +24,13 @@ const FILTERS: { id: Filter; label: string }[] = [
  * — see `DaySheet`, which reads this screen's grouping and its notes rather
  * than a copy of them. The switch that used to sit at the top of both screens
  * went with that: one day had two addresses, and a sheet gives it one.
+ *
+ * And it reads the day the way the sheet does. Until it did, the desktop's
+ * daily screen still drew a sodium over its Daily Value in the ceiling's red
+ * and put "of your target" under energy — a verdict on one day, and a
+ * published or estimated figure turned into a commitment — while the sheet
+ * beside it, for the same day, promised neither. Each row names what it is
+ * read against (`lib/reference.ts`), and nothing on a single day is over.
  */
 export default function Nutrients({
   day,
@@ -35,6 +43,8 @@ export default function Nutrients({
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const totals = day?.totals ?? [];
+  const energy = day?.energy_target ?? null;
+  const ranges = day?.macro_ranges ?? [];
 
   const keep = (t: NutrientTotal) => {
     const s = read(t).state;
@@ -102,7 +112,10 @@ export default function Nutrients({
             <div className="group" key={group}>
               <div className="group__name">{group}</div>
               <div className="rows">
-                {rows.map((t) => <NutrientRow key={t.id} t={t} />)}
+                {rows.map((t) => (
+                  <NutrientRow key={t.id} t={t} verdict={false}
+                    reference={referenceFor(t, energy)} aside={rangeFor(t, ranges)} />
+                ))}
               </div>
             </div>
           ))}
@@ -118,7 +131,9 @@ export default function Nutrients({
             <h3>Limited data</h3>
             <p>{LIMITED_DATA}</p>
             <div className="rows">
-              {extended.map((t) => <NutrientRow key={t.id} t={t} />)}
+              {extended.map((t) => (
+                <NutrientRow key={t.id} t={t} verdict={false} reference={referenceFor(t, energy)} />
+              ))}
             </div>
           </div>
         )}
@@ -159,10 +174,17 @@ export function basisNote(totals: NutrientTotal[]): string {
   );
   if (bases.size === 0) return "Nothing here has a reference figure to compare against.";
   const personal = bases.has("rda") || bases.has("ai");
+  // The DRI pass never sets a limit — `targets::resolve` takes those from the
+  // Daily Value — so a profile's panel is nearly always a mixture, and a note
+  // that said "the DRIs" over a sodium row reading "Daily Value 2,300 mg" was
+  // contradicted by the row under it.
+  const dv = bases.has("daily_value")
+    ? ", with the FDA Daily Value for the limits and for anything the DRIs do not cover"
+    : "";
   if (personal && bases.has("user_set")) {
-    return "The figures beside each amount are your own where you set one, and the DRIs for your profile otherwise.";
+    return `The figures beside each amount are your own where you set one, and the DRIs for your profile otherwise${dv}.`;
   }
-  if (personal) return "The figures beside each amount are the DRIs for your profile.";
+  if (personal) return `The figures beside each amount are the DRIs for your profile${dv}.`;
   if (bases.has("user_set")) {
     return "The figures beside each amount are your own where you set one, and the FDA Daily Value otherwise.";
   }

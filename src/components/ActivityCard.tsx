@@ -3,6 +3,7 @@ import { getGoals } from "../api";
 import { ACTIVITY_CHANGED, listSessions, sessionSub, sessionTitle } from "../lib/activity";
 import type { Session } from "../lib/activity";
 import { MINUTES_PER_SET, dayEnergy, energyUsed, kcalText } from "../lib/activityEnergy";
+import { PlusGlyph } from "./DayWater";
 import Info from "./Info";
 
 /**
@@ -76,6 +77,15 @@ export default function ActivityCard(p: {
     <section className="card activity-card" aria-label="Activity">
       <div className="card__head">
         <h2>Activity</h2>
+        {/* The same + every group on Today has beside its name, in heather
+            because the card is an activity area (see styles.css). It was a
+            text link reading "Add activity" — the one group whose way in was
+            drawn differently from the other six. */}
+        {p.canAdd && (
+          <button className="day-add" onClick={p.onAdd} aria-label="Add activity">
+            <PlusGlyph />
+          </button>
+        )}
         {sessions !== null && sessions.length > 0 && (
           <Info title="How activity's energy is worked out">
             <p>
@@ -92,9 +102,6 @@ export default function ActivityCard(p: {
               <p>A strength session with no time is counted at {MINUTES_PER_SET} minutes a set.</p>
             )}
           </Info>
-        )}
-        {p.canAdd && (
-          <button className="link card__note" onClick={p.onAdd}>Add activity</button>
         )}
       </div>
       {sessions !== null && sessions.length > 0 && (

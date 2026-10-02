@@ -7,7 +7,7 @@ import { BASIS_LABEL } from "../types";
  * three-state rendering can never drift between them.
  */
 export default function NutrientRow({
-  t, reference, aside, verdict = true,
+  t, reference, aside, verdict = true, saidAbove = null,
 }: {
   t: NutrientTotal;
   /**
@@ -24,8 +24,15 @@ export default function NutrientRow({
    * single day. A period is where a ceiling means something.
    */
   verdict?: boolean;
+  /**
+   * A note the list around this row has already said once at its head —
+   * "94% measured", when most of a day's nutrients share it. Left off this
+   * row when it is the row's own note too; a row whose note differs keeps it.
+   */
+  saidAbove?: string | null;
 }) {
   const r = read(t);
+  const note = saidAbove !== null && r.note === saidAbove ? "" : r.note;
   const stateClass =
     r.state === "measured" ? (r.over && verdict ? "is-over" : "") : `is-${r.state}`;
   // A reference that names its own system has no need of the line under the
@@ -38,7 +45,7 @@ export default function NutrientRow({
         <span className="row__title" title={t.full_name}>
           {t.name}
         </span>
-        {r.note && <span className="row__sub">{r.note}</span>}
+        {note && <span className="row__sub">{note}</span>}
         {aside && <span className="row__sub tnum">{aside}</span>}
         {/*
           Which system the percentage is against. A shortfall against an
