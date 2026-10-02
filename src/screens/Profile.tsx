@@ -133,7 +133,6 @@ export default function Profile(p: Props) {
     <div className="screen">
       <ScreenHead
         title="Profile"
-        sub="who the targets are for"
         onBack={p.onBack}
         action={
           <button className="btn btn--quiet" onClick={p.onOpenSettings}>Targets and goals</button>

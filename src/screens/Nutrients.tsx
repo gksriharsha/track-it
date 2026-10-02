@@ -110,7 +110,7 @@ export default function Nutrients({
           ))}
         </div>
         {core.length === 0 && (
-          <p style={{ color: "var(--ink-3)", fontSize: 14, margin: "var(--s3) 0" }}>
+          <p className="t-sm" style={{ color: "var(--ink-3)", margin: "var(--s3) 0" }}>
             Nothing in this filter.
           </p>
         )}
@@ -131,7 +131,7 @@ export default function Nutrients({
         )}
       </section>
 
-      <p style={{ color: "var(--ink-3)", fontSize: 12, textAlign: "center" }}>
+      <p className="t-cap" style={{ color: "var(--ink-3)", textAlign: "center" }}>
         {basisNote(totals)} “—” means no data, not zero.
       </p>
     </div>

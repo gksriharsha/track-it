@@ -64,7 +64,6 @@ export default function Supplements(p: Props) {
           action competing for one intent. */}
       <ScreenHead
         title="Your supplements"
-        sub={list.length > 0 ? plural(list.length, "supplement") : "what you take, off the panel"}
         onBack={p.onBack}
         action={
           list.length > 0 ? (
@@ -93,6 +92,11 @@ export default function Supplements(p: Props) {
         </div>
       ) : (
         <section className="card">
+          {/* The count the title used to carry as a subtitle, now heading the
+              list it counts. */}
+          <div className="card__head">
+            <h2>{plural(list.length, "supplement")}</h2>
+          </div>
           <div className="rows">
             {list.map((s) => (
               <div className="row entryrow" key={s.id}>

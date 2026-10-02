@@ -79,7 +79,6 @@ export default function CustomFoods(p: Props) {
     <div className="screen">
       <ScreenHead
         title="Your foods"
-        sub={foods.length > 0 ? `${foods.length} saved` : "what the pack actually says"}
         onBack={back}
         action={
           foods.length > 0 ? (
@@ -109,6 +108,12 @@ export default function CustomFoods(p: Props) {
         </div>
       ) : (
         <section className="card">
+          {/* The count the title used to carry as a subtitle, heading the list
+              it counts. Always the whole list, filtered or not: it says how many
+              foods you have, and the rows under it say which ones match. */}
+          <div className="card__head">
+            <h2>{foods.length} saved</h2>
+          </div>
           {/* A filter rather than a search command: these are the user's own foods,
               a few hundred at most, and all of them are already in memory. */}
           {foods.length > 8 && (

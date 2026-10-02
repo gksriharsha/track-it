@@ -155,7 +155,9 @@ export default function Today(p: Props) {
   const groups: { key: string; label: string; entries: LogEntry[] }[] = [
     ...MEALS.map((m) => ({
       key: m,
-      label: m,
+      // Capitalised here rather than by CSS: the group heading is sentence
+      // case now, so "breakfast" would print as the meal's id.
+      label: m.charAt(0).toUpperCase() + m.slice(1),
       entries: entries.filter((e) => e.meal === m),
     })),
     {

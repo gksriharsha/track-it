@@ -85,11 +85,11 @@ const STRIP: CSSProperties = {
   background: "var(--sunken)",
 };
 
+/** Set in `.t-sm` by the elements that use it — the size is the type scale's. */
 const STRIP_TEXT: CSSProperties = {
   flex: "1 1 220px",
   minWidth: 0,
   color: "var(--ink-2)",
-  fontSize: "13px",
 };
 
 const BANNER: CSSProperties = {
@@ -104,10 +104,13 @@ const BANNER: CSSProperties = {
   background: "var(--sunken)",
 };
 
-/** Kept to the 44px minimum: these sit between rows, under a thumb. */
+/**
+ * These sit between rows, under a thumb, and `.btn` already gives them the
+ * button's own height (--btn-h) — so all this adds is the narrower padding of
+ * a control inside a row, and no wrapping.
+ */
 const ACT: CSSProperties = {
-  padding: "var(--s2) var(--s4)",
-  minHeight: "44px",
+  paddingInline: "var(--s4)",
   whiteSpace: "nowrap",
 };
 
@@ -355,7 +358,7 @@ export default function LabelForm(p: Props) {
 
       {pending.length > 0 && (
         <div style={BANNER} role="group" aria-label="Read from the photo">
-          <p style={{ ...STRIP_TEXT, margin: 0, flexBasis: "260px" }}>
+          <p className="t-sm" style={{ ...STRIP_TEXT, margin: 0, flexBasis: "260px" }}>
             <strong>{plural(pending.length, "figure")} read from the photo.</strong> None is
             entered yet — a camera can read a 5 as a 6, so check each against the pack before
             you take it.
@@ -420,7 +423,7 @@ export default function LabelForm(p: Props) {
 
               {o && (
                 <div style={STRIP} role="group" aria-label={`Read from the photo for ${n.name}`}>
-                  <span style={STRIP_TEXT}>
+                  <span className="t-sm" style={STRIP_TEXT}>
                     {o.clash !== null ? (
                       <>
                         You typed <span className="num">{o.clash}</span>. The photo reads{" "}

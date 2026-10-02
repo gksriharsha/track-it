@@ -122,11 +122,7 @@ export default function Bottles(p: Props) {
 
   return (
     <div className="screen">
-      <ScreenHead
-        title="Bottles"
-        sub={bottles.length > 0 ? `${bottles.length} weighed` : "so a bottle can be read at a glance"}
-        onBack={back}
-      />
+      <ScreenHead title="Bottles" onBack={back} />
 
       {error && <p className="alert" role="alert">{error}</p>}
 
@@ -223,8 +219,10 @@ export default function Bottles(p: Props) {
         </div>
       ) : (
         <section className="card">
+          {/* The count used to be the screen's subtitle; it heads the list it
+              counts now. */}
           <div className="card__head">
-            <h2>Weighed</h2>
+            <h2>{bottles.length} weighed</h2>
             <span className="card__note">most recently used first</span>
           </div>
           <div className="rows">

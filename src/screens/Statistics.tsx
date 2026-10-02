@@ -98,7 +98,6 @@ export default function Statistics(p: Props) {
            the two held the last month — one sounded like a spreadsheet and the
            other like a list. */
         title="Trends"
-        sub="how the last few weeks have gone"
         onBack={p.onBack}
       />
 

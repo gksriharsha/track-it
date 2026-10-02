@@ -106,11 +106,7 @@ export default function Settings(p: Props) {
 
   return (
     <div className="screen">
-      <ScreenHead
-        title="Targets and goals"
-        sub="what every percentage is measured against"
-        onBack={p.onBack}
-      />
+      <ScreenHead title="Targets and goals" onBack={p.onBack} />
 
       {error && <p className="alert" role="alert">{error}</p>}
 
@@ -304,7 +300,7 @@ export default function Settings(p: Props) {
             );
           })}
           {shown.length === 0 && (
-            <p style={{ color: "var(--ink-3)", fontSize: 14, margin: "var(--s3) 0" }}>
+            <p className="t-sm" style={{ color: "var(--ink-3)", margin: "var(--s3) 0" }}>
               {filter === "mine"
                 ? "You have not set any targets of your own yet. Open any nutrient to set one."
                 : "Nothing in this filter."}

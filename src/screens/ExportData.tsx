@@ -99,11 +99,7 @@ export default function ExportData({ onBack }: Props) {
 
   return (
     <div className="screen">
-      <ScreenHead
-        title="Export your log"
-        sub="a spreadsheet of what you logged, saved wherever you choose to put it"
-        onBack={onBack}
-      />
+      <ScreenHead title="Export your log" onBack={onBack} />
 
       {error && (
         <p className="alert" role="alert">

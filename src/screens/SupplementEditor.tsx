@@ -559,7 +559,6 @@ export default function SupplementEditor(p: Props) {
     <div className="screen">
       <ScreenHead
         title={p.id ? "Edit supplement" : "Add a supplement"}
-        sub="from the panel on the bottle"
         action={<button className="btn btn--quiet" onClick={p.onCancel}>Cancel</button>}
       />
 
@@ -892,7 +891,7 @@ export default function SupplementEditor(p: Props) {
         )}
 
         {lines.length === 0 && (
-          <p style={{ color: "var(--ink-3)", fontSize: 14, margin: "var(--s3) 0" }}>
+          <p className="t-sm" style={{ color: "var(--ink-3)", margin: "var(--s3) 0" }}>
             Nothing yet. Add the lines the pack prints, in the order it prints them.
           </p>
         )}
@@ -983,7 +982,7 @@ export default function SupplementEditor(p: Props) {
                 </button>
               ))}
               {available.length === 0 && (
-                <span style={{ color: "var(--ink-3)", fontSize: 13 }}>
+                <span className="t-sm" style={{ color: "var(--ink-3)" }}>
                   Nothing left that matches.
                 </span>
               )}

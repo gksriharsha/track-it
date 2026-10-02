@@ -62,7 +62,6 @@ export default function Recipes(p: Props) {
     <div className="screen">
       <ScreenHead
         title="Recipes"
-        sub={list.length > 0 ? `${list.length} saved` : "the proportions you cook by"}
         onBack={p.onBack}
         action={
           list.length > 0 ? (
@@ -94,49 +93,54 @@ export default function Recipes(p: Props) {
           <button className="btn" onClick={() => setBuilding(true)}>Build your first recipe</button>
         </div>
       ) : (
-        <div className="rgrid">
-          {list.map((r) => {
-            const missing = r.ingredients.filter((i) => i.fdc_id === null);
-            const optional = r.ingredients.filter((i) => i.optional).length;
-            return (
-              <div className="card rcard" key={r.id}>
-                <div className="rcard__name">{r.name}</div>
-                {/* The written batch, not a promise about the next one. The
-                    servings count is shown only where the user gave one, and
-                    reads as their note rather than as a property of the dish —
-                    never write `?? 4` here to make the sentence tidier. */}
-                <div className="rcard__meta tnum">
-                  comes out at {Math.round(r.yield_g).toLocaleString()} g ·{" "}
-                  {plural(r.ingredients.length, "ingredient")}
-                  {optional > 0 && `, ${optional} optional`}
-                  {r.servings !== null && ` · usually feeds ${r.servings}`}
-                </div>
-                <div className="rcard__ing">
-                  {r.ingredients.slice(0, 4).map((i) => i.description).join(", ")}
-                  {r.ingredients.length > 4 && ` +${r.ingredients.length - 4} more`}
-                </div>
-                {missing.length > 0 && (
-                  <div className="card__foot">
-                    {plural(missing.length, "ingredient")}{" "}
-                    {missing.length > 1 ? "have" : "has"} no composition data, so anything they
-                    contribute counts as unmeasured.
+        // The count the title used to carry as a subtitle, heading the grid
+        // it counts instead.
+        <section aria-label="Saved recipes">
+          <h2 className="group__name" style={{ marginBottom: "var(--s2)" }}>{list.length} saved</h2>
+          <div className="rgrid">
+            {list.map((r) => {
+              const missing = r.ingredients.filter((i) => i.fdc_id === null);
+              const optional = r.ingredients.filter((i) => i.optional).length;
+              return (
+                <div className="card rcard" key={r.id}>
+                  <div className="rcard__name">{r.name}</div>
+                  {/* The written batch, not a promise about the next one. The
+                      servings count is shown only where the user gave one, and
+                      reads as their note rather than as a property of the dish —
+                      never write `?? 4` here to make the sentence tidier. */}
+                  <div className="rcard__meta tnum">
+                    comes out at {Math.round(r.yield_g).toLocaleString()} g ·{" "}
+                    {plural(r.ingredients.length, "ingredient")}
+                    {optional > 0 && `, ${optional} optional`}
+                    {r.servings !== null && ` · usually feeds ${r.servings}`}
                   </div>
-                )}
-                <div style={{ marginTop: "var(--s3)", display: "flex", gap: "var(--s2)" }}>
-                  {/* The primary action on a recipe is to cook it. Logging
-                      straight off the written batch is still there in Add
-                      food, for a day you followed it exactly. */}
-                  <button className="btn" onClick={() => p.onCook(r.id)}>
-                    Cook this
-                  </button>
-                  <button className="btn btn--danger" onClick={() => remove(r.id, r.name)}>
-                    Delete
-                  </button>
+                  <div className="rcard__ing">
+                    {r.ingredients.slice(0, 4).map((i) => i.description).join(", ")}
+                    {r.ingredients.length > 4 && ` +${r.ingredients.length - 4} more`}
+                  </div>
+                  {missing.length > 0 && (
+                    <div className="card__foot">
+                      {plural(missing.length, "ingredient")}{" "}
+                      {missing.length > 1 ? "have" : "has"} no composition data, so anything they
+                      contribute counts as unmeasured.
+                    </div>
+                  )}
+                  <div style={{ marginTop: "var(--s3)", display: "flex", gap: "var(--s2)" }}>
+                    {/* The primary action on a recipe is to cook it. Logging
+                        straight off the written batch is still there in Add
+                        food, for a day you followed it exactly. */}
+                    <button className="btn" onClick={() => p.onCook(r.id)}>
+                      Cook this
+                    </button>
+                    <button className="btn btn--danger" onClick={() => remove(r.id, r.name)}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </div>
   );

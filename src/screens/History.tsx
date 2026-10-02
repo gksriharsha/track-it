@@ -86,7 +86,6 @@ export default function History({ onPickDate, onImport }: Props) {
         /* The name the bottom bar uses. A screen whose heading disagrees with
            the button that reached it makes a person doubt they arrived. */
         title="Days"
-        sub="pick a day, or average a period"
         action={<button className="btn btn--quiet" onClick={onImport}>Import data</button>}
       />
 
@@ -413,7 +412,7 @@ function TagBars({
 }) {
   if (rows.length === 0) {
     return (
-      <p style={{ color: "var(--ink-3)", fontSize: 14, margin: "var(--s2) 0" }}>
+      <p className="t-sm" style={{ color: "var(--ink-3)", margin: "var(--s2) 0" }}>
         Nothing tagged in this period.
       </p>
     );

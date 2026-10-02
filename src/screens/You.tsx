@@ -63,14 +63,14 @@ export default function You(p: Props) {
 
   return (
     <div className="screen screen--list">
-      <ScreenHead title="You" sub="who the targets are for" />
+      <ScreenHead title="You" />
 
       {error && <p className="alert" role="alert">{error}</p>}
 
       {/* Identity, stated plainly rather than as an icon standing for it. */}
       <button
         className="row"
-        style={{ gridTemplateColumns: "auto 1fr auto", padding: "var(--s3) var(--s2)" }}
+        style={{ gridTemplateColumns: "auto 1fr auto", paddingBlock: "var(--s3)" }}
         onClick={p.onOpenProfile}
       >
         <span
@@ -86,7 +86,7 @@ export default function You(p: Props) {
           </svg>
         </span>
         <span className="row__main">
-          <span className="row__title" style={{ fontSize: 17, fontWeight: 600 }}>{identity}</span>
+          <span className="row__title t-head">{identity}</span>
           {identitySub && <span className="row__sub">{identitySub}</span>}
         </span>
         <span className="row__chev" aria-hidden>›</span>
@@ -166,14 +166,14 @@ export default function You(p: Props) {
         </div>
       </section>
 
-      <p style={{ color: "var(--ink-3)", fontSize: 12, textAlign: "center", margin: "var(--s2) 0" }}>
+      <p className="t-cap" style={{ color: "var(--ink-3)", textAlign: "center", margin: "var(--s2) 0" }}>
         Everything stays on this device, in the same file as your food log, until you export it
         somewhere yourself.
       </p>
 
       {/* The credit the drawings' licence asks for, somewhere a person can find
           it without opening a lift. It is also printed under each close-up. */}
-      <p style={{ color: "var(--ink-3)", fontSize: 12, textAlign: "center", margin: "0 0 var(--s2)" }}>
+      <p className="t-cap" style={{ color: "var(--ink-3)", textAlign: "center", margin: "0 0 var(--s2)" }}>
         Exercise drawings by Greg Priday for Everkinetic (everkinetic.com), under CC BY-SA 3.0,
         creativecommons.org/licenses/by-sa/3.0, recoloured for this app. Their licence covers the
         drawings only.{ownArt && ` ${ownArt}`}

@@ -65,10 +65,7 @@ export default function Library(p: Props) {
 
   return (
     <div className="screen screen--list">
-      <ScreenHead
-        title="Library"
-        sub="recipes, your foods, supplements, vessels and bottles"
-      />
+      <ScreenHead title="Library" />
 
       {error && <p className="alert" role="alert">{error}</p>}
 
@@ -135,7 +132,7 @@ export default function Library(p: Props) {
         <div className="card__head">
           <h2>Reference data</h2>
         </div>
-        <p style={{ color: "var(--ink-2)", fontSize: 13, margin: 0 }}>
+        <p className="t-sm" style={{ color: "var(--ink-2)", margin: 0 }}>
           <span className="num" style={{ fontWeight: 500 }}>13,694</span> foods bundled — USDA
           Foundation, SR Legacy and FNDDS, with Indian-name aliases so <em>urad dal</em> finds the
           right entry.
