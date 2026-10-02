@@ -2,10 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { humanDate, shiftIso, todayIso } from "../api";
 
 /*
-  Today's date strip, moved here unchanged from screens/Today.tsx when that
-  screen was rewritten around its log. Nothing in it moved: the centred
-  today, the twelve-week reach, the dots that say a day exists in the record
-  and never how it went.
+  Today's date strip, moved here from screens/Today.tsx when that screen was
+  rewritten around its log: the centred today and the twelve-week reach.
+
+  It used to carry a dot under every day that held something. The dot said a
+  day existed in the record and never how it went, but a row of dots with a
+  gap in it is a chain with a link missing, and the user chose, from rendered
+  options, a row with nothing marked under the days. The selected day is the
+  only mark.
 */
 
 /**
@@ -47,10 +51,9 @@ const STRIP_LEAD = 3;
 /**
  * The days the strip draws for a given selection, oldest first.
  *
- * Exported from module scope rather than computed inside `WeekStrip` because
- * two things need to agree about it: the strip, and the read that marks which
- * of those days hold something. One function, called once, is what makes them
- * agree — see the `stripDays` call in `Today`.
+ * Exported from module scope rather than computed inside `WeekStrip`, so the
+ * screen that owns the strip decides its reach once, from the day being read
+ * — see the `stripDays` call in `Today`.
  */
 export function stripDays(date: string): string[] {
   const today = todayIso();
@@ -104,16 +107,15 @@ export function stripDays(date: string): string[] {
  * Today sits in the MIDDLE of its week rather than at the end of it — see
  * `STRIP_LEAD` for why the rail stopped ending on today.
  *
- * Still deliberately NOT a progress track. The marks say a day exists in the
- * record, never how well it went, and there is nothing here to fill or beat.
+ * Still deliberately NOT a progress track: nothing under a day, nothing to
+ * fill or to beat, and an empty Thursday looks like any other Thursday.
  */
 export default function WeekStrip({
-  date, days, logged, onPick,
+  date, days, onPick,
 }: {
   date: string;
   /** The strip's whole reach, oldest first. See `stripDays`. */
   days: string[];
-  logged: ReadonlySet<string>;
   onPick: (iso: string) => void;
 }) {
   const today = todayIso();
@@ -205,7 +207,13 @@ export default function WeekStrip({
 
   return (
     <div className="weekwrap">
-      <div className="week__caption">{monthSpan(weeks[shown] ?? [], today)}</div>
+      {/* Only while another week is on screen: for the selected day's own week
+          the date under Today's title already names the month. Kept in the
+          layout either way, so scrolling never moves the strip under the
+          thumb. */}
+      <div className={shown === page ? "week__caption is-quiet" : "week__caption"} aria-hidden={shown === page}>
+        {monthSpan(weeks[shown] ?? [], today)}
+      </div>
       <div
         className="week"
         ref={rail}
@@ -235,7 +243,6 @@ export default function WeekStrip({
                     {d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
                   </span>
                   <span className="week__n tnum">{d.getDate()}</span>
-                  <span className={logged.has(iso) ? "week__dot is-on" : "week__dot"} aria-hidden />
                 </button>
               );
             })}

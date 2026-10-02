@@ -3,23 +3,28 @@ import { deleteLogEntry, listBottles, logWholeBottle } from "../api";
 import type { Bottle, LogEntry } from "../types";
 import { describeVolume } from "../types";
 import { quantityText, waterNote } from "../lib/entryText";
+import { useHashSheet } from "../lib/hashSheet";
+import Glyph from "./Glyph";
+import Sheet from "./Sheet";
 import { useAnnounce } from "./UndoBar";
 
 /**
- * The day's water: what it came to, the bottles it came from, and a bottle
- * drunk in one tap.
+ * The day's water, as one row: what it came to, the bottles it came from,
+ * and a + that logs your usual bottle whole in one tap.
  *
- * Its own group and never a meal. A bottle is refilled and sipped from across
+ * Its own row and never a meal. A bottle is refilled and sipped from across
  * the whole day, so naming a sitting for it would record a fact the user never
  * gave — the database enforces that, and this screen draws it.
  *
- * The total is in litres, which is how a day of water is thought about; each
- * row is the volume that bottle came to. Below them, up to three bottles to
- * log whole, most recently used first: one tap for "I finished the flask",
- * with the app's bar saying what was written and a way back. Only bottles
- * weighed empty are offered — without the empty weight, what a full one holds
- * is not known, and a chip that guessed would write the guess into the day.
- * Part of a bottle is still weighed, from Add's Water tab, behind the +.
+ * One row because the user chose it, from rendered options, over a group with
+ * a chip per bottle: water is a figure for the day, and the bottles behind it
+ * are one tap away in the row's sheet, with each entry, the other bottles to
+ * log whole, and the way to weigh part of one. The + logs the bottle used
+ * most recently, and only one weighed empty — without the empty weight, what
+ * a full one holds is not known, and a + that guessed would write the guess
+ * into the day. With no such bottle it opens Add's Water tab instead.
+ *
+ * The total is in litres, which is how a day of water is thought about.
  */
 export default function DayWater(p: {
   date: string;
@@ -31,6 +36,7 @@ export default function DayWater(p: {
   onChanged: () => void;
 }) {
   const announce = useAnnounce();
+  const sheet = useHashSheet("sheet", "water");
   const [bottles, setBottles] = useState<Bottle[]>([]);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,10 +48,13 @@ export default function DayWater(p: {
   }, []);
   useEffect(readBottles, [readBottles]);
 
+  // Most recently used first, as `listBottles` returns them.
   const whole = bottles.filter((b) => b.empty_g !== null).slice(0, 3);
+  const usual = whole[0] ?? null;
   // Summed from what each entry came to in millilitres — the bottle's own
   // scale where it has one — never from grams.
   const ml = p.entries.reduce((n, e) => n + (e.water?.ml ?? 0), 0);
+  const names = [...new Set(p.entries.map((e) => e.description))];
 
   async function drink(b: Bottle) {
     if (pending !== null) return;
@@ -74,54 +83,72 @@ export default function DayWater(p: {
   }
 
   return (
-    <section className="day-sec day-water" aria-labelledby="day-water">
-      <div className="day-sec__head">
-        <h2 id="day-water">Water</h2>
-        <button className="day-add" onClick={p.onAdd} aria-label="Add water">
+    <section className="water" aria-label="Water">
+      <div className="water__row">
+        <button className="tile water__open" onClick={sheet.show} aria-haspopup="dialog">
+          <span className="lead lead--water" aria-hidden><Glyph name="drop" size={20} /></span>
+          <span className="row__main">
+            <span className="row__title">Water</span>
+            <span className="row__sub">{names.length > 0 ? names.join(", ") : "None logged yet"}</span>
+          </span>
+          {ml > 0 && <span className="entry__fig tnum">{litres(ml)}</span>}
+        </button>
+        <button
+          className="water__add"
+          onClick={() => (usual ? drink(usual) : p.onAdd())}
+          disabled={pending !== null}
+          aria-busy={pending !== null}
+          aria-label={usual
+            ? `Log a whole ${usual.name}${usual.volume_ml === null ? "" : `, ${describeVolume(usual.volume_ml)}`}`
+            : "Add water"}
+        >
           <PlusGlyph />
         </button>
-        {ml > 0 && <span className="day-sec__fig tnum">{litres(ml)}</span>}
       </div>
-
-      {p.entries.length > 0 && (
-        <div className="rows">
-          {p.entries.map((e) => {
-            const note = waterNote(e);
-            return (
-              <button key={e.id} className="row entry" onClick={() => p.onOpen(e.id)}>
-                <span className="row__main">
-                  <span className="row__title">{e.description}</span>
-                  {note && <span className="row__sub">{note}</span>}
-                </span>
-                <span className="entry__fig tnum">{quantityText(e)}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {whole.length > 0 && (
-        <div className="usual">
-          <div className="usual__chips">
-            {whole.map((b) => (
-              <button
-                key={b.id}
-                className="usual__chip"
-                onClick={() => drink(b)}
-                disabled={pending !== null}
-                aria-busy={pending === b.id}
-                aria-label={`Log a whole ${b.name}${b.volume_ml === null ? "" : `, ${describeVolume(b.volume_ml)}`}`}
-              >
-                <PlusGlyph />
-                <span className="usual__name">{b.name}</span>
-                {b.volume_ml !== null && <span className="usual__amt tnum">{describeVolume(b.volume_ml)}</span>}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {error && <p className="alert" role="alert">{error}</p>}
+
+      <Sheet open={sheet.open} onClose={sheet.hide} title={ml > 0 ? `Water, ${litres(ml)}` : "Water"}>
+        <div className="water-sheet">
+          {p.entries.length > 0 && (
+            <div className="rows">
+              {p.entries.map((e) => {
+                const note = waterNote(e);
+                return (
+                  <button key={e.id} className="row entry" onClick={() => p.onOpen(e.id)}>
+                    <span className="row__main">
+                      <span className="row__title">{e.description}</span>
+                      {note && <span className="row__sub">{note}</span>}
+                    </span>
+                    <span className="entry__fig tnum">{quantityText(e)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {whole.length > 0 && (
+            <div className="usual">
+              <span className="usual__label">A whole bottle</span>
+              <div className="usual__chips">
+                {whole.map((b) => (
+                  <button
+                    key={b.id}
+                    className="usual__chip"
+                    onClick={() => drink(b)}
+                    disabled={pending !== null}
+                    aria-busy={pending === b.id}
+                    aria-label={`Log a whole ${b.name}${b.volume_ml === null ? "" : `, ${describeVolume(b.volume_ml)}`}`}
+                  >
+                    <PlusGlyph />
+                    <span className="usual__name">{b.name}</span>
+                    {b.volume_ml !== null && <span className="usual__amt tnum">{describeVolume(b.volume_ml)}</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <button className="btn btn--quiet" onClick={p.onAdd}>Weigh part of a bottle</button>
+        </div>
+      </Sheet>
     </section>
   );
 }

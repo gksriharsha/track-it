@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { frequentFoods, loggedDates, todayIso } from "../api";
+import { frequentFoods, getRange, shiftIso, todayIso } from "../api";
 import type { DayView, EntryBreakdown, FrequentFood, LogEntry, Meal } from "../types";
 import { MEALS } from "../types";
-import { dayFigure, mealFigure, rowFigure } from "../lib/energy";
-import { rowSub } from "../lib/entryText";
+import { dayFigure, energyShares, mealFigure, rowFigure } from "../lib/energy";
+import { leadOf, rowSub } from "../lib/entryText";
 import { useHashSheet, useHashSheetValue } from "../lib/hashSheet";
-import { plural } from "../lib/nutrient";
 import ActivityCard from "../components/ActivityCard";
 import DayNote from "../components/DayNote";
 import DaySheet from "../components/DaySheet";
 import DayWater, { PlusGlyph } from "../components/DayWater";
 import EntrySheet from "../components/EntrySheet";
+import Glyph from "../components/Glyph";
 import Info from "../components/Info";
 import { useQuickLog } from "../components/QuickLog";
+import { summarise } from "../components/Spread";
 import WeekStrip, { stripDays } from "../components/WeekStrip";
 
 interface Props {
@@ -38,26 +39,28 @@ interface Props {
 }
 
 /**
- * The day, as a ledger: what was had, sitting by sitting, with what each came
- * to on the right.
+ * The day, as a departure board: each record a white cell on the grey page,
+ * every figure lined up in one column on the right.
  *
- * It used to do three jobs before it did this one. A carousel of foods to log
- * again, the day's energy and macronutrients against their ranges, and a card
- * about what could be measured all came first — and a switch to a second
- * screen holding the same day's nutrients came before those. None of the
- * twelve things eaten were on the first screen. Each of those still exists;
- * none of them is in front of the log any more:
+ * The look was chosen by the user from rendered options (October 2026), after
+ * a first redesign set the day as a hairline-ruled ledger on an off-white
+ * page and read as a printed document. What it kept from that ledger, and
+ * from the screen before it, is the order and the honesty:
  *
- * - The day's figures are ONE line, in the plain sans, and the line opens the
- *   day's nutrients as a sheet — with what could be measured at its head and
- *   each reference figure, named, beside its amount (`DaySheet`).
+ * - The day's energy leads, in the normal width (a period's figures are set
+ *   wide; a day's are not), with how the day's protein, carbohydrate and fat
+ *   split it, and the month's middle day beside it so the day is read against
+ *   the period rather than against a target. It opens the day's nutrients as
+ *   a sheet, each reference figure named beside its amount (`DaySheet`).
+ * - Each food is its own tile, led by a mark of where it came from: a pot for
+ *   home cooking, initials for a food of your own, an outline for anything
+ *   bought (`leadOf`). Its state — "≥", "—", "pot not weighed" — is on its
+ *   line, and the whole tile opens it (`EntrySheet`).
  * - Logging again is one tap from the meal it belongs to: an empty sitting
  *   offers what is usually had at it.
- * - What each figure means and how it was arrived at is behind an (i) beside
- *   it. What state it is in — "≥", "—", "some unmeasured" — is on the line.
+ * - What each figure means and how it was arrived at is behind an (i).
  *
- * Every entry is one row, and the whole row opens it (`EntrySheet`). Nothing
- * unfolds in place, so the day never moves under your thumb.
+ * Nothing unfolds in place, so the day never moves under your thumb.
  */
 export default function Today(p: Props) {
   const day = p.day;
@@ -66,38 +69,36 @@ export default function Today(p: Props) {
   const entrySheet = useHashSheetValue("entry");
   const daySheet = useHashSheet("sheet", "nutrients");
 
-  /* The days the strip is going to draw, and the first of them.
-     `stripDays` is the single definition of the strip's reach: the marks below
-     are read for exactly this span, so a dot cannot be missing from a day the
-     strip shows. Recomputed on every date change and almost always identical,
-     which is why the read is keyed on `from` — a string — rather than on the
-     array. */
+  /* The days the strip is going to draw. `stripDays` is the single definition
+     of its reach, decided here from the day being read. */
   const stripDates = useMemo(() => stripDays(p.date), [p.date]);
-  const from = stripDates[0];
-
-  /* Which of those days hold something. Keyed on the strip's first day, so it
-     is re-read only when the strip's reach actually moves — which happens when
-     a day older than the strip is picked out of the Days calendar, and not
-     when you step from Tuesday to Wednesday. */
-  const [logged, setLogged] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => {
-    let live = true;
-    loggedDates(from).then((d) => live && setLogged(new Set(d))).catch(() => {});
-    return () => { live = false; };
-  }, [from]);
 
   /*
-    A write from this screen — a usual food, a bottle, a remove, an Undo of
-    any of them — changes the day and perhaps whether the day has anything in
-    it at all, so the dot under its date follows. The latest, through a ref:
-    an Undo can be pressed from the app's bar after this screen has gone.
+    The latest `onChanged`, through a ref: an Undo can be pressed from the
+    app's bar after this screen has gone.
   */
   const changed = useRef(() => {});
-  changed.current = () => {
-    p.onChanged();
-    loggedDates(from).then((d) => setLogged(new Set(d))).catch(() => {});
-  };
+  changed.current = () => p.onChanged();
   const onChanged = useCallback(() => changed.current(), []);
+
+  /*
+    A middle day of the last thirty — the figure Trends opens on, computed by
+    the same function from the same days, so Today and Trends cannot give two
+    answers for one month. Re-read whenever the day is, because a write here
+    moves the month too. Null below the five logged days a middle needs.
+  */
+  const [middle, setMiddle] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    const to = todayIso();
+    getRange(shiftIso(to, -29), to)
+      .then((r) => {
+        const kcal = r.days.filter((d) => d.food_items > 0 && d.kcal !== null).map((d) => d.kcal as number);
+        if (live) setMiddle(summarise(kcal)?.median ?? null);
+      })
+      .catch(() => { if (live) setMiddle(null); });
+    return () => { live = false; };
+  }, [day]);
 
   /* What each sitting usually holds, two foods apiece. Read once per visit:
      it does not change as you step between days, and re-reading it on every
@@ -119,28 +120,40 @@ export default function Today(p: Props) {
   const water = entries.filter((e) => e.meal === null);
   const isToday = p.date === todayIso();
   // A day of nothing but water has nothing eaten to add up: the bottles carry
-  // no energy, so its line would be four dashes. It is said in a sentence
-  // instead, and the water is right there in its own group below.
+  // no energy, so its figure would be a dash over an empty bar. It is said in
+  // a sentence instead, and the water is right there in its own row below.
   const onlyWater = entries.length > 0 && water.length === entries.length;
+
+  /* The title names the day as it is spoken — Today, Yesterday, Thursday —
+     and the line under it gives the date, so the month is always on screen. */
+  const dt = new Date(`${p.date}T00:00:00`);
+  const relative = isToday || p.date === shiftIso(todayIso(), -1);
+  const thisYear = p.date.slice(0, 4) === todayIso().slice(0, 4);
+  const title = relative ? p.label : dt.toLocaleDateString(undefined, { weekday: "long" });
+  const dateLine = dt.toLocaleDateString(undefined, {
+    ...(relative ? { weekday: "long" as const } : {}),
+    day: "numeric", month: "long",
+    ...(thisYear ? {} : { year: "numeric" as const }),
+  });
 
   return (
     // screen--today: hook for the desktop-only two-column layout in
     // styles.css. No other screen uses it, and it does nothing below 1080px.
     <div className="screen screen--today">
-      {/* The date IS the page title on mobile — a separate heading would just
+      {/* The day IS the page title on mobile — a separate heading would just
           repeat it. Desktop shows the date in App.tsx's own toolbar instead
           (see styles.css, `.daybar` is hidden there). */}
       <div className="daybar">
         <div className="daybar__row">
-          <h1>{p.label}</h1>
+          <div className="daybar__title">
+            <h1>{title}</h1>
+            <p className="daybar__date">{dateLine}</p>
+          </div>
           {p.canGoForward && (
             <button className="btn btn--quiet daybar__today" onClick={p.onToday}>Today</button>
           )}
-          {entries.length > 0 && (
-            <span className="screen__sub daybar__count">{plural(entries.length, "item")}</span>
-          )}
         </div>
-        <WeekStrip date={p.date} days={stripDates} logged={logged} onPick={p.onPickDate} />
+        <WeekStrip date={p.date} days={stripDates} onPick={p.onPickDate} />
       </div>
 
       <div className="day-log">
@@ -160,7 +173,7 @@ export default function Today(p: Props) {
             </p>
           </div>
         ) : (
-          <DayLine day={day!} onOpen={daySheet.show} />
+          <DayFigure day={day!} isToday={isToday} middle={middle} onOpen={daySheet.show} />
         )}
 
         {!p.loading && MEALS.map((m) => (
@@ -201,54 +214,83 @@ export default function Today(p: Props) {
 }
 
 /**
- * What the day came to, in one line: energy, then protein, carbohydrate and
- * fat — "2,156 kcal · P 68 · C 224 · F 58 g".
+ * What the day came to: its energy, and where that energy came from.
  *
  * This was the anchor of the app once: a 52px serif figure over a green bar
- * filling toward a target, over "498 left of 2,240". Then an ordinary line of
- * text with the reference beside it and three macronutrient ranges under it,
- * one of which turned bold when a single day fell outside it. Now it is the
- * figures and nothing to read them against, in the same sans as every other
- * line: a day is a noisy sample, and what the figures are read against is a
- * question for the day's sheet, which this line opens, and for Trends.
+ * filling toward a target, over "498 left of 2,240". The bar here is not
+ * that bar. It is a share of a whole — how the day's protein, carbohydrate
+ * and fat split the energy they carry (`energyShares`) — so it says what the
+ * day was made of and has nothing to fill. The figure beside the energy is
+ * the month's middle day, the one Trends opens on, never a target: a day is
+ * a noisy sample, and the period is what it is read against.
  *
  * Each figure reads in the three states. A day only partly measured says "≥",
- * one with no figure "—", and never 0. The four are read over what was EATEN:
- * the backend leaves water out of them, and a pill that states none of them,
- * so the day is the sum of its sittings and a litre of water cannot pass a
- * day of unmeasured food off as a measured one.
+ * one with no figure "—", and never 0. They are read over what was EATEN: the
+ * backend leaves water out of them, and a pill that states none of them, so
+ * the day is the sum of its sittings and a litre of water cannot pass a day
+ * of unmeasured food off as a measured one. With any of the three unmeasured
+ * there is no bar, rather than a split of the other two.
  */
-function DayLine({ day, onOpen }: { day: DayView; onOpen: () => void }) {
+function DayFigure({ day, isToday, middle, onOpen }: {
+  day: DayView;
+  isToday: boolean;
+  middle: number | null;
+  onOpen: () => void;
+}) {
   const t = (id: number) => day.totals.find((x) => x.id === id)?.total;
+  const kcal = dayFigure(t(1008));
+  const shares = energyShares(t(1003), t(1005), t(1004));
+  const parts = [
+    { key: "protein", name: "Protein", grams: dayFigure(t(1003)), share: shares?.protein },
+    { key: "carbs", name: "Carbs", grams: dayFigure(t(1005)), share: shares?.carbs },
+    { key: "fat", name: "Fat", grams: dayFigure(t(1004)), share: shares?.fat },
+  ];
+  const sub = [
+    isToday ? "so far today" : null,
+    middle !== null ? `middle day of the last 30: ${Math.round(middle).toLocaleString()}` : null,
+  ].filter(Boolean).join(", ");
   return (
-    <div className="dayline">
-      <button className="dayline__open" onClick={onOpen} aria-haspopup="dialog"
-        aria-label={`Every nutrient for the day: ${dayFigure(t(1008))} kcal, protein ${dayFigure(t(1003))}, carbohydrate ${dayFigure(t(1005))}, fat ${dayFigure(t(1004))} grams`}>
-        <span className="dayline__kcal tnum">{dayFigure(t(1008))} kcal</span>
-        <span className="dayline__macros tnum">
-          {" · "}P {dayFigure(t(1003))} · C {dayFigure(t(1005))} · F {dayFigure(t(1004))} g
+    <div className="dayfig">
+      <button className="dayfig__open" onClick={onOpen} aria-haspopup="dialog"
+        aria-label={`Every nutrient for the day: ${kcal} kcal, ${parts.map((x) => `${x.name.toLowerCase()} ${x.grams} grams`).join(", ")}`}>
+        <span className="dayfig__kcal tnum">{kcal}<span className="dayfig__unit">kcal</span></span>
+        {sub && <span className="dayfig__sub">{sub}</span>}
+        {shares && (
+          <span className="share" aria-hidden>
+            {parts.map((x) => <i key={x.key} className={`share__${x.key}`} style={{ flexGrow: x.share }} />)}
+          </span>
+        )}
+        <span className="share__key tnum">
+          {parts.map((x) => (
+            <span key={x.key}>
+              {shares && <b className={`share__${x.key}`} aria-hidden />}
+              {x.name} {x.grams} g{shares && <em> {x.share}%</em>}
+            </span>
+          ))}
         </span>
       </button>
       <Info title="How the day's energy is counted">
         <p>
           Added up from every entry, the same way each row's figure is, from the values each entry
-          was frozen with. P, C and F are protein, carbohydrate and fat, in grams. Water is not in
-          them, and nor is a supplement whose label states none of the four.
+          was frozen with. Water is not in it, and nor is a supplement whose label states none of
+          protein, carbohydrate and fat.
         </p>
         <p>
           Where at least four-fifths of what was eaten, by weight, has a figure, the day reads as a
           figure, and the day's sheet says how much of it was measured. Where less does, it reads
           “≥” — at least this much — and where nothing could be measured, “—”. Neither is counted
-          as zero. A day holding only supplements reads “—” too: a pill's few calories are not the
-          day's energy.
+          as zero.
         </p>
         <p>
-          Activity is not taken off it. Pressing the day's line opens every nutrient in the day,
-          each beside the figure it is read against — for energy, your own figure or an estimate
-          from About you.
+          The bar is how protein, carbohydrate and fat split the energy the three of them carry, at
+          4, 4 and 9 kcal a gram, over what is accounted for of each. It is a share of the day, not
+          progress toward anything, and it is left out when any of the three has no figure.
+        </p>
+        <p>
+          The middle day is the one Trends shows for the last 30 days: half the days logged came to
+          less, half to more. Activity is not taken off either figure.
         </p>
       </Info>
-      <span className="dayline__chev" aria-hidden>›</span>
     </div>
   );
 }
@@ -293,16 +335,18 @@ function MealGroup(p: {
   return (
     <section className="day-sec meal" aria-labelledby={id}>
       <div className="day-sec__head">
+        <span className="meal__glyph"><Glyph name={p.meal} size={18} /></span>
         <h2 id={id}>{name}</h2>
         <button className="day-add" onClick={() => p.onAdd(p.meal)} aria-label={`Add to ${p.meal}`}>
           <PlusGlyph />
         </button>
-        {fig !== null && <span className="day-sec__fig tnum">{fig} kcal</span>}
+        {/* A dash alone, not "— kcal": a unit beside no figure reads as a figure. */}
+        {fig !== null && <span className="day-sec__fig tnum">{fig === "—" ? fig : `${fig} kcal`}</span>}
       </div>
 
       {p.entries.length > 0 ? (
-        <div className="rows">
-          {p.entries.map((e) => <EntryRow key={e.id} e={e} b={p.breakdown(e)} onOpen={p.onOpen} />)}
+        <div className="tiles">
+          {p.entries.map((e) => <EntryTile key={e.id} e={e} b={p.breakdown(e)} onOpen={p.onOpen} />)}
         </div>
       ) : p.usual.length > 0 ? (
         <div className="usual">
@@ -334,24 +378,39 @@ function MealGroup(p: {
 }
 
 /**
- * One entry: what it was, a quiet line of how much and what is not known
- * about it, and its energy on the right. No chevron and no ×: the row is the
- * target, and removing is one of the things its sheet does — with an Undo,
- * which the × beside a 15px chevron never had.
+ * One entry, as its own tile: a mark of where it came from, what it was, a
+ * quiet line of how much and what is not known about it, and its energy on
+ * the right. No chevron and no ×: the tile is the target, and removing is one
+ * of the things its sheet does — with an Undo.
+ *
+ * Tiles rather than ruled rows: each food a white cell 2px from the next, the
+ * run of them rounder at its ends, so a meal reads as one group without a
+ * line drawn between every pair of foods.
  */
-function EntryRow({ e, b, onOpen }: {
+function EntryTile({ e, b, onOpen }: {
   e: LogEntry;
   b: EntryBreakdown | undefined;
   onOpen: (id: string) => void;
 }) {
   return (
-    <button className="row entry" onClick={() => onOpen(e.id)} aria-haspopup="dialog">
+    <button className="tile entry" onClick={() => onOpen(e.id)} aria-haspopup="dialog">
+      <Lead e={e} />
       <span className="row__main">
         <span className="row__title">{e.description}</span>
         <span className="row__sub entry__sub">{rowSub(e, b)}</span>
       </span>
       <span className="entry__fig tnum">{rowFigure(b?.energy ?? null)}</span>
     </button>
+  );
+}
+
+/** The mark a tile leads with. Decoration to a screen reader: the sheet says it in words. */
+function Lead({ e }: { e: LogEntry }) {
+  const l = leadOf(e);
+  return (
+    <span className={`lead lead--${l.kind}`} aria-hidden>
+      {"initials" in l ? l.initials : <Glyph name={l.glyph} size={20} />}
+    </span>
   );
 }
 

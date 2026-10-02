@@ -73,3 +73,32 @@ export function mealFigure(t: DailyTotal | null | undefined): string | null {
   if (t == null || t.coverage === null) return null;
   return rowFigure(t);
 }
+
+/**
+ * How the day's protein, carbohydrate and fat split the energy the three of
+ * them carry, in whole percents that add up to 100 — the bar under Today's
+ * figure. A share of a whole, so it describes what the day was made of and
+ * cannot be read as filling toward anything.
+ *
+ * At the general factors, 4, 4 and 9 kcal a gram, over what is accounted for
+ * of each (its lower bound). Null when any of the three has no figure at all,
+ * or none of them has any weight: a split with a part missing would be a
+ * split of something else.
+ */
+export function energyShares(
+  protein: DailyTotal | null | undefined,
+  carbs: DailyTotal | null | undefined,
+  fat: DailyTotal | null | undefined,
+): { protein: number; carbs: number; fat: number } | null {
+  const parts = [protein, carbs, fat];
+  if (parts.some((t) => t == null || t.coverage === null || stateOf(t) === "unknown")) return null;
+  const kcal = [parts[0]!.lower * 4, parts[1]!.lower * 4, parts[2]!.lower * 9];
+  const sum = kcal[0] + kcal[1] + kcal[2];
+  if (!(sum > 0)) return null;
+  // Largest remainder, so the three printed percents always add up to 100.
+  const exact = kcal.map((k) => (k / sum) * 100);
+  const whole = exact.map(Math.floor);
+  const order = exact.map((x, i) => [x - whole[i], i] as const).sort((a, b) => b[0] - a[0]);
+  for (let k = 0; k < 100 - (whole[0] + whole[1] + whole[2]); k++) whole[order[k][1]] += 1;
+  return { protein: whole[0], carbs: whole[1], fat: whole[2] };
+}

@@ -6,11 +6,11 @@
      it. -->
 <resources>
     <color name="widget_surface">#FFFFFFFF</color>
-    <color name="widget_ink">#FF1C1A17</color>
-    <color name="widget_muted">#FF57524A</color>
+    <color name="widget_ink">#FF0F1615</color>
+    <color name="widget_muted">#FF45514F</color>
     <!-- The tappable row's own ground. The `sunken` token, which is what the
          app uses for a surface that sits inside another one. -->
-    <color name="widget_row">#FFF4F2EE</color>
+    <color name="widget_row">#FFE1E8E7</color>
 
     <dimen name="widget_pad">10dp</dimen>
     <!-- The `r-lg` radius token, fixed here because the system's own widget

@@ -190,11 +190,11 @@ export default function ExportData({ onBack }: Props) {
         ) : (
           log && (
             <div className="exp-what">
-              {/* Plain sans throughout this block, including the figures.
-                  Newsreader is the app's one typographic signal and it marks an
-                  aggregate worth dwelling on; a serif numeral inside a 13px
-                  sentence about a file is not that, and spending the signal
-                  here would cheapen it where it is doing real work. */}
+              {/* The normal width throughout this block, including the
+                  figures. The wide setting is the app's one typographic signal
+                  and it marks an aggregate worth dwelling on; a wide numeral
+                  inside a 13px sentence about a file is not that, and spending
+                  the signal here would cheapen it where it is doing real work. */}
               <p className="exp-what__line">
                 {count(log.rows.length, "food entry", "food entries")} across{" "}
                 {count(log.days, "day", "days")}.

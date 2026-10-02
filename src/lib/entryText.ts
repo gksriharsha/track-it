@@ -162,13 +162,58 @@ export function tagText(
  * narrow phone cuts the line from the end, and a gap in the data — an
  * unweighed pot, an unmeasured line, a corrected value — is what must survive.
  *
- * Where it came from (home, ordered in, the cuisine) is not on the row. It is
- * a fact about the meal, not about the figure beside it; it sits on its own
- * line in the entry's sheet, with Change; and on a phone it was the part that
- * pushed "some unmeasured" off the end of the line.
+ * Where it came from (home, ordered in, the cuisine) is not on the row in
+ * words. It is a fact about the meal, not about the figure beside it; it sits
+ * on its own line in the entry's sheet, with Change; and on a phone it was the
+ * part that pushed "some unmeasured" off the end of the line. The row's tile
+ * says it without words instead (`leadOf`).
+ *
+ * Joined by commas, as a sentence would be, rather than by middle dots.
  */
 export function rowSub(e: LogEntry, b: EntryBreakdown | undefined): string {
   return [portionText(e, b), potNote(e, b), gapText(e, b), basisMarker(b), waterNote(e), vesselText(e)]
     .filter((s) => s !== null && s !== "")
-    .join(" · ");
+    .join(", ");
+}
+
+/**
+ * What a row's tile shows: where the food came from, readable without reading.
+ *
+ *   a supplement               a tablet, on grey
+ *   ordered in, or eaten out   a bag, outlined: bought, not made
+ *   a cook or a recipe         a pot, on the food colour: made at home
+ *   your own food              its initials, on the food wash
+ *   a reference food           its initials on grey, or a tag if it came in a
+ *                              packet
+ *
+ * In that order, so a takeaway curry logged from a recipe still reads as
+ * bought, and a pack you transcribed keeps its initials whatever it is tagged:
+ * it is your own food, first-class wherever a food is shown.
+ */
+export type Lead =
+  | { kind: "dose" | "bought" | "cook"; glyph: "tablet" | "bag" | "tag" | "pot" }
+  | { kind: "own" | "ref"; initials: string };
+
+export function leadOf(e: LogEntry): Lead {
+  if (e.source_kind === "supplement") return { kind: "dose", glyph: "tablet" };
+  if (e.origin === "ordered_in" || e.origin === "eaten_out") return { kind: "bought", glyph: "bag" };
+  if (e.source_kind === "cook" || e.source_kind === "recipe") return { kind: "cook", glyph: "pot" };
+  if (e.source_kind === "custom") return { kind: "own", initials: initials(e.description) };
+  if (e.origin === "packaged") return { kind: "bought", glyph: "tag" };
+  return { kind: "ref", initials: initials(e.description) };
+}
+
+/** Words a dish's name carries that say nothing about which dish it is. */
+const SMALL_WORDS = new Set(["a", "and", "in", "of", "on", "or", "the", "with"]);
+
+/**
+ * Two letters for a tile: the first letters of the first two words that
+ * name the food, or the first two of a one-word name — "Dal tadka" Dt,
+ * "Idli" Id, "Yogurt, plain, whole milk" Yp.
+ */
+export function initials(name: string): string {
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter((w) => w !== "" && !SMALL_WORDS.has(w.toLowerCase()));
+  if (words.length === 0) return name.trim().slice(0, 2);
+  const two = words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2);
+  return two.charAt(0).toUpperCase() + two.slice(1).toLowerCase();
 }

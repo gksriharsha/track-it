@@ -12,7 +12,7 @@
  * reads a day with no food on it as "—", not as the pills' few calories, and
  * a sitting's subtotal follows the day's rule rather than a row's.
  */
-import { dayFigure, mealFigure, rowFigure } from "./energy.ts";
+import { dayFigure, energyShares, mealFigure, rowFigure } from "./energy.ts";
 import { read } from "./nutrient.ts";
 import type { DailyTotal, NutrientTotal } from "../types.ts";
 
@@ -109,6 +109,23 @@ const withSoftgel = total({
   from_supplements: { lower: 10, upper: 10, doses_total: 1, doses_covered: 1 },
 });
 is("food with a softgel counts the softgel's calories", String(mealFigure(withSoftgel)), "238");
+
+console.log("\nwhere the day's energy came from");
+// 74 g protein, 262 g carbohydrate, 78 g fat: 296, 1,048 and 702 kcal of 2,046.
+const shares = energyShares(total({ lower: 74, upper: 80 }), total({ lower: 262, upper: 262 }), total({ lower: 78, upper: 90 }));
+check("the split is in whole percents that add up to 100",
+  shares !== null && shares.protein + shares.carbs + shares.fat === 100, JSON.stringify(shares));
+// 14.47, 51.22 and 34.31 per cent: the point left over goes to the largest
+// remainder, protein's.
+check("it weighs fat at 9 kcal a gram and the other two at 4",
+  shares?.protein === 15 && shares?.carbs === 51 && shares?.fat === 34, JSON.stringify(shares));
+check("it is read over what is accounted for, never the upper bound",
+  JSON.stringify(energyShares(total({ lower: 10, upper: 90 }), total({ lower: 10, upper: 10 }), total({ lower: 0, upper: 0 }))) ===
+    JSON.stringify({ protein: 50, carbs: 50, fat: 0 }));
+check("with one of the three unmeasured there is no split, rather than a split of the other two",
+  energyShares(total({ lower: 74 }), unknown, total({ lower: 78 })) === null);
+check("a day with nothing of any of them has no split", energyShares(total({ lower: 0, upper: 0 }), total({ lower: 0, upper: 0 }), total({ lower: 0, upper: 0 })) === null);
+check("nor does a day of nothing but a tablet", energyShares(softgel, softgel, softgel) === null);
 
 console.log(failed === 0 ? `\nall ${held} claims held` : `\n${failed} of ${held + failed} claims FAILED`);
 if (failed > 0) throw new Error(`${failed} claim(s) failed`);
