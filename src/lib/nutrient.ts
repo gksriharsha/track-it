@@ -1,5 +1,8 @@
-import type { NutrientTotal, TargetBasis } from "../types";
-import { CONFIDENCE_THRESHOLD } from "../types";
+// The `.ts` extensions are for bare Node, which runs `energy.test.ts` against
+// this file and resolves nothing it is not told the name of. The bundler and
+// `tsc` both accept them (`allowImportingTsExtensions`).
+import type { DailyTotal, NutrientTotal, TargetBasis } from "../types.ts";
+import { CONFIDENCE_THRESHOLD } from "../types.ts";
 
 /**
  * How one nutrient total should read on screen.
@@ -59,9 +62,34 @@ export function displayUnit(unit: string): string {
   return unit === "ug" ? "\u00b5g" : unit;
 }
 
+/**
+ * Which of the three states a total is in, and nothing else.
+ *
+ * The one decision every reading of a total makes, lifted out of `read` so
+ * that a reading which is not a nutrient row — an entry's energy on Today, a
+ * meal's subtotal — reaches the same answer by the same rule rather than by a
+ * copy of it. See `energy.ts`.
+ */
+export function stateOf(total: DailyTotal): Reading["state"] {
+  if (total.items_total === 0) return "unknown";
+  const sup = total.from_supplements;
+  // Grams and pill counts are not commensurable, so the two are required
+  // separately rather than blended into one fraction. A blend would need an
+  // exchange rate between a gram of dal and a tablet, which would have to be
+  // invented.
+  if (total.coverage === 0 && sup === null) return "unknown";
+  // How much of the day's FOOD had data. Null means nothing with a mass was
+  // logged — a supplements-only day — which is not the same as nothing being
+  // known, so it must not fall through to the zero-coverage branch above.
+  const massOk = total.coverage === null || total.coverage >= CONFIDENCE_THRESHOLD;
+  const dosesOk = sup === null || sup.doses_covered === sup.doses_total;
+  return massOk && dosesOk ? "measured" : "partial";
+}
+
 export function read(t: NutrientTotal): Reading {
   const { total, magnitude, target, target_basis, is_limit } = t;
   const sup = total.from_supplements;
+  const state = stateOf(total);
 
   if (total.items_total === 0) {
     return {
@@ -70,17 +98,10 @@ export function read(t: NutrientTotal): Reading {
     };
   }
 
-  // How much of the day's FOOD had data. Null means nothing with a mass was
-  // logged — a supplements-only day — which is not the same as nothing being
-  // known, so it must not fall through to the zero-coverage branch below.
   const massOk = total.coverage === null || total.coverage >= CONFIDENCE_THRESHOLD;
   const dosesOk = sup === null || sup.doses_covered === sup.doses_total;
 
-  // Grams and pill counts are not commensurable, so the two are required
-  // separately rather than blended into one fraction. A blend would need an
-  // exchange rate between a gram of dal and a tablet, which would have to be
-  // invented.
-  if (total.coverage === 0 && sup === null) {
+  if (state === "unknown") {
     const n = total.items_total;
     return {
       state: "unknown",
@@ -94,9 +115,13 @@ export function read(t: NutrientTotal): Reading {
     };
   }
 
-  const fromSupplement = sup === null ? null : fmtAmount(sup.lower, magnitude);
+  // Nothing to say when the pills account for none of it. "0 kcal of it from
+  // a supplement" under the day's energy, for a vitamin whose panel bounds its
+  // calories under 5 and states none, read as a measurement of zero — the one
+  // thing that is never printed for what is merely not stated.
+  const fromSupplement = sup === null || sup.lower === 0 ? null : fmtAmount(sup.lower, magnitude);
 
-  if (!massOk || !dosesOk) {
+  if (state === "partial") {
     // Say which side is short. A supplement whose panel was not fully
     // transcribed is genuinely an unknown quantity of this nutrient, however
     // well the food was measured — and the remedy is different from the one

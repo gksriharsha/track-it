@@ -103,9 +103,11 @@ export const getFoodDetail = (fdcId: number) =>
  * reference foods and their own transcribed packs, never a pot, a supplement or
  * water.
  *
- * A shortcut into the portion step and not a summary of anything. The caller
- * must land the user on the amount panel and let them press Add; nothing here
- * logs, and the list carries no figure that may be drawn on a row.
+ * A shortcut and not a summary of anything. Nothing here logs: a caller either
+ * lands the user on the amount panel, or — Add's "Had it before" and an empty
+ * sitting's "Usually" on Today — logs it at the weight printed on the control,
+ * through `useQuickLog`, with the app's Undo bar after. The list carries no
+ * figure that may be drawn on a row.
  *
  * The three months is fixed in the backend rather than passed from here, so
  * that the sentence the screen prints beside the list cannot become a lie.

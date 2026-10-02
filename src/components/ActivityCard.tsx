@@ -3,6 +3,7 @@ import { getGoals } from "../api";
 import { ACTIVITY_CHANGED, listSessions, sessionSub, sessionTitle } from "../lib/activity";
 import type { Session } from "../lib/activity";
 import { MINUTES_PER_SET, dayEnergy, energyUsed, kcalText } from "../lib/activityEnergy";
+import Info from "./Info";
 
 /**
  * What was done on the day, under what was eaten (D26).
@@ -15,9 +16,14 @@ import { MINUTES_PER_SET, dayEnergy, energyUsed, kcalText } from "../lib/activit
  *
  * Each session carries a rough figure for the energy it used, and the foot the
  * day's, because the user asked for one. It is said as "about", in the same
- * plain type as the minutes, and the foot says in one line what it is and that
- * it is not taken off what was eaten — so it informs without turning the day
- * into a budget. See `lib/activityEnergy.ts`.
+ * plain type as the minutes, so the state of the figure — rough — is on the
+ * line it qualifies. What it is, how rough, and that it is not taken off what
+ * was eaten is method, and sits behind the card's (i): that was three lines of
+ * standing prose under every walk, read once and then scrolled past every
+ * day. See `lib/activityEnergy.ts`.
+ *
+ * The foot is only drawn for a day of more than one session. With one, the
+ * day's figure IS the session's, already on its row.
  *
  * Tinted rather than white so the two kinds of record on Today read apart at a
  * glance; the colour names the area and grades nothing in it.
@@ -70,6 +76,23 @@ export default function ActivityCard(p: {
     <section className="card activity-card" aria-label="Activity">
       <div className="card__head">
         <h2>Activity</h2>
+        {sessions !== null && sessions.length > 0 && (
+          <Info title="How activity's energy is worked out">
+            <p>
+              A rough figure for the energy an activity used above what resting uses, worked out
+              from your weight and published averages for activities like these. For any one
+              person it is out by about a third either way, which is why it reads “about” and is
+              rounded to the nearest 10 kcal.
+            </p>
+            <p>
+              It is not taken off what you ate. The estimate of what you need already allows for
+              your usual exercise, through the activity level in About you.
+            </p>
+            {day?.fromSets && (
+              <p>A strength session with no time is counted at {MINUTES_PER_SET} minutes a set.</p>
+            )}
+          </Info>
+        )}
         {p.canAdd && (
           <button className="link card__note" onClick={p.onAdd}>Add activity</button>
         )}
@@ -91,12 +114,9 @@ export default function ActivityCard(p: {
               );
             })}
           </div>
-          {day !== null && (
-            <p className="card__foot activity-card__foot">
-              <span className="tnum">{capital(kcalText(day.kcal))}</span> of activity in all, above what resting
-              uses. A rough figure from your weight and published averages for activities like these, give or
-              take about a third, and not taken off what you ate.
-              {day.fromSets && ` A strength session with no time is counted at ${MINUTES_PER_SET} minutes a set.`}
+          {day !== null && sessions.length > 1 && (
+            <p className="card__foot activity-card__foot tnum">
+              {capital(kcalText(day.kcal))} in all
             </p>
           )}
           {day === null && weight === null && (

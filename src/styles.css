@@ -447,29 +447,10 @@ b, strong, th { font-weight: 600; }
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Two readings of one day. Phone only — a wide window runs the
-   nutrient panel in two columns beside a two-column Today, and
-   both earn a destination of their own there.
-   ───────────────────────────────────────────────────────────── */
-.dayviews {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 3px;
-  padding: 3px; border-radius: var(--r-pill); background: var(--sunken);
-}
-.dayviews__tab {
-  min-height: 38px; border-radius: var(--r-pill);
-  font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500; color: var(--ink-2);
-  transition: background-color 140ms ease-out, color 140ms ease-out;
-}
-.dayviews__tab[aria-current="page"] {
-  background: var(--surface); color: var(--ink);
-  box-shadow: var(--lift);
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Log again — the foods you have most days, as buttons that log
-   them. One tap, and the weight is printed on the control before
-   it is pressed. See QuickLog.tsx for why that is the whole of
-   the argument for it.
+   Done before — the Activity tab's sessions to repeat, as tiles
+   that log them. One tap, and what will be written is printed on
+   the tile before it is pressed. Today's own strip of foods went
+   when each empty sitting began offering its usual ones (`.usual`).
    ───────────────────────────────────────────────────────────── */
 .again { display: flex; flex-direction: column; gap: var(--s3); }
 .again__head { display: flex; align-items: baseline; gap: var(--s3); }
@@ -685,11 +666,8 @@ b, strong, th { font-weight: 600; }
 .info__body p, .info__body ul { margin: 0 0 var(--s3); }
 .info__body > :last-child { margin-bottom: 0; }
 
-/* Desktop keeps Nutrients as a destination of its own, so the switch that
-   makes them one screen is a phone control. Declared unconditionally so it
-   beats nothing and is beaten by nothing — see `.bar`'s comment. */
+/* Bottom right on a desktop, clear of the page's own column. */
 @media (min-width: 721px) {
-  .dayviews { display: none; }
   .toast { left: auto; right: var(--s6); bottom: var(--s6); width: min(420px, 40vw); }
 }
 
@@ -905,21 +883,138 @@ b, strong, th { font-weight: 600; }
 @media (min-width: 721px) { .monthnav .stepper { flex: none; min-width: 230px; } }
 
 /* ─────────────────────────────────────────────────────────────
-   Hero. Floats on the page: no card, no border. It is the anchor.
-   ───────────────────────────────────────────────────────────── */
-.hero__value { display: flex; align-items: baseline; gap: var(--s2); }
-/* 24px sans, where this was 52-76px serif.
-   The old size was the loudest thing in the app and it belonged to one day —
-   1.5x the type given to the thirty-day figure on Statistics. The typeface now
-   carries the hierarchy: Newsreader marks what is worth dwelling on, and a
-   single noisy day is not that. */
-.hero__num { font-size: var(--t-title); line-height: 1.1; font-weight: 500; }
-.hero__unit { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
-.hero__sub { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); margin-top: var(--s1); }
+   Today: the day as a ledger.
 
-.macros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s5); margin-top: var(--s5); }
-.macro__v { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600; }
-.macro__k { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); margin-top: 1px; }
+   The page holds entries and figures; the working sits behind an
+   (i). One line for what the day came to, then the four sittings,
+   then water, what was done and a note. No hero and no card round
+   the log: the rows sit on the ground, ruled off from each other,
+   which is the platform's own list and the lightest thing that
+   still reads as one.
+   ───────────────────────────────────────────────────────────── */
+.day-log, .day-side { display: flex; flex-direction: column; min-width: 0; }
+.day-log { gap: var(--s4); }
+.day-side { gap: var(--s5); }
+
+/* What the day came to, in one line of plain sans — the hero is gone,
+   and so is the 24px figure that replaced it. The whole line is the
+   button that opens the day's nutrients; it is drawn as a stretched
+   target under the text so the (i) after the figures can sit on top
+   of it and be its own press. */
+.dayline {
+  position: relative;
+  display: flex; align-items: center; gap: var(--s2);
+  min-height: var(--row-h);
+  padding: var(--s2) var(--row-pad); margin: 0 calc(var(--row-pad) * -1);
+  border-radius: var(--r-sm);
+  transition: background-color 140ms ease-out;
+}
+.dayline__open {
+  min-width: 0; text-align: left;
+  font-size: var(--t-head); line-height: var(--t-head-lh);
+}
+.dayline__open::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.dayline__open:focus-visible { outline: none; }
+.dayline__open:focus-visible::after { outline: 2px solid var(--focus); outline-offset: -2px; }
+.dayline__kcal { font-weight: 600; }
+.dayline__macros { color: var(--ink-2); }
+.dayline .info { position: relative; z-index: 1; }
+.dayline__chev { margin-left: auto; color: var(--ink-3); font-size: var(--t-head); line-height: 1; }
+@media (hover: hover) { .dayline:hover { background: var(--sunken); } }
+
+/* A day with nothing in it: one line, and the way to fill it. */
+.day-empty {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  min-height: var(--row-h);
+}
+.day-empty p { margin: 0; color: var(--ink-2); }
+
+/* A sitting, the water and the note share one head: the name, a +,
+   and on the right what it came to, in the column the rows' own
+   figures stand in, so a meal's subtotal sits over its entries'. */
+.day-sec { display: flex; flex-direction: column; min-width: 0; }
+.day-sec__head { display: flex; align-items: center; gap: var(--s1); min-height: 44px; }
+.day-sec__head h2 { font-size: var(--t-body); line-height: var(--t-body-lh); }
+.day-sec__fig, .day-sec__aside { margin-left: auto; }
+.day-sec__fig { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500; white-space: nowrap; }
+.day-sec__aside { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.day-sec__aside.link { color: var(--area-ink); font-size: var(--t-sm); line-height: var(--t-sm-lh); padding: var(--s1) var(--s2); margin-right: calc(var(--s2) * -1); }
+.day-sec .alert { margin-top: var(--s2); }
+
+/* The + beside a sitting's name: a small washed disc, so it reads as a
+   control without being the screen's filled action. The press reaches
+   past the disc to a thumb's 44px; the negative margin hands that back
+   so the head is no taller for it. */
+.day-add {
+  position: relative; flex: none;
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; margin: 0 var(--s1);
+  border-radius: var(--r-pill);
+  background: var(--area-wash); color: var(--area-ink);
+  transition: background-color 140ms ease-out;
+}
+.day-add::before { content: ""; position: absolute; inset: -8px; }
+.day-add .plus { width: 15px; height: 15px; }
+@media (hover: hover) { .day-add:hover { background: var(--area); color: var(--on-area); } }
+
+/* One entry: what it was, one quiet line, and its energy on the right.
+   The line is cut rather than wrapped, from the end — tags last — so
+   every row is one height and a gap in the data is what survives. */
+.entry { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s4); }
+.entry__sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry__fig { text-align: right; white-space: nowrap; color: var(--ink); }
+
+/* What a sitting usually holds, and a bottle to log whole: actions,
+   not choices, so they are drawn as quiet outlined pills with a + in
+   the area's ink — never the wash a chosen chip wears. */
+.usual { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s1) 0 var(--s2); }
+.usual__label { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.usual__chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 44px;
+  padding: var(--s1) var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--ink);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
+  transition: border-color 140ms ease-out, background-color 140ms ease-out;
+}
+.usual__chip .plus { flex: none; width: 13px; height: 13px; color: var(--area-ink); }
+.usual__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usual__amt { flex: none; color: var(--ink-3); }
+.usual__chip:disabled { opacity: 0.55; cursor: default; }
+.usual__chip[aria-busy="true"] { border-color: var(--area); }
+@media (hover: hover) { .usual__chip:hover:not(:disabled) { border-color: var(--area); background: var(--area-wash); } }
+
+/* The note, folded to its head until there is something in it. */
+.day-note .day-note__field { margin-top: var(--s1); }
+
+/* ── one entry's sheet (EntrySheet) ─────────────────────────── */
+.esheet { display: flex; flex-direction: column; gap: var(--s4); }
+.esheet__amount { margin: 0; color: var(--ink-2); }
+.esheet__energy { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--s2); }
+.esheet__energy > .tnum { font-weight: 600; }
+.esheet__state { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.esheet__line { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.esheet__line .link { padding: var(--s1) var(--s2); margin-right: calc(var(--s2) * -1); }
+.esheet__tags .tags { margin-top: var(--s3); }
+.esheet__part { padding-top: var(--s4); border-top: 1px solid var(--line); }
+.esheet__head {
+  display: flex; align-items: center; gap: var(--s1);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; color: var(--ink-2);
+  margin-bottom: var(--s2);
+}
+.esheet__acts {
+  display: flex; justify-content: space-between; gap: var(--s3);
+  padding-top: var(--s4); border-top: 1px solid var(--line);
+}
+/* Two quiet buttons of one shape, the destructive one in the ceiling's ink:
+   neither is this sheet's filled action, because neither is what it is for. */
+.esheet__acts .btn--danger { border-color: var(--line); }
+
+/* ── the day's nutrients (DaySheet) ─────────────────────────── */
+.daysheet__cover { display: flex; align-items: center; gap: var(--s1); margin: 0 0 var(--s4); color: var(--ink-2); }
+.daysheet__note { margin: 0 0 var(--s4); color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); }
+.daysheet .tier h3 { display: flex; align-items: center; gap: var(--s1); }
 
 /* ─────────────────────────────────────────────────────────────
    Cards. Shadow OR border, never both.
@@ -928,6 +1023,8 @@ b, strong, th { font-weight: 600; }
 @media (prefers-color-scheme: dark) { .card { border: 1px solid var(--line); } }
 .card__head { display: flex; align-items: baseline; gap: var(--s3); margin-bottom: var(--s2); }
 .card__head h2 { font-size: var(--t-body); line-height: var(--t-body-lh); }
+/* An (i) has no baseline of its own to share with the heading beside it. */
+.card__head > .info { align-self: center; }
 .card__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-left: auto; }
 .card__foot { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line); }
 
@@ -1235,7 +1332,8 @@ b, strong, th { font-weight: 600; }
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Log entry + its ingredient breakdown
+   A supplement's row, and an entry's ingredient breakdown (the
+   rows inside EntrySheet)
    ───────────────────────────────────────────────────────────── */
 .entryrow { grid-template-columns: 1fr auto auto; }
 .entryrow__main { text-align: left; min-width: 0; display: block; width: 100%; }
@@ -1837,25 +1935,6 @@ b, strong, th { font-weight: 600; }
   .main { padding-left: var(--s6); padding-right: var(--s6); }
 }
 
-@media (min-width: 1080px) {
-  /* Today only: the freed width is worth two columns. Which section goes
-     where is stated by CLASS rather than by position — `nth-of-type` meant
-     inserting a section anywhere in Today.tsx silently reshuffled the whole
-     layout, and the placement rules were duplicated the first time this
-     grid was revised. See `.day-hero`, `.day-watch`, `.day-ate`.
-
-     Below this width the sidebar shell still applies but these sections
-     stack exactly as they do on a phone: there is no room here for two
-     300px+ columns, and a squeezed grid is worse than a stack. */
-  .screen--today {
-    display: grid;
-    gap: var(--s5);
-    align-items: start;
-  }
-  .screen--today > [aria-busy="true"],
-  .screen--today > .empty { grid-column: 1 / -1; }
-}
-
 /* --chrome/--chrome-line had no dark-mode value, so the sidebar stayed the
    light-mode cream in dark mode while its text correctly followed --ink's
    dark (light-coloured) value — light text on a light background. This is
@@ -2055,17 +2134,6 @@ b, strong, th { font-weight: 600; }
 /* Which reference system a percentage is against, under the nutrient's name.
    Only rendered where it is not the app-wide default. */
 .nrow__basis { display: block; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 1px; }
-
-/* The energy hero's provenance — "estimated" or "your target". */
-.hero__basis { color: var(--ink-3); }
-
-/* A macronutrient's acceptable range, under its amount. Muted, because the
-   range is context for the figure above rather than a second figure. */
-.macro__range { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 2px; font-variant-numeric: tabular-nums; }
-/* `.is-outside` is deliberately drawn like any other range. It used to turn
-   semibold when a day fell outside its AMDR — and a single day being outside
-   a range is exactly the verdict this app does not pass. A range is read over
-   a period, on Trends, where there are enough days for it to mean something. */
 
 /* Sits apart from the four destinations: reached occasionally rather than
    somewhere the day is spent. */
@@ -2330,51 +2398,40 @@ b, strong, th { font-weight: 600; }
 }
 
 /* ── Today, on a desktop ─────────────────────────────────────
-   The 1080px rule above this put the hero beside the triage card
-   and left the day's own list full-width beneath both — which
-   gave the LONGEST content the widest column only by accident,
-   and gave a 40-row list the same 44px rows it has on a phone.
+   Two columns, the log and the day around it.
 
-   This makes the split deliberate: the day reads down the wide
-   column, hero then dishes, and the triage card becomes a rail
-   that stays put while that column scrolls. A findings list you
-   have to scroll back up to re-read is a findings list you stop
-   consulting.
+   The wide column is the ledger — the day's line and the four
+   sittings — because it is the longest thing on the screen and
+   the one read row by row. The narrow one holds what is not a
+   meal: water, what was done, and the note. It stays put while
+   the log scrolls, so a bottle chip or the note is never a
+   scroll away from wherever you are in the day.
+
+   An entry or the day's nutrients open over the right-hand edge
+   as a panel (see `.sheet`), beside the log rather than in it.
+
+   Below 1080px the sidebar shell still applies but the two stack
+   exactly as they do on a phone: there is no room for two 300px+
+   columns, and a squeezed grid is worse than a stack. This
+   replaced a grid placed section by section — a hero, a triage
+   rail and the dishes — whose rail outlived the card it was for.
    ───────────────────────────────────────────────────────────── */
 @media (min-width: 1080px) {
-  .screen--today { grid-template-columns: minmax(0, 1fr) minmax(316px, 0.44fr); }
-
-  /* The day reads DOWN the wide column: what you ate, then the dishes. */
-  .day-hero { grid-column: 1; grid-row: 1; }
-  .day-ate  { grid-column: 1; grid-row: 2; }
-
-  /* The note goes in the narrow column, beside the day rather than under a
-     scroll of it. Placed rather than left to auto-placement: a card that lands
-     wherever the algorithm finds a hole moves the moment another section is
-     added above it. Row 2, so the quick-add strip keeps the top of the rail —
-     a thing you reach for before the day is written is worth more room than a
-     thing you reach for after. */
-  .day-note { grid-column: 2; grid-row: 2; align-self: start; }
-
-  /* The triage rail. Spans both rows so it can stay put for the whole
-     scroll — a findings list you have to scroll back up to re-read is a
-     findings list you stop consulting. */
-  .day-watch {
-    grid-column: 2; grid-row: 1 / span 2;
-    position: sticky; top: calc(var(--toolbar-h) + var(--s5));
-    align-self: start;
+  /* 1.6 to 1 rather than the 2.3 to 1 the old split gave the dishes: at
+     1,030px a row's kcal sat a thousand pixels from the name it belongs to,
+     which is a stretched phone list and not a ledger. The log stays about
+     670px on a 1440 window, and the column beside it gets the rest. */
+  .screen--today {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(316px, 1fr);
+    column-gap: var(--s7); row-gap: var(--s5);
+    align-items: start;
   }
-
-  /* In a 330px rail the track compresses to about 60px, which is too short
-     to read as a proportion and is redundant beside the percentage printed
-     immediately to its right. It carries no coverage information here
-     either: every row in this card is a `measured` reading by definition —
-     `worthALook()` filters on exactly that — so the hidden-track state
-     that distinguishes "unmeasured" from "none" can never occur in it.
-     Two columns instead, and the limit note stops wrapping into a row
-     twice the height of its neighbours. */
-  .day-watch .nrow { grid-template-columns: minmax(0, 1fr) auto; }
-  .day-watch .track { display: none; }
+  .day-log { grid-column: 1; }
+  .day-side {
+    grid-column: 2;
+    position: sticky; top: calc(var(--toolbar-h) + var(--s5));
+  }
 }
 
 /* ── the master/detail workbench (Add food) ──────────────────
@@ -2445,7 +2502,9 @@ b, strong, th { font-weight: 600; }
   :root { --btn-h: 36px; --row-h: 32px; }
 
   /* Rows and lists */
-  .nrow, .entryrow { padding-block: var(--s1); }
+  .nrow, .entryrow, .entry { padding-block: var(--s1); }
+  .day-sec__head { min-height: 32px; }
+  .usual__chip { min-height: 30px; padding: 2px var(--s3); }
   .iconbtn { width: 28px; height: 28px; }
   .supline { padding: var(--s2) 0; }
 
@@ -3099,15 +3158,6 @@ b, strong, th { font-weight: 600; }
   .stats__list > .stats__row { border-bottom: 1px solid var(--line); }
 }
 
-/* A sentence where a leaderboard used to be. Prose measure, not a data row. */
-.daynote {
-  margin: var(--s2) 0 0;
-  max-width: var(--measure);
-  font-size: var(--t-sm);
-  line-height: var(--t-sm-lh);
-  color: var(--ink-2);
-}
-
 /* ── Activity (D26) ──────────────────────────────────────────
    The Add screen's Activity tab, the Today card and the Trends
    section. Everything here keys off the `--act` family, so a
@@ -3202,7 +3252,9 @@ b, strong, th { font-weight: 600; }
 
 /* Today: the same card, tinted, so it is never mistaken for food. */
 .activity-card { background: var(--act-wash); box-shadow: none; }
-.activity-card .card__head { margin-bottom: 0; }
+/* Centred rather than on a baseline: the head holds an (i) and a 44px
+   "Add activity", neither of which has a line of text to line up on. */
+.activity-card .card__head { margin-bottom: 0; align-items: center; }
 .activity-card .rows { margin-top: 0; }
 .activity-card__row { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
 .activity-card .rows > * + *::before { background: var(--act-rule); }
@@ -3211,16 +3263,6 @@ button.activity-card__row:hover { background: var(--act-press); }
    rather than the faintest, because it carries the one caveat that matters. */
 .activity-card__foot { border-top-color: var(--act-rule); color: var(--ink-2); line-height: 1.5; }
 @media (prefers-color-scheme: dark) { .activity-card { border-color: var(--act-rule); } }
-@media (min-width: 1080px) {
-  /* Down the wide column, under the dishes: the day reads what was eaten,
-     then what was done. */
-  .day-ate ~ .activity-card { grid-column: 1; grid-row: 3; }
-  .activity-card { align-self: start; }
-  /* On a day with nothing eaten the empty state spans the grid, and the card
-     follows it rather than being pinned above it. */
-  .screen--today > .empty ~ .activity-card { grid-column: 1; }
-}
-
 /* Trends: the strip and its middle mark in the activity colour. */
 .stats__block--act .spread__band { background: var(--act-wash); }
 .stats__block--act .spread__mid { background: var(--act); }

@@ -248,8 +248,8 @@ const NAV_ICON: Record<string, ReactNode> = {
  * navigation it had to list them, so the menu read as a complete map rather
  * than an overflow bin; now that Trends, Today and Days are permanently on
  * screen, listing them again would be four rows telling you about buttons you
- * can already see. Nutrients has gone too — it is a view of the day, reached
- * by the switch at the top of Today, not a place of its own.
+ * can already see. Nutrients has gone too — it is a view of the day, opened
+ * as a sheet from the day's energy line on Today, not a place of its own.
  *
  * What is left is eleven things you go looking for deliberately, in the two
  * groups they divide into: the kitchen you have built up, and the app's
@@ -1065,14 +1065,14 @@ function Shell() {
               date={date}
               label={humanDate(date)}
               canGoForward={canGoForward}
-              meal={meal}
-              onPrev={goPrevDay}
-              onNext={goNextDay}
               onToday={goToday}
               onPickDate={setDate}
-              onRemoved={refreshShown}
-              onSeeAll={() => go("nutrients")}
-              onAddFood={() => go("foods")}
+              onChanged={refreshShown}
+              // A meal's own + opens Add on that sitting: the one choice the
+              // press has already made is not asked for again on the next
+              // screen. Shared state, so Add's own meal chips agree.
+              onAddFood={(m) => { if (m) setMeal(m); go("foods"); }}
+              onAddWater={() => go("foods", { pick: "water" })}
               onOpenProfile={() => go("profile", { from: "today" })}
               onAddActivity={() => go("foods", { pick: "activity", from: "today" })}
               onOpenActivity={(id) => go("foods", { pick: `activity:${id}`, from: "today" })}
@@ -1117,8 +1117,7 @@ function Shell() {
         )}
 
         {tab === "nutrients" && (
-          <Nutrients day={day} loading={loading} label={humanDate(date)}
-            onDay={() => go("today")} />
+          <Nutrients day={day} loading={loading} label={humanDate(date)} />
         )}
 
         {tab === "history" && (
@@ -1301,7 +1300,8 @@ function Shell() {
                 /* Nutrients keeps Today lit. It is not a destination of its
                    own on a phone — it is the same day counted differently, and
                    the bar should not go blank because you looked at it that
-                   way. See DayTabs. */
+                   way. On a phone it is a sheet over Today now (DaySheet), so
+                   this only matters for an address left over from before. */
                 current={tab === t.id || (t.id === "today" && tab === "nutrients")}
                 onClick={() => go(t.id)} />
             ))}
