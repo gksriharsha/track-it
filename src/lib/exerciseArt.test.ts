@@ -159,4 +159,4 @@ const bare = common.filter((n) => artFor(n) === null);
 check("has a drawing, so the barbell tile is only ever for a lift the user named", bare.length === 0, bare.join(", "));
 
 console.log(failed === 0 ? `\nall ${held} claims held` : `\n${failed} of ${held + failed} claims FAILED`);
-if (failed > 0) process.exit(1);
+if (failed > 0) throw new Error(`${failed} of ${held + failed} claims failed`);

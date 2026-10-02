@@ -90,4 +90,4 @@ console.log("\nthe words");
 check("it reads as an approximation, with the unit kept on the line", kcalText(1250) === "about 1,250 kcal", kcalText(1250));
 
 console.log(failed === 0 ? `\nall ${held} claims held` : `\n${failed} of ${held + failed} claims FAILED`);
-if (failed > 0) process.exit(1);
+if (failed > 0) throw new Error(`${failed} of ${held + failed} claims failed`);
