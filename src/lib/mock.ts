@@ -383,9 +383,42 @@ const VESSELS: Vessel[] = [
   { id: "v4", name: "Melamine plate", grams: 240, last_used_at: "2026-09-01T20:00:00Z" },
 ];
 
-const RECIPES: Recipe[] = [];
-const COOKS: Cook[] = [];
-const SUPPLEMENTS: Supplement[] = [];
+/*
+  A kitchen to draw the Food screen with: two pots on the stove, one written
+  recipe, one supplement. Lines are left out, which these screens never read;
+  the cook sheet and the recipe builder start from empty in the browser as
+  they always have.
+*/
+const RECIPES: Recipe[] = [
+  {
+    id: "r-dal-makhani", name: "Dal makhani", yield_g: 1400, servings: null, notes: null,
+    default_origin: "home", default_cuisine: "North Indian", ingredients: [],
+    serving_options: [{ id: "rs-katori", label: "1 katori", grams: 180 }],
+  },
+];
+function pot(id: string, name: string, daysAgo: number, yieldG: number, weighed: boolean, loggedG: number): Cook {
+  const on = new Date();
+  on.setDate(on.getDate() - daysAgo);
+  const cookedOn = `${on.getFullYear()}-${String(on.getMonth() + 1).padStart(2, "0")}-${String(on.getDate()).padStart(2, "0")}`;
+  return {
+    id, recipe_id: null, name, cooked_on: cookedOn, cooked_at: `${cookedOn}T08:30:00Z`, scale: 1,
+    expected_yield_g: yieldG, weighed_yield_g: weighed ? yieldG : null, gross_g: null, tare_g: null,
+    tare_note: null, default_origin: "home", default_cuisine: "South Indian", notes: null,
+    finished_at: null, ingredients: [], logged_g: loggedG, yield_g: yieldG,
+    remaining_g: Math.max(0, yieldG - loggedG),
+  };
+}
+const COOKS: Cook[] = [
+  pot("c-dal-tadka", "Dal tadka", 0, 1140, false, 540),
+  pot("c-sambar", "Sambar", 5, 1680, true, 780),
+];
+const SUPPLEMENTS: Supplement[] = [
+  {
+    id: "sup-d3", name: "Vitamin D3, 1,000 IU", brand: null, unit_noun: "tablet", serving_units: 1,
+    serving_label: null, default_units: 1, regime: "us", panel_complete: false, other_ingredients: null,
+    barcode: null, photo_panel: null, photo_ingredients: null, nutrients: [],
+  },
+];
 const CUSTOM: CustomFood[] = [];
 
 const PROFILE: Profile = {

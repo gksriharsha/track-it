@@ -3663,3 +3663,93 @@ b, strong, th { font-weight: 600; }
   /* A pointer does not need a thumb-sized target. */
   .addlift { min-height: 40px; padding: var(--s2) var(--s4); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 }
+
+/* ── the Food screen (Foods, food mode) ─────────────────────────
+   As the user picked it, "Search at the bottom": the meal as the title;
+   what is on the stove, the foods usually had at this sitting and the rest
+   of their own things; and the search at the foot of a phone's screen,
+   where the thumb is, with the barcode and the pack camera inside it. No
+   tabs, and no paragraphs of explanation.
+   ───────────────────────────────────────────────────────────── */
+.fhead { gap: 2px; }
+.fhead__meal {
+  display: inline-flex; align-items: center; gap: 2px; align-self: flex-start;
+  margin-left: calc(var(--s2) * -1); padding: 0 var(--s2);
+  border-radius: var(--r-md); color: var(--ink);
+}
+.fhead__meal .head__title { font-weight: 700; }
+.fhead__chev { display: grid; color: var(--ink-3); }
+@media (hover: hover) { .fhead__meal:hover { background: var(--sunken); } }
+.fhead__day { margin: 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+
+.food__list { display: flex; flex-direction: column; gap: var(--s5); }
+.food__body { display: flex; flex-direction: column; gap: var(--s5); min-width: 0; }
+.food__sec { min-width: 0; }
+.food__h {
+  margin: 0 0 var(--s2); color: var(--ink-2);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600;
+}
+.food__row { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* The keyboard's highlight, where there is a keyboard and a pointer: ↑ and ↓
+   walk the list. On a phone it would read as a selection nobody made. */
+/* A ring rather than a fill: the reference foods' tiles are the sunken grey
+   a fill would be, and would vanish into it. */
+@media (hover: hover) and (pointer: fine) { .food__row[data-active="true"] { box-shadow: inset 0 0 0 1.5px var(--ink-3); } }
+.food__left { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); white-space: nowrap; }
+.food__chev { display: grid; color: var(--ink-3); }
+.food__results { display: flex; flex-direction: column; gap: var(--s5); }
+.food__foot { margin: 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.empty__acts { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s2); }
+
+.food__field {
+  display: flex; align-items: center; gap: var(--s1);
+  height: 52px; padding: 0 var(--s1) 0 var(--s4);
+  border-radius: var(--r-md); background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.food__field:focus-within { box-shadow: inset 0 0 0 2px var(--focus); }
+.food__glass { flex: none; color: var(--ink-3); }
+.food__input {
+  flex: 1; min-width: 0; height: 100%; padding: 0 var(--s2);
+  border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: var(--t-body);
+}
+.food__input:focus { outline: none; }
+.food__input::placeholder { color: var(--ink-3); }
+.food__icon {
+  flex: none; display: grid; place-items: center;
+  width: 44px; height: 44px; border-radius: var(--r-pill); color: var(--ink-2);
+}
+.food__icon:disabled { opacity: 0.5; cursor: default; }
+@media (hover: hover) { .food__icon:hover:not(:disabled) { background: var(--sunken); color: var(--ink); } }
+.food__scan { margin: 0 0 var(--s2); color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+
+/* The meal sheet: the four sittings, the chosen one ticked. A white cell on a
+   white sheet has no edge, so the rows take the page's grey. */
+.mealpick__row { grid-template-columns: auto minmax(0, 1fr) auto; background: var(--bg); }
+@media (hover: hover) { .mealpick__row:hover { background: var(--sunken); } }
+.mealpick__tick { color: var(--accent); }
+
+@media (max-width: 720px) {
+  /* Pinned to the foot of the screen, and so above the keyboard when it is
+     up: the WebView resizes for it (adjustResize). The Undo bar sits just
+     above it, where it sits above the bottom bar on every other screen. */
+  .food__dock {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 25;
+    padding: var(--s2) var(--s4) calc(var(--s2) + var(--safe-bottom));
+    background: var(--bg); border-top: 1px solid var(--line);
+  }
+  /* Results rise from the field: held to the space above it and standing at
+     its foot, so your own, drawn last, are the nearest to it. */
+  .food__body.is-results { justify-content: flex-end; min-height: var(--food-fill, 0px); }
+  .food__results { flex-direction: column-reverse; }
+}
+@media (min-width: 721px) {
+  /* A real keyboard: the field heads the list, as a search does on a desktop. */
+  .food__dock { order: -1; }
+}
+@media (min-width: 1080px) {
+  /* The workbench sets its list to block when something is picked; this one
+     is a column, so the field stays at its head. */
+  .workbench.food[data-picked="true"] > .food__list { display: flex; }
+}

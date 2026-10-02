@@ -22,6 +22,8 @@ const PATHS = {
   lift: "M6.5 8v8M17.5 8v8M4 10v4M20 10v4M6.5 12h11",
   /* Food in general, for the + sheet's Food choice: no one sitting. */
   bowl: "M3.5 11.5h17a8.5 8.5 0 0 1-17 0zM9 19.5h6",
+  /* A recipe: what is written down, before it is cooked into a pot. */
+  book: "M5 5.5h4.8A2.2 2.2 0 0 1 12 7.7V19a2 2 0 0 0-2-2H5zM19 5.5h-4.8A2.2 2.2 0 0 0 12 7.7V19a2 2 0 0 1 2-2h5z",
   /* Something done before, done again: a session repeated in one tap. */
   repeat: "M16.5 3.5l3 3-3 3M4.5 11.5v-1a4 4 0 0 1 4-4h11M7.5 20.5l-3-3 3-3M19.5 12.5v1a4 4 0 0 1-4 4h-11",
 } as const;
