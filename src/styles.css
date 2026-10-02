@@ -3408,6 +3408,8 @@ b, strong, th { font-weight: 600; }
 .activity .chip:disabled { opacity: 0.4; cursor: default; }
 
 .activity { display: flex; flex-direction: column; gap: var(--s5); max-width: var(--measure); width: 100%; margin: 0 auto; }
+/* The Activity screen's title, kept to the same column as what it names. */
+.activity__head { max-width: var(--measure); width: 100%; margin: 0 auto; }
 .activity__q { font-size: var(--t-body); line-height: var(--t-body-lh); margin-bottom: var(--s3); }
 .activity__form { display: flex; flex-direction: column; gap: var(--s4); }
 .activity__row { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); align-items: center; gap: var(--s3); }

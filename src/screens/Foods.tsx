@@ -42,6 +42,7 @@ import TagPicker from "../components/TagPicker";
 import { useQuickLog } from "../components/QuickLog";
 import CameraCapture from "../components/CameraCapture";
 import ActivityPane from "./Activity";
+import ScreenHead from "../components/ScreenHead";
 import { bare, canStream, readBarcodeFromFile, useCameraRoute } from "../lib/camera";
 import type { Weighed } from "../components/WeightField";
 
@@ -236,16 +237,29 @@ export default function Foods(p: Props) {
   const [grams, setGrams] = useState("100");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] =
-    useState<"available" | "foods" | "recipes" | "supplements" | "water" | "activity">("foods");
-  /** A session opened from Today, to carry on with or correct (D26). */
-  const [activityId, setActivityId] = useState<string | null>(null);
-  /** Arrived from the + sheet to start strength like last time. */
-  const [likeLast, setLikeLast] = useState(false);
   /*
-    On a phone the tab row scrolls sideways, and with six tabs the last one is
-    past the edge. Landing on it from Today with it half off-screen hid the one
-    thing saying which tab this was, so the chosen tab is brought into view.
+    Opened on what it was sent for. The preselect effect below would get there
+    too, but only after the first paint, so an activity would flash the food
+    search on its way in.
+  */
+  const [tab, setTab] = useState<"available" | "foods" | "recipes" | "supplements" | "water" | "activity">(
+    () => {
+      const t = parsePick(p.preselect ?? null);
+      if (t?.kind === "activity" || t?.kind === "strength") return "activity";
+      return t?.kind === "water" ? "water" : "foods";
+    },
+  );
+  /** A session opened from Today, to carry on with or correct (D26). */
+  const [activityId, setActivityId] = useState<string | null>(() => {
+    const t = parsePick(p.preselect ?? null);
+    return t?.kind === "activity" ? t.id : null;
+  });
+  /** Arrived from the + sheet to start strength like last time. */
+  const [likeLast, setLikeLast] = useState(() => parsePick(p.preselect ?? null)?.kind === "strength");
+  /*
+    On a phone the tab row scrolls sideways, and its last tab can be past the
+    edge. Landing on it with it half off-screen hid the one thing saying which
+    tab this was, so the chosen tab is brought into view.
   */
   const tabsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -809,58 +823,55 @@ export default function Foods(p: Props) {
     }
   }
 
+  /*
+    An activity, or water to weigh: chosen before arriving — in the + sheet, on
+    Today, in the water sheet — so each is a screen of its own, named for what
+    it is. The row of tabs used to stay on top of both, offering food, water
+    and activity again to someone who had just picked one of them. It is
+    food's alone now: where the food comes from.
+  */
+  const chosen = tab === "activity" ? "Activity" : tab === "water" ? "Water" : null;
+
   return (
     <div className="screen">
-      {/* Centred while this screen is one narrow column, left-aligned once the
-          workbench splits — see `.foodtabs`. A pill row floating in the middle
-          of a 1,100px canvas with a left-aligned search field beneath it makes
-          the eye start in the wrong place. Alignment is a breakpoint decision,
-          so it lives in CSS rather than in an inline style. */}
-      <div className="chips foodtabs" ref={tabsRef}>
-        {/* A tap on the tab already showing does nothing. It is the switch that
-            unmounts the weight field; clearing `weighed` without it would leave the
-            field visibly subtracting vessels while the parent logged the net as an
-            untared number, with no tare recorded and no vessel touched. */}
-        {/* First, and selected by default when there is a pot open: the food
-            already in the kitchen is the likeliest thing being eaten, and it
-            is the only tab whose contents were actually weighed. Hidden
-            entirely when nothing is open rather than shown empty. */}
-        {cooks.length > 0 && (
-          <button className="chip" aria-pressed={tab === "available"}
+      {chosen === "Activity" ? (
+        /* Over the column it names: the activity pane keeps to a reading
+           measure in the middle of a wide window. */
+        <div className="activity__head"><ScreenHead title={chosen} /></div>
+      ) : chosen ? (
+        <ScreenHead title={chosen} />
+      ) : (
+        /* Left-aligned and scrolling at every width — see `.foodtabs`. */
+        <div className="chips foodtabs" ref={tabsRef}>
+          {/* A tap on the tab already showing does nothing. It is the switch that
+              unmounts the weight field; clearing `weighed` without it would leave the
+              field visibly subtracting vessels while the parent logged the net as an
+              untared number, with no tare recorded and no vessel touched. */}
+          {/* First, and selected by default when there is a pot open: the food
+              already in the kitchen is the likeliest thing being eaten, and it
+              is the only tab whose contents were actually weighed. Hidden
+              entirely when nothing is open rather than shown empty. */}
+          {cooks.length > 0 && (
+            <button className="chip" aria-pressed={tab === "available"}
+              onClick={() => {
+                if (tab === "available") return;
+                setTab("available");
+                setPicked(null); setPickedCustom(null); setPickedRecipe(null); setWeighed(null);
+              }}>Available</button>
+          )}
+          <button className="chip" aria-pressed={tab === "foods"}
+            onClick={() => { if (tab === "foods") return; setTab("foods"); setPickedRecipe(null); setPickedCook(null); setWeighed(null); }}>Foods</button>
+          <button className="chip" aria-pressed={tab === "recipes"}
+            onClick={() => { if (tab === "recipes") return; setTab("recipes"); setPicked(null); setPickedCustom(null); setPickedCook(null); setWeighed(null); }}>Recipes</button>
+          <button className="chip" aria-pressed={tab === "supplements"}
             onClick={() => {
-              if (tab === "available") return;
-              setTab("available");
-              setPicked(null); setPickedCustom(null); setPickedRecipe(null); setWeighed(null);
-            }}>Available</button>
-        )}
-        <button className="chip" aria-pressed={tab === "foods"}
-          onClick={() => { if (tab === "foods") return; setTab("foods"); setPickedRecipe(null); setPickedCook(null); setWeighed(null); }}>Foods</button>
-        <button className="chip" aria-pressed={tab === "recipes"}
-          onClick={() => { if (tab === "recipes") return; setTab("recipes"); setPicked(null); setPickedCustom(null); setPickedCook(null); setWeighed(null); }}>Recipes</button>
-        <button className="chip" aria-pressed={tab === "supplements"}
-          onClick={() => {
-            if (tab === "supplements") return;
-            setTab("supplements");
-            setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
-            setWeighed(null);
-          }}>Supplements</button>
-        <button className="chip" aria-pressed={tab === "water"}
-          onClick={() => {
-            if (tab === "water") return;
-            setTab("water");
-            setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
-            setWeighed(null);
-          }}>Water</button>
-        <button className="chip chip--act" aria-pressed={tab === "activity"}
-          onClick={() => {
-            if (tab === "activity") return;
-            setTab("activity");
-            setActivityId(null);
-            setLikeLast(false);
-            setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
-            setWeighed(null);
-          }}>Activity</button>
-      </div>
+              if (tab === "supplements") return;
+              setTab("supplements");
+              setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
+              setWeighed(null);
+            }}>Supplements</button>
+        </div>
+      )}
 
       {/* Above the tab split: a failed save on the recipe side used to have nowhere to appear. */}
       {error && <p className="alert" role="alert">{error}</p>}
@@ -1090,8 +1101,9 @@ export default function Foods(p: Props) {
           </section>
         )
       ) : tab === "activity" ? (
-        /* Its own screen in its own file, drawn here so `+` reaches it one chip
-           from Water — the other thing logged to the day rather than a meal. */
+        /* Its own screen in its own file, drawn here so every way into it — the
+           + sheet, Today, a home-screen widget — keeps the address it has always
+           had (`foods?pick=activity`). */
         <ActivityPane date={p.date} sessionId={activityId} likeLast={likeLast} onDone={p.onLogged} />
       ) : tab === "water" ? (
         pickedBottle ? (
