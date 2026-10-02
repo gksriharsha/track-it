@@ -716,7 +716,6 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   list_custom_foods: () => CUSTOM,
   list_cuisines: () => ["South Indian", "North Indian", "Gujarati", "Bengali"],
   recall_tags: () => ({ origin: null, cuisine: null }),
-  add_log_entry: () => `mock-${Math.random().toString(36).slice(2, 8)}`,
   set_entry_tags: () => undefined,
   save_profile: () => undefined,
   set_nutrient_target: () => undefined,

@@ -9,7 +9,7 @@ import { MEALS, ORIGIN_LABEL, describeVolume } from "../types";
 import { plural, read, unassessable } from "../lib/nutrient";
 import TagPicker from "../components/TagPicker";
 import DayTabs from "../components/DayTabs";
-import { QuickAddStrip, UndoToast, useQuickLog } from "../components/QuickLog";
+import { QuickAddStrip, useQuickLog } from "../components/QuickLog";
 import ActivityCard from "../components/ActivityCard";
 
 interface Props {
@@ -511,8 +511,6 @@ export default function Today(p: Props) {
       <ActivityCard date={p.date} canAdd onAdd={p.onAddActivity} onOpen={p.onOpenActivity} />
 
       <DayNote date={p.date} />
-
-      <UndoToast last={q.last} onUndo={q.undo} />
     </div>
   );
 }

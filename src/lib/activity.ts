@@ -185,6 +185,15 @@ export const saveSession = (activity: SessionInput) =>
 export const deleteSession = (id: string) => invoke<void>("delete_activity", { id });
 
 /**
+ * Said on the window when a session changes somewhere other than the screen
+ * showing it: an Undo in the app's bar outlives the Activity tab it was raised
+ * on, so it can be pressed on Today, under a card that would otherwise go on
+ * listing the walk it just took away.
+ */
+export const ACTIVITY_CHANGED = "trackit:activity";
+export const sayActivityChanged = () => window.dispatchEvent(new Event(ACTIVITY_CHANGED));
+
+/**
  * Write one set, the moment it is entered. With no `activityId` this makes
  * the strength session too, so nothing has to be saved at the end.
  */

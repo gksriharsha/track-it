@@ -1,19 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { addLogEntry, deleteLogEntry, recallTags } from "../api";
 import type { FrequentFood, Meal } from "../types";
-
-/**
- * How long the way back stays on screen. Long enough to read the sentence and
- * reach for it; short enough that it is gone before it becomes furniture.
- */
-const UNDO_MS = 8000;
-
-interface Logged {
-  entryId: string;
-  /** What was written, in the words the button carried before it was pressed. */
-  label: string;
-  meal: Meal;
-}
+import { useAnnounce } from "./UndoBar";
 
 /**
  * Logging a food you have had before, in one tap.
@@ -24,8 +12,8 @@ interface Logged {
  * have built". That objection is real, and it is answered rather than
  * overruled — by making the write visible before it happens and reversible
  * after it. The weight is printed ON the control, so nothing is logged that
- * the finger had not already read; and the moment it lands, a way back sits
- * over the bottom bar for eight seconds.
+ * the finger had not already read; and the moment it lands, the app's one bar
+ * says what was written, with a way back, for eight seconds (see UndoBar.tsx).
  *
  * What is written is the same entry the long way round would have written: the
  * current food (read live, never the name the log remembers), the weight it was
@@ -33,21 +21,18 @@ interface Logged {
  * Nothing here guesses.
  */
 export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
-  const [last, setLast] = useState<Logged | null>(null);
+  const announce = useAnnounce();
   /** The key of the row being written, so only it shows the wait. */
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clear = useCallback(() => {
-    if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = null;
-  }, []);
-
-  // Leaving the screen must not leave a timer holding a setState on an
-  // unmounted component — and a way back that outlives the screen it belongs to
-  // would be offering to undo something the user can no longer see.
-  useEffect(() => clear, [clear]);
+  /*
+    The latest, not the one in force when the log was made. The bar outlives
+    this screen, so its Undo can be pressed after the screen has re-rendered or
+    gone; the callback it reaches must be today's, not a closure over a day the
+    app has since moved off.
+  */
+  const onLoggedRef = useRef(onLogged);
+  onLoggedRef.current = onLogged;
 
   const log = useCallback(
     async (f: FrequentFood) => {
@@ -72,62 +57,27 @@ export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
         // entry, and the tags can be set on it afterwards from Today.
         const tags = await recallTags(source).catch(() => ({ origin: null, cuisine: null }));
         const entryId = await addLogEntry(date, meal, source, f.description, f.last_grams, tags);
-        clear();
-        setLast({ entryId, label: `${f.description}, ${f.last_amount_label}`, meal });
-        timer.current = setTimeout(() => setLast(null), UNDO_MS);
-        onLogged();
+        onLoggedRef.current();
+        announce({
+          // In the words the button carried before it was pressed.
+          message: `${f.description}, ${f.last_amount_label} added to ${meal}`,
+          // Taking back an entry written seconds ago is removing it, not
+          // rewriting history: nothing else can have been built on it yet.
+          undo: async () => {
+            await deleteLogEntry(entryId);
+            onLoggedRef.current();
+          },
+        });
       } catch (e) {
         setError(String(e));
       } finally {
         setPending(null);
       }
     },
-    [clear, date, meal, onLogged, pending],
+    [announce, date, meal, pending],
   );
 
-  const undo = useCallback(async () => {
-    if (last === null) return;
-    const { entryId } = last;
-    // Dismissed first, so a slow delete cannot be pressed twice.
-    clear();
-    setLast(null);
-    try {
-      await deleteLogEntry(entryId);
-      onLogged();
-    } catch (e) {
-      setError(String(e));
-    }
-  }, [clear, last, onLogged]);
-
-  return { log, pending, last, undo, error };
-}
-
-/**
- * What was just written, and the way back out of it.
- *
- * Sits above the bottom bar rather than over it: the bar is how you leave this
- * screen, and covering it to announce a success would trap someone who wanted
- * to be somewhere else.
- */
-export function UndoToast({
-  last, onUndo,
-}: {
-  last: { label: string; meal: Meal } | null;
-  onUndo: () => void;
-}) {
-  if (last === null) return null;
-  return (
-    /* One control, not two. A dismiss “×” sat beside Undo until it was clear
-       what it was for: the bar takes itself away after eight seconds, so the
-       cross only offered to do sooner what was going to happen anyway — and it
-       put a second, similar-sized target next to the one that matters. */
-    <div className="toast" role="status">
-      <span className="toast__text">
-        Added to {last.meal} — {last.label}
-      </span>
-      <button className="toast__undo" onClick={onUndo}>Undo</button>
-    </div>
-  );
+  return { log, pending, error };
 }
 
 /**

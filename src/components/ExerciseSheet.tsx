@@ -6,6 +6,7 @@ import type { ExerciseHit, ExerciseRef, Load } from "../lib/activity";
 import { AREAS, areaFor, artFor, mostlyLine, musclesFor, nameKey } from "../lib/exerciseArt";
 import type { Area } from "../lib/exerciseArt";
 import LiftFigure from "./LiftFigure";
+import Sheet from "./Sheet";
 
 /**
  * Choosing the next lift: a sheet of its own, not a list squeezed under the
@@ -14,7 +15,9 @@ import LiftFigure from "./LiftFigure";
  * On a phone it covers the screen, because that is the only way a search field,
  * a row of filters and more than two results fit above a keyboard; the system
  * back gesture closes it, like the camera and the menu. With a pointer it is a
- * dialog over the session, closed by Escape or the cross.
+ * dialog over the session, closed by Escape or the cross. The shell — focus,
+ * the trap, Escape, the scrim — is `Sheet`'s, at its `full` size; what is here
+ * is the picking.
  *
  * Your own lifts come first, most recently done first, each with what you
  * lifted last time — the lift you named is the one you do. The common ones
@@ -47,14 +50,9 @@ export default function ExerciseSheet(p: {
   const [result, setResult] = useState<{ q: string; hits: ExerciseHit[] } | null>(null);
   const [hi, setHi] = useState(0);
   const [naming, setNaming] = useState(false);
-  const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const firstKindRef = useRef<HTMLButtonElement>(null);
-  /** Where the press that ends in a click began: only a press AND release on the scrim closes. */
-  const pressedScrim = useRef(false);
-  const onCloseRef = useRef(p.onClose);
-  onCloseRef.current = p.onClose;
 
   // A fresh sheet each time: yesterday's half-typed search is not today's lift.
   useEffect(() => {
@@ -64,48 +62,6 @@ export default function ExerciseSheet(p: {
     setNaming(false);
     setHi(0);
     setResult(null);
-    // With keys the search is the way in. On a phone the keyboard would cover
-    // the list a person may only want to browse, so the dialog itself takes
-    // focus — which is what has it announced — and the search waits for a tap.
-    if (hasKeys()) inputRef.current?.focus();
-    else boxRef.current?.focus({ preventScroll: true });
-  }, [p.open]);
-
-  // The page behind does not scroll while the sheet is up.
-  useEffect(() => {
-    if (!p.open) return;
-    const before = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = before; };
-  }, [p.open]);
-
-  /*
-    Escape and Tab belong to the sheet while it is up, wherever focus is. On the
-    capture phase of the document, before App's own Escape — which would
-    otherwise take a click on a heading followed by Escape as "leave Add food".
-  */
-  useEffect(() => {
-    if (!p.open) return;
-    const onKey = (e: KeyboardEvent) => {
-      const box = boxRef.current;
-      if (!box) return;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onCloseRef.current();
-      } else if (e.key === "Tab") {
-        const all = [...box.querySelectorAll<HTMLElement>("button, input")].filter((el) => el.offsetParent !== null);
-        const first = all[0];
-        const last = all[all.length - 1];
-        if (!first || !last) return;
-        const inside = box.contains(document.activeElement);
-        if (!inside) { e.preventDefault(); first.focus(); }
-        else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
   }, [p.open]);
 
   useEffect(() => {
@@ -145,8 +101,6 @@ export default function ExerciseSheet(p: {
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-row="${at}"]`)?.scrollIntoView({ block: "nearest" });
   }, [at]);
-
-  if (!p.open) return null;
 
   function pick(h: ExerciseHit) {
     p.onPick({ id: h.id, name: h.name, load: h.load }, h);
@@ -200,89 +154,90 @@ export default function ExerciseSheet(p: {
     );
   };
 
-  return (
-    <div
-      className="xsheet"
-      role="presentation"
-      onPointerDown={(e) => { pressedScrim.current = e.target === e.currentTarget; }}
-      onClick={(e) => { if (pressedScrim.current && e.target === e.currentTarget) p.onClose(); }}
-    >
-      <div ref={boxRef} className="xsheet__box" role="dialog" aria-modal="true" aria-labelledby="xsheet-title" tabIndex={-1}>
-        <div className="xsheet__head">
-          <div className="xsheet__bar">
-            <h2 id="xsheet-title" className="xsheet__title">Add exercise</h2>
-            {/* Wherever there is a pointer — a Mac window of any width — since
-                a pointer has no back gesture. Phones have one. */}
-            <button type="button" className="xsheet__close" aria-label="Close" onClick={p.onClose}>×</button>
-          </div>
-          <input
-            ref={inputRef}
-            className="field xsheet__search"
-            type="search"
-            enterKeyHint="search"
-            value={query}
-            placeholder="Search lifts"
-            aria-label="Search lifts"
-            onChange={(e) => { setQuery(e.target.value); setNaming(false); }}
-            onKeyDown={searchKeys}
-          />
-          <div className="chips xsheet__areas" role="group" aria-label="Part of the body">
-            <button type="button" className="chip" aria-pressed={area === null} onClick={() => setArea(null)}>All</button>
-            {AREAS.map((a) => (
-              <button type="button" key={a.id} className="chip" aria-pressed={area === a.id}
-                onClick={() => setArea(area === a.id ? null : a.id)}>{a.label}</button>
-            ))}
-          </div>
-        </div>
-
-        <div className="xsheet__list" ref={listRef}>
-          {hits === null && <p className="xsheet__note">Loading lifts…</p>}
-
-          {own.length > 0 && (
-            <section className="xgroup" aria-label="Your lifts">
-              <h3 className="xgroup__name">Yours</h3>
-              {own.map((h, i) => row(h, i))}
-            </section>
-          )}
-
-          {common.length > 0 && (
-            <section className="xgroup" aria-label="Common lifts">
-              <h3 className="xgroup__name">Common lifts</h3>
-              {common.map((h, i) => row(h, own.length + i))}
-            </section>
-          )}
-
-          {hits !== null && ordered.length === 0 && !canName && (
-            <p className="xsheet__note">
-              {area === null ? "No lifts yet." : "No lifts filed here match. Try All."}
-            </p>
-          )}
-
-          {canName && (
-            <div className="xnew">
-              {naming ? (
-                <div role="group" aria-labelledby="xnew-q">
-                  <p className="xnew__q" id="xnew-q">How is “{trimmed}” counted?</p>
-                  <div className="chips">
-                    {LOADS.map((l, i) => (
-                      <button type="button" key={l.id} className="chip" ref={i === 0 ? firstKindRef : undefined}
-                        onClick={() => p.onPick({ id: null, name: trimmed, load: l.id as Load }, null)}>
-                        {l.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="xsheet__note xnew__note">Weights is kilograms and reps; bodyweight is reps; held is seconds.</p>
-                </div>
-              ) : (
-                <button type="button" className="xnew__start" onClick={() => setNaming(true)}>
-                  Add “{trimmed}” as a new exercise
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+  const head = (
+    <>
+      <input
+        ref={inputRef}
+        className="field xsheet__search"
+        type="search"
+        enterKeyHint="search"
+        value={query}
+        placeholder="Search lifts"
+        aria-label="Search lifts"
+        onChange={(e) => { setQuery(e.target.value); setNaming(false); }}
+        onKeyDown={searchKeys}
+      />
+      <div className="chips xsheet__areas" role="group" aria-label="Part of the body">
+        <button type="button" className="chip" aria-pressed={area === null} onClick={() => setArea(null)}>All</button>
+        {AREAS.map((a) => (
+          <button type="button" key={a.id} className="chip" aria-pressed={area === a.id}
+            onClick={() => setArea(area === a.id ? null : a.id)}>{a.label}</button>
+        ))}
       </div>
-    </div>
+    </>
+  );
+
+  return (
+    <Sheet
+      open={p.open}
+      onClose={p.onClose}
+      title="Add exercise"
+      size="full"
+      className="xsheet"
+      bodyClassName="xsheet__list"
+      head={head}
+      // With keys the search is the way in. On a phone the keyboard would cover
+      // the list a person may only want to browse, so the dialog itself takes
+      // focus — which is what has it announced — and the search waits for a tap.
+      initialFocus={() => (hasKeys() ? inputRef.current : null)}
+    >
+      <div ref={listRef}>
+        {hits === null && <p className="xsheet__note">Loading lifts…</p>}
+
+        {own.length > 0 && (
+          <section className="xgroup" aria-label="Your lifts">
+            <h3 className="xgroup__name">Yours</h3>
+            {own.map((h, i) => row(h, i))}
+          </section>
+        )}
+
+        {common.length > 0 && (
+          <section className="xgroup" aria-label="Common lifts">
+            <h3 className="xgroup__name">Common lifts</h3>
+            {common.map((h, i) => row(h, own.length + i))}
+          </section>
+        )}
+
+        {hits !== null && ordered.length === 0 && !canName && (
+          <p className="xsheet__note">
+            {area === null ? "No lifts yet." : "No lifts filed here match. Try All."}
+          </p>
+        )}
+
+        {canName && (
+          <div className="xnew">
+            {naming ? (
+              <div role="group" aria-labelledby="xnew-q">
+                <p className="xnew__q" id="xnew-q">How is “{trimmed}” counted?</p>
+                <div className="chips">
+                  {LOADS.map((l, i) => (
+                    <button type="button" key={l.id} className="chip" ref={i === 0 ? firstKindRef : undefined}
+                      onClick={() => p.onPick({ id: null, name: trimmed, load: l.id as Load }, null)}>
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="xsheet__note xnew__note">Weights is kilograms and reps; bodyweight is reps; held is seconds.</p>
+              </div>
+            ) : (
+              <button type="button" className="xnew__start" onClick={() => setNaming(true)}>
+                Add “{trimmed}” as a new exercise
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </Sheet>
   );
 }
 

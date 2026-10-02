@@ -101,6 +101,11 @@
      glaring, and white on that is 2.4:1 — under the 3:1 a control's glyph
      needs to be legible at all. */
   --on-accent: #ffffff;
+  /* The accent on the Undo bar, which is drawn in --ink: the theme turned
+     over, so its action takes the OTHER theme's accent. The plain accent there
+     was 3.6:1 here and 2.1:1 in dark mode, on the one button the bar exists
+     for; this is 7.3:1, and 5.9:1 in dark. */
+  --on-ink-accent: #85b393;
   --over: #b4553a;
   --over-wash: #f8ede9;
 
@@ -220,6 +225,7 @@
     --accent-ink: #9cc5a8;
     --accent-wash: #222e26;
     --on-accent: #15140f;
+    --on-ink-accent: #3c6449;
     --over: #d98a6f;
     --over-wash: #302019;
     --act: #b4a2cd;
@@ -508,10 +514,11 @@ b, strong, th { font-weight: 600; }
 }
 
 /* ─────────────────────────────────────────────────────────────
-   What was just written, and the way back out of it. Sits ABOVE
-   the bottom bar rather than over it: the bar is how you leave
-   this screen, and covering it to announce a success would trap
-   someone who wanted to be somewhere else.
+   What was just written, and the way back out of it — the app's
+   one bar (components/UndoBar.tsx). Sits ABOVE the bottom bar
+   rather than over it: the bar is how you leave this screen, and
+   covering it to announce a success would trap someone who wanted
+   to be somewhere else. Bottom right on a desktop.
    ───────────────────────────────────────────────────────────── */
 .toast {
   position: fixed; left: var(--s4); right: var(--s4); z-index: 32;
@@ -527,15 +534,156 @@ b, strong, th { font-weight: 600; }
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
 }
+/* Two lines before it gives up, not one. The message ends with what matters
+   — "…, 85 g added to lunch" — and a reference food's name is often most of
+   a line on its own, so a single line cut off the amount and the meal. */
 .toast__text {
   flex: 1; min-width: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .toast__undo {
   flex: none; min-height: 36px; padding: 0 var(--s3);
-  border-radius: var(--r-sm); color: var(--accent);
+  border-radius: var(--r-sm); color: var(--on-ink-accent);
   font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600;
 }
+/* Spent: pressed once, and the way back is under way. */
+.toast__undo:disabled { opacity: 0.5; cursor: default; }
+
+/* ─────────────────────────────────────────────────────────────
+   Sheets — what opens when something on the page is asked about
+   (components/Sheet.tsx).
+
+   On a phone, a sheet that rises from the bottom edge and stops
+   short of the top, so a sliver of the screen it came from stays
+   in view: that is what says it is over the screen rather than a
+   new one. `--full` covers the screen, for a search and its list
+   above a keyboard. With a pointer, a panel down the right-hand
+   side of the window, beside the page it explains rather than on
+   top of it; `--full` is a dialog in the middle.
+
+   Above the bottom bar, the drawer and the Undo bar; below the ⌘K
+   palette, which can be opened over one. Sheets over sheets share
+   the layer and stack by order, since each is added to the end of
+   the document when it opens.
+   ───────────────────────────────────────────────────────────── */
+.sheet {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  background: var(--scrim);
+  animation: sheet-scrim 200ms ease-out;
+}
+.sheet__box {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  max-height: 88vh;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-radius: 20px 20px 0 0;
+  /* Clear of the navigation pill, and of the keyboard when one is up: the
+     window is edge to edge and is not resized for it, so without this the
+     last line sits behind the keys. */
+  padding-bottom: max(var(--safe-bottom), var(--sys-ime));
+  /* Material's emphasized-decelerate, the drawer's own curve. */
+  animation: sheet-rise 200ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+/* Focus moved here by the app, not by Tab: no ring round the whole sheet. */
+.sheet__box:focus { outline: none; }
+.sheet__head { flex: none; display: flex; flex-direction: column; gap: var(--s3); padding: var(--s2) var(--s4) var(--s3); }
+/* Ruled off where the body scrolls under something that stays put. */
+.sheet__head--ruled { border-bottom: 1px solid var(--line); }
+/* The one affordance that says "this came up and can go back down". */
+.sheet__grip {
+  align-self: center; width: 34px; height: 4px; border-radius: var(--r-pill);
+  background: var(--line); margin-bottom: var(--s1);
+}
+.sheet__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 32px; }
+.sheet__title { font-size: var(--t-head); line-height: var(--t-head-lh); letter-spacing: -0.015em; }
+.sheet__close {
+  display: none; flex: none; width: 32px; height: 32px; border-radius: var(--r-sm);
+  color: var(--ink-2); font-size: var(--t-head); line-height: 1;
+}
+/* The cross: wherever a pointer can hover — a Mac window of any width — but
+   not on Android, where even the emulator's mouse reports no hover and the
+   back gesture closes the sheet. A pointer has no back gesture. */
+@media (hover: hover) {
+  .sheet__close { display: grid; place-items: center; }
+  .sheet__close:hover { background: var(--sunken); color: var(--ink); }
+}
+.sheet__body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 var(--s4) var(--s5);
+}
+
+/* Covering a phone's screen: the page's own ground, under the status bar. */
+.sheet--full { background: transparent; }
+.sheet--full .sheet__box {
+  flex: 1; max-height: none;
+  background: var(--bg); border-top: 0; border-radius: 0;
+  padding-top: var(--safe-top);
+  /* The list pads itself clear of the pill, so only the keyboard here. */
+  padding-bottom: var(--sys-ime);
+}
+.sheet--full .sheet__head { padding: var(--s4) var(--s4) var(--s3); }
+
+@keyframes sheet-scrim { from { background-color: transparent; } }
+@keyframes sheet-rise { from { transform: translateY(100%); } }
+@keyframes sheet-slide { from { transform: translateX(100%); } }
+@keyframes sheet-pop { from { opacity: 0; transform: translateY(8px); } }
+
+/* Wide but coarse — a tablet. Still a sheet from the bottom, a readable width. */
+@media (min-width: 721px) {
+  .sheet--auto { align-items: center; }
+  .sheet--auto .sheet__box { width: min(640px, 100%); }
+}
+
+/* With a pointer: a panel down the right of the window, the page beside it. */
+@media (min-width: 721px) and (pointer: fine) {
+  .sheet--auto { flex-direction: row; justify-content: flex-end; align-items: stretch; }
+  .sheet--auto .sheet__box {
+    width: min(440px, 100vw); max-height: none;
+    border-top: 0; border-left: 1px solid var(--line); border-radius: 0;
+    padding-bottom: 0;
+    animation-name: sheet-slide;
+  }
+  /* A panel opened over a panel lands exactly on it, so a second scrim would
+     only darken the page twice. It still catches the press that closes it. */
+  .sheet--auto ~ .sheet--auto { background: transparent; }
+  .sheet__grip { display: none; }
+  .sheet--auto .sheet__head { padding: var(--s5) var(--s5) var(--s3); }
+  .sheet__body { padding: 0 var(--s5) var(--s5); }
+
+  .sheet--full { align-items: center; justify-content: flex-start; padding-top: 9vh; background: var(--scrim); }
+  .sheet--full .sheet__box {
+    flex: none; width: min(560px, 92vw); max-height: min(720px, 84vh);
+    padding: 0; border-radius: var(--r-lg); overflow: hidden;
+    background: var(--surface); box-shadow: var(--lift-hi);
+    animation-name: sheet-pop;
+  }
+  .sheet--full .sheet__head { padding: var(--s4) var(--s5) var(--s3); }
+}
+@media (prefers-color-scheme: dark) and (min-width: 721px) and (pointer: fine) {
+  .sheet--full .sheet__box { border: 1px solid var(--line); }
+}
+
+/* ── the (i) ─────────────────────────────────────────────────
+   A 22px mark with a thumb's worth of target round it. The
+   negative margin hands the extra back to the line it sits in, so
+   an (i) beside a heading does not make the heading any taller.
+   Quiet ink: it is a footnote to the figure beside it.
+   ───────────────────────────────────────────────────────────── */
+.info {
+  display: inline-grid; place-items: center; flex: none;
+  width: 44px; height: 44px; margin: -11px;
+  vertical-align: middle;
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+}
+.info__glyph { width: 22px; height: 22px; }
+@media (hover: hover) { .info:hover { color: var(--ink); } }
+/* The ring round the mark, not round the whole invisible target. */
+.info:focus-visible { outline-offset: -9px; border-radius: var(--r-pill); }
+.info__body { max-width: 62ch; font-size: var(--t-body); line-height: var(--t-body-lh); }
+.info__body p, .info__body ul { margin: 0 0 var(--s3); }
+.info__body > :last-child { margin-bottom: 0; }
 
 /* Desktop keeps Nutrients as a destination of its own, so the switch that
    makes them one screen is a phone control. Declared unconditionally so it
@@ -3158,30 +3306,12 @@ button.activity-card__row:hover { background: var(--act-press); }
 .ledger__commit { margin: 0 0 0 auto; }
 
 /* ── The exercise sheet ──────────────────────────────────────
-   Full screen on a phone, because a search field, a row of
-   filters and more than two results only fit above a keyboard
-   that way; a dialog where there is a pointer. Above the bar and
-   the toast, below the ⌘K palette.
+   A `Sheet` at its full size: the whole screen on a phone,
+   because a search field, a row of filters and more than two
+   results only fit above a keyboard that way; a dialog where
+   there is a pointer. The shell is `.sheet`'s; what is here is
+   the search, its filters and the list.
    ───────────────────────────────────────────────────────────── */
-.xsheet { position: fixed; inset: 0; z-index: 70; display: flex; }
-.xsheet__box {
-  /* min-width 0: as a flex item it would otherwise grow to the width of the
-     one-line chip row inside it, and push the whole sheet off the screen. */
-  flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
-  background: var(--bg);
-  padding-top: var(--safe-top);
-}
-.xsheet__head {
-  display: flex; flex-direction: column; gap: var(--s3);
-  padding: var(--s4) var(--s4) var(--s3);
-  border-bottom: 1px solid var(--line);
-}
-.xsheet__bar { display: flex; align-items: center; justify-content: space-between; }
-.xsheet__title { font-size: var(--t-head); line-height: var(--t-head-lh); letter-spacing: -0.015em; }
-.xsheet__close {
-  display: none; width: 32px; height: 32px; border-radius: var(--r-sm);
-  color: var(--ink-2); font-size: var(--t-head); line-height: 1;
-}
 .xsheet__search { font-size: var(--t-body); line-height: var(--t-body-lh); padding: var(--s3) var(--s4); background: var(--surface); }
 .xsheet__areas {
   flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
@@ -3189,10 +3319,8 @@ button.activity-card__row:hover { background: var(--act-press); }
 }
 .xsheet__areas::-webkit-scrollbar { display: none; }
 .xsheet__areas .chip { flex: none; }
-.xsheet__list {
-  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  padding: var(--s2) 0 calc(var(--s6) + var(--safe-bottom));
-}
+/* The rows run to the sheet's edges, and the last one clears the pill. */
+.sheet__body.xsheet__list { padding: var(--s2) 0 calc(var(--s6) + var(--safe-bottom)); }
 .xsheet__note { margin: var(--s4); color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 .xnew__note { margin: var(--s3) 0 0; }
 
@@ -3238,16 +3366,9 @@ button.activity-card__row:hover { background: var(--act-press); }
 
 /* With a pointer: a dialog over the session, not a page. */
 @media (min-width: 721px) and (pointer: fine) {
-  .xsheet { align-items: flex-start; justify-content: center; padding-top: 9vh; background: var(--scrim); }
-  .xsheet__box {
-    flex: none; width: min(560px, 92vw); max-height: min(720px, 84vh);
-    padding-top: 0; border-radius: var(--r-lg); overflow: hidden;
-    background: var(--surface); box-shadow: var(--lift-hi);
-  }
-  .xsheet__head { padding: var(--s4) var(--s5) var(--s3); }
   .xsheet__areas { flex-wrap: wrap; margin: 0; padding: 0; overflow: visible; }
   .xsheet__search { background: var(--bg); }
-  .xsheet__list { padding-bottom: var(--s3); }
+  .sheet__body.xsheet__list { padding-bottom: var(--s3); }
   .xrow { min-height: 64px; padding: var(--s1) var(--s5); }
   .xrow__tile { width: 48px; height: 52px; }
   .xrow__tile .figure { width: 40px; height: 46px; }
@@ -3255,10 +3376,6 @@ button.activity-card__row:hover { background: var(--act-press); }
   .xgroup__name { padding: var(--s3) var(--s5) var(--s1); }
   .xnew { padding: var(--s4) var(--s5); }
 }
-@media (prefers-color-scheme: dark) and (min-width: 721px) and (pointer: fine) {
-  .xsheet__box { border: 1px solid var(--line); }
-}
-
 /* The lift's head in the ledger: a smaller tile, so the name and its one
    reminder line sit beside it rather than wrapping down past it. */
 .lift__head--art .figure { width: 56px; height: 64px; }
@@ -3266,22 +3383,9 @@ button.activity-card__row:hover { background: var(--act-press); }
 .lift__art--none .xrow__glyph { width: 28px; height: 28px; }
 .lift__how-muscles { margin: 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); text-align: center; }
 
-/* The cross: wherever a pointer can hover — a Mac window of any width — but
-   not on Android, where even the emulator's mouse reports no hover and the
-   back gesture closes the sheet. A pointer has no back gesture. */
-@media (hover: hover) {
-  .xsheet__close { display: grid; place-items: center; }
-  .xsheet__close:hover { background: var(--sunken); color: var(--ink); }
-}
-/* Focus moved here by the app, not by Tab: no ring around the whole sheet or
-   a heading. */
-.xsheet__box:focus, .lift__name:focus { outline: none; }
+/* Focus moved here by the app, not by Tab: no ring around a heading. */
+.lift__name:focus { outline: none; }
 @media (min-width: 721px) and (pointer: fine) {
   /* A pointer does not need a thumb-sized target. */
   .addlift { min-height: 40px; padding: var(--s2) var(--s4); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 }
-/* On a phone the sheet ends where the keyboard begins. The window is not
-   resized for it (edge to edge), so without this the bottom of the list sits
-   behind the keys and cannot be scrolled into view. */
-.xsheet__box { padding-bottom: var(--sys-ime); }
-@media (min-width: 721px) and (pointer: fine) { .xsheet__box { padding-bottom: 0; } }

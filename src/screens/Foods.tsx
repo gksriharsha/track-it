@@ -39,7 +39,7 @@ import { MEALS, SOURCE_LABEL, describeVolume, parsePick } from "../types";
 import { fmtAmount, plural } from "../lib/nutrient";
 import WeightField from "../components/WeightField";
 import TagPicker from "../components/TagPicker";
-import { UndoToast, useQuickLog } from "../components/QuickLog";
+import { useQuickLog } from "../components/QuickLog";
 import CameraCapture from "../components/CameraCapture";
 import ActivityPane from "./Activity";
 import { bare, canStream, readBarcodeFromFile, useCameraRoute } from "../lib/camera";
@@ -76,6 +76,11 @@ interface Props {
   preselect?: string | null;
   onMealChange: (m: Meal) => void;
   onLogged: () => void;
+  /**
+   * The day changed while this screen stayed up — a one-tap log, or the Undo
+   * of one. Re-reads it in place, without the trip to Today `onLogged` takes.
+   */
+  onChanged: () => void;
   /** Through to the vessel library, from inside the weight field. */
   onManageVessels: () => void;
   /** Re-open the cook sheet on a pot, to correct what went into it. */
@@ -122,9 +127,12 @@ export default function Foods(p: Props) {
   /* One tap writes the food at the weight printed on its button, and the way
      back out sits over the screen for eight seconds. `p.onLogged` is
      deliberately NOT called: that navigates to Today, and a person logging
-     three staples in a row should stay in the list they are working down. The
-     day behind this screen is re-read when they leave it. */
-  const qlog = useQuickLog(p.date, p.meal, () => {});
+     three staples in a row should stay in the list they are working down.
+     The day behind this screen is re-read in place instead. It used to be
+     left for "when they leave", which nothing did: Today then showed the day
+     as it was before the tap, and an Undo pressed there took away a row that
+     had never been drawn. */
+  const qlog = useQuickLog(p.date, p.meal, p.onChanged);
 
   /* ── reading a pack ───────────────────────────────────────────────────────
      The lens is held open by the hash, not by state, so the Android back
@@ -1717,9 +1725,9 @@ export default function Foods(p: Props) {
         />
       )}
 
-      {/* What the green button on a "Had it before" row just wrote, and the
-          way back out of it. See QuickLog.tsx. */}
-      <UndoToast last={qlog.last} onUndo={qlog.undo} />
+      {/* What the green button on a "Had it before" row just wrote is said in
+          the app's one bar, with its way back (see UndoBar.tsx); only a log
+          that failed is said here. */}
       {qlog.error && <p className="alert" role="alert">{qlog.error}</p>}
     </div>
   );

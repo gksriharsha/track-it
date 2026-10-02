@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getGoals } from "../api";
-import { listSessions, sessionSub, sessionTitle } from "../lib/activity";
+import { ACTIVITY_CHANGED, listSessions, sessionSub, sessionTitle } from "../lib/activity";
 import type { Session } from "../lib/activity";
 import { MINUTES_PER_SET, dayEnergy, energyUsed, kcalText } from "../lib/activityEnergy";
 
@@ -32,14 +32,26 @@ export default function ActivityCard(p: {
   // undefined while unread; null once read with no weight on file.
   const [weight, setWeight] = useState<number | null | undefined>(undefined);
 
+  // Read again when a session changes off this screen — an Undo pressed here
+  // in the app's bar for a walk added on the Activity tab.
+  const [reread, setReread] = useState(0);
+  useEffect(() => {
+    const again = () => setReread((n) => n + 1);
+    window.addEventListener(ACTIVITY_CHANGED, again);
+    return () => window.removeEventListener(ACTIVITY_CHANGED, again);
+  }, []);
+
+  const readFor = useRef<string | null>(null);
   useEffect(() => {
     let live = true;
-    setSessions(null);
+    // Blanked only for a new day; a re-read keeps the rows up until it lands.
+    if (readFor.current !== p.date) setSessions(null);
+    readFor.current = p.date;
     listSessions(p.date)
       .then((s) => { if (live) setSessions(s); })
       .catch(() => { if (live) setSessions([]); });
     return () => { live = false; };
-  }, [p.date]);
+  }, [p.date, reread]);
 
   // Read once per visit: the weight is the profile's current one, which is the
   // only weight the app keeps.

@@ -25,6 +25,7 @@ import UnlockLog from "./components/UnlockLog";
 import Logo from "./components/Logo";
 import CommandPalette from "./components/CommandPalette";
 import type { Command } from "./components/CommandPalette";
+import { AnnounceProvider } from "./components/UndoBar";
 import { MOD, isAndroid, useHotkeys } from "./lib/desktop";
 import { getDay, humanDate, shiftIso, takeWidgetLanding, todayIso } from "./api";
 import type { DayView, Meal } from "./types";
@@ -599,7 +600,20 @@ function useHashRoute() {
   return [route, go, openMenu, closeMenu] as const;
 }
 
+/**
+ * The app, inside the one thing every screen shares: the bar that says what was
+ * just written and offers the way back (see UndoBar.tsx). Outside the shell so
+ * that it outlives any one screen — an Undo is still there after a tap away.
+ */
 export default function App() {
+  return (
+    <AnnounceProvider>
+      <Shell />
+    </AnnounceProvider>
+  );
+}
+
+function Shell() {
   const [route, go, openMenu, closeMenu] = useHashRoute();
   const tab = route.tab;
 
@@ -668,6 +682,16 @@ export default function App() {
     setLoading(true);
     refresh(date);
   }, [date, refresh, opened]);
+
+  /*
+    Re-read the day being shown NOW, whichever that is. For a write whose
+    consequences arrive later than the screen that made it: an Undo pressed in
+    the bar after the date has moved on must re-read the day on screen, not set
+    it to the day the bar was raised on under a heading that says another.
+  */
+  const dateNow = useRef(date);
+  dateNow.current = date;
+  const refreshShown = useCallback(() => refresh(dateNow.current), [refresh]);
 
   const onLogged = useCallback(async () => {
     await refresh(date);
@@ -1046,7 +1070,7 @@ export default function App() {
               onNext={goNextDay}
               onToday={goToday}
               onPickDate={setDate}
-              onRemoved={() => refresh(date)}
+              onRemoved={refreshShown}
               onSeeAll={() => go("nutrients")}
               onAddFood={() => go("foods")}
               onOpenProfile={() => go("profile", { from: "today" })}
@@ -1076,6 +1100,7 @@ export default function App() {
               preselect={route.pick}
               onMealChange={setMeal}
               onLogged={onLogged}
+              onChanged={refreshShown}
               onManageVessels={() => go("vessels")}
               onEditCook={(id) => go("cook", { id, from: "foods" })}
               onManageCustomFoods={() => go("custom-foods", { from: "foods" })}
