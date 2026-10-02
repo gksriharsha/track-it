@@ -3731,14 +3731,19 @@ b, strong, th { font-weight: 600; }
 .mealpick__tick { color: var(--accent); }
 
 @media (max-width: 720px) {
-  /* Pinned to the foot of the screen, and so above the keyboard when it is
-     up: the WebView resizes for it (adjustResize). The Undo bar sits just
-     above it, where it sits above the bottom bar on every other screen. */
+  /* Pinned to the foot of the screen, and lifted above the keyboard when it
+     is up. An edge-to-edge window is not resized for the keyboard, which is
+     drawn over the page's bottom third, so its height comes from
+     MainActivity as --sys-ime; the navigation bar's inset is under the keys
+     then, and only counted when they are down. The Undo bar sits just above
+     the field, where it sits above the bottom bar on every other screen. */
   .food__dock {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 25;
-    padding: var(--s2) var(--s4) calc(var(--s2) + var(--safe-bottom));
+    position: fixed; left: 0; right: 0; bottom: var(--sys-ime); z-index: 25;
+    padding: var(--s2) var(--s4) calc(var(--s2) + max(0px, var(--safe-bottom) - var(--sys-ime)));
     background: var(--bg); border-top: 1px solid var(--line);
   }
+  /* So the end of a long list can scroll clear of the keys. */
+  .food__list { padding-bottom: var(--sys-ime); }
   /* Results rise from the field: held to the space above it and standing at
      its foot, so your own, drawn last, are the nearest to it. */
   .food__body.is-results { justify-content: flex-end; min-height: var(--food-fill, 0px); }

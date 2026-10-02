@@ -832,10 +832,14 @@ export default function Foods(p: Props) {
   /*
     Results rise from the field. On a phone the search sits at the foot of the
     screen, so the space above it is held open and the results stand at the
-    bottom of it: the best of them, your own, nearest your thumb. Measured,
-    because the keyboard takes its height from the window as it opens
-    (adjustResize). On a wider window the field is at the top and none of this
-    applies.
+    bottom of it: the best of them, your own, nearest your thumb.
+
+    Measured from where the field actually is, because the keyboard moves it.
+    The window is edge to edge and is not resized when the keyboard opens:
+    MainActivity reports the keyboard's height as --sys-ime on the root
+    element instead, and the field is lifted by that (`.food__dock`). Setting
+    it fires no resize, so the root's style is watched. On a wider window the
+    field heads the list and none of this applies.
   */
   const bodyRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
@@ -844,21 +848,25 @@ export default function Foods(p: Props) {
     const dock = dockRef.current;
     if (!body || !dock) return;
     const docked = () => getComputedStyle(dock).position === "fixed";
-    const fit = () => {
+    const settle = () => {
       if (!docked()) { body.style.removeProperty("--food-fill"); return; }
-      const top = body.getBoundingClientRect().top + window.scrollY;
-      const fill = window.innerHeight - top - dock.offsetHeight - 16;
+      // From the top of the results, as they stand unscrolled, to just above the field.
+      const fill = dock.getBoundingClientRect().top - (body.getBoundingClientRect().top + window.scrollY) - 16;
       body.style.setProperty("--food-fill", `${Math.max(0, Math.round(fill))}px`);
+      // Only when the results outgrow the space: short ones already stand at
+      // its foot, and scrolling then would push the meal's title off the top.
+      if (typed && body.scrollHeight > Math.max(0, fill) + 1) {
+        window.scrollTo({ top: document.documentElement.scrollHeight });
+      }
     };
-    fit();
-    // Only when the results outgrow the space: short ones already stand at
-    // its foot, and scrolling then would push the meal's title off the top.
-    const fill = parseFloat(body.style.getPropertyValue("--food-fill")) || 0;
-    if (typed && docked() && body.scrollHeight > fill + 1) {
-      window.scrollTo({ top: document.documentElement.scrollHeight });
-    }
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
+    settle();
+    const keyboard = new MutationObserver(settle);
+    keyboard.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+    window.addEventListener("resize", settle);
+    return () => {
+      keyboard.disconnect();
+      window.removeEventListener("resize", settle);
+    };
   }, [typed, hits, anyPicked, tab]);
 
   /** A row of the list: what leads it, what it is, and what is on its right. */
