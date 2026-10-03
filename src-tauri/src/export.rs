@@ -720,6 +720,7 @@ mod tests {
             kind: kind.into(),
             amount,
             upper,
+            printed_pct: None, label_form: None,
         }
     }
 
@@ -741,6 +742,7 @@ mod tests {
             photo_ingredients: None,
             nutrients,
             import_only: false,
+            dv_basis: "current".into(),
         }
     }
 

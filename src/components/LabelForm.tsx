@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { CustomNutrient, ServingUnit } from "../types";
+import { labelPercentTable } from "../api";
+import type {
+  CustomNutrient,
+  DvBasis,
+  LabelForm as Compound,
+  PercentBasis,
+  PercentLine,
+  ServingUnit,
+} from "../types";
 import { LABEL_NUTRIENTS } from "../types";
 import { plural } from "../lib/nutrient";
 
@@ -37,6 +45,13 @@ interface Props {
    * instead, because a callback that takes "all of them" cannot express either.
    */
   onAcceptAll?: () => void;
+  /**
+   * Which Daily Values the pack's percentages are of. A statement about the
+   * pack, owned by the food, so it is a prop rather than state here: it is
+   * saved with the food and decides every percentage line at once.
+   */
+  dvBasis: DvBasis;
+  onDvBasisChange: (b: DvBasis) => void;
 }
 
 /**
@@ -121,18 +136,67 @@ const ACT: CSSProperties = {
  * a cleared box are both things a person types on the way to a value, and rounding
  * them into the saved food mid-keystroke would change what they meant.
  */
-type Row = { text: string; lt: boolean; ltKind: "below_loq" | "trace" };
+type Row = {
+  text: string;
+  lt: boolean;
+  ltKind: "below_loq" | "trace";
+  /** The figure is a percentage of the Daily Value, not an amount. */
+  pct: boolean;
+  /** The compound an older panel's percentage needs, where it needs one. */
+  form: Compound | null;
+};
 
-const BLANK: Row = { text: "", lt: false, ltKind: "below_loq" };
+const BLANK: Row = { text: "", lt: false, ltKind: "below_loq", pct: false, form: null };
 
-/** The ids this form has a line for. */
+/** The ids of a current panel's fifteen lines, always shown. */
 const SPINE = new Set(LABEL_NUTRIENTS.map((n) => n.id));
+
+/** One line on screen. */
+type Line = { id: number; name: string; unit: string };
+
+/**
+ * Lines an older panel always prints, so they are shown whenever the pack is
+ * one: "Vitamin A 10% • Vitamin C 4%" was mandatory before 2020.
+ */
+const OLDER_ALWAYS = [1106, 1162];
+
+/**
+ * The lines an older panel gives in grams or milligrams beside their
+ * percentage: its Daily Reference Values. Every other line it has a Daily
+ * Value for is a vitamin or mineral, which it prints as a percentage only, so
+ * on an older pack those lines start in %.
+ */
+const OLDER_AMOUNTS = new Set([1004, 1258, 1253, 1093, 1092, 1005, 1079, 1003]);
+
+/** A converted figure without the float noise: 2.4, not 2.4000000000000004. */
+const tidy = (x: number) => String(Math.round(x * 1000) / 1000);
+
+/** The reference database's "ug", the way a pack writes it. */
+const shown = (u: string) => (u === "ug" ? "µg" : u);
+
+/** The chips for a compound — the supplement editor's wording, for the same choice. */
+const COMPOUND: Partial<Record<Compound, string>> = {
+  retinol: "Retinol / retinyl ester",
+  beta_carotene_supplemental: "Beta-carotene (supplemental)",
+  beta_carotene_dietary: "Beta-carotene (from food)",
+  alpha_tocopherol_natural: "Natural — d-alpha-tocopherol",
+  alpha_tocopherol_synthetic: "Synthetic — dl-alpha-tocopherol",
+  folic_acid: "Added folic acid",
+  food_folate: "Folate the food has naturally",
+};
+
+/** What a line asks while its compound is unnamed. */
+const ASK: Record<number, string> = {
+  1106: "say which vitamin A this is — milk is fortified with retinol, listed as vitamin A palmitate",
+  1109: "say whether this vitamin E is natural or synthetic",
+  1190: "say whether this is added folic acid or folate the food has naturally",
+};
 
 type Resolved =
   | { state: "none"; lt: boolean }
-  | { state: "printed"; value: CustomNutrient; amount: number }
-  | { state: "zero"; value: CustomNutrient; ceiling: number }
-  | { state: "under"; value: CustomNutrient; upper: number }
+  | { state: "printed"; value: CustomNutrient; amount: number; pct?: number }
+  | { state: "zero"; value: CustomNutrient; ceiling: number; pct?: number }
+  | { state: "under"; value: CustomNutrient; upper: number; pct?: number }
   | { state: "snag"; why: string };
 
 /** A reading on offer, against whatever the line already says. */
@@ -170,6 +234,43 @@ type Offer = {
 export default function LabelForm(p: Props) {
   const [rows, setRows] = useState<Map<number, Row>>(() => seed(p.nutrients));
   /**
+   * What 1% of each Daily Value is, current and older, from the backend — the
+   * same functions that convert a percentage when the food is saved, so the
+   * figure shown here is the figure stored. Null until it arrives; without it
+   * the form is exactly the amounts-only form it always was.
+   */
+  const [table, setTable] = useState<PercentLine[] | null>(null);
+  /** Lines added by hand beyond the fifteen: Vitamin A, B12, zinc. */
+  const [added, setAdded] = useState<Set<number>>(() => new Set());
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    labelPercentTable()
+      .then((t) => { if (live) setTable(t); })
+      .catch(() => { /* percentages unavailable; amounts still work */ });
+    return () => { live = false; };
+  }, []);
+
+  /** This line's percentage arithmetic under the pack's basis, if it has any. */
+  const infoOf = (id: number): PercentBasis | null =>
+    table?.find((t) => t.nutrient_id === id)?.[p.dvBasis] ?? null;
+  /** Whether a line nobody has typed in starts in %: on an older pack, its vitamins and minerals. */
+  const startsInPercent = (id: number): boolean =>
+    p.dvBasis === "older" && !OLDER_AMOUNTS.has(id) && infoOf(id) !== null;
+  const blankFor = (id: number): Row => (startsInPercent(id) ? { ...BLANK, pct: true } : BLANK);
+  /** 1% of a line in the unit the app stores, under the compound named if it needs one. */
+  const perPercent = (id: number, form: Compound | null): number | null => {
+    const info = infoOf(id);
+    if (!info) return null;
+    return info.per_percent ?? info.forms.find((f) => f.form === form)?.per_percent ?? null;
+  };
+  /** The zero threshold for a line typed as an amount that is not on the spine. */
+  const fallbackCeiling = (id: number): number | null => {
+    const per = table?.find((t) => t.nutrient_id === id)?.current?.per_percent;
+    return per != null ? 2 * per : null;
+  };
+  /**
    * What we last sent up, compared by VALUE. A parent that rebuilds the array on
    * every render — `nutrients={food?.nutrients ?? []}` is enough to do it — would
    * otherwise look like an outside edit on every keystroke and reseed the lines
@@ -198,7 +299,7 @@ export default function LabelForm(p: Props) {
     // Genuinely different from what we sent: the parent loaded a food, or restored
     // a draft. Re-read the lines from it.
     mine.current = incoming;
-    setRows((was) => reseed(was, p.nutrients));
+    setRows((was) => reseed(was, p.nutrients, resolveRow, blankFor));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incoming]);
 
@@ -226,26 +327,84 @@ export default function LabelForm(p: Props) {
   /** What a line's converted figure is per: the app's basis, in the serving's own unit. */
   const basis = `per 100 ${p.unit}`;
 
-  // Anything the food carries that a panel does not print. Nothing in this app
-  // writes one today, but a line this form cannot show is not a line it may
-  // silently drop on the next keystroke.
-  const kept = p.nutrients.filter((n) => !SPINE.has(n.nutrient_id));
+  // Which lines are on screen: the fifteen, then anything this pack also
+  // prints — always Vitamins A and C on an older panel, plus any line with a
+  // figure in it or added by hand.
+  const have = new Set<number>(p.nutrients.map((n) => n.nutrient_id));
+  for (const [id, r] of rows) if (r.text.trim() !== "" || r.lt) have.add(id);
+  const lines = linesFor(p.dvBasis, table, added, have);
+  const lineIds = new Set(lines.map((l) => l.id));
+
+  // Anything the food carries that this form has no line for — a nutrient
+  // with no Daily Value, or any extra line while the table has not arrived. A
+  // line this form cannot show is not a line it may silently drop on the next
+  // keystroke.
+  const kept = p.nutrients.filter((n) => !lineIds.has(n.nutrient_id));
+
+  const resolveRow = (id: number, row: Row) => resolve(id, row, infoOf(id), fallbackCeiling(id));
 
   /** Send a whole set of lines up, and remember what we sent. */
   function commit(next: Map<number, Row>) {
     setRows(next);
-    const built = [...build(next), ...kept];
+    const built = [...build(lines, next, resolveRow), ...kept];
     mine.current = JSON.stringify(built);
     p.onChange(built);
   }
 
+  // A percentage is worth a different amount under the other basis, and is
+  // worth nothing until the table arrives — so both re-derive every line.
+  const derivedKey = `${p.dvBasis}|${table === null ? 0 : table.length}`;
+  useEffect(() => {
+    const built = [...build(lines, rows, resolveRow), ...kept];
+    if (JSON.stringify(built) === mine.current) return;
+    mine.current = JSON.stringify(built);
+    p.onChange(built);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derivedKey]);
+
+  // A line nobody has typed in follows the pack's notation, so an older
+  // panel's "Calcium 30%" is typed as it reads, without a toggle first. A
+  // line with a figure in it keeps whatever it was written in.
+  useEffect(() => {
+    if (!table) return;
+    setRows((was) => {
+      let next: Map<number, Row> | null = null;
+      for (const t of table) {
+        const row = was.get(t.nutrient_id);
+        const pct = startsInPercent(t.nutrient_id);
+        if (row && row.text.trim() === "" && !row.lt && row.pct !== pct) {
+          next ??= new Map(was);
+          next.set(t.nutrient_id, { ...row, pct, form: null });
+        }
+      }
+      return next ?? was;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.dvBasis, table]);
+
   function edit(id: number, patch: Partial<Row>) {
     const next = new Map(rows);
-    next.set(id, { ...(rows.get(id) ?? BLANK), ...patch });
+    next.set(id, { ...(rows.get(id) ?? blankFor(id)), ...patch });
     commit(next);
   }
 
-  const resolved = LABEL_NUTRIENTS.map((n) => ({ n, r: resolve(n.id, rows.get(n.id) ?? BLANK) }));
+  /**
+   * Amount or percentage: a change in how a figure is written, never in what
+   * it comes to. 300 mg of calcium becomes 30% on an older pack, not 300%.
+   * With nothing to convert by — a compound not named yet — the box is emptied
+   * rather than left to mean something else.
+   */
+  function writeAs(id: number, pct: boolean) {
+    const row = rows.get(id) ?? blankFor(id);
+    if (row.pct === pct) return;
+    const t = row.text.trim();
+    const n = Number(t);
+    const per = perPercent(id, row.form);
+    const text = t !== "" && Number.isFinite(n) && per !== null && per > 0 ? tidy(pct ? n / per : n * per) : "";
+    edit(id, { pct, text });
+  }
+
+  const resolved = lines.map((n) => ({ n, r: resolveRow(n.id, rows.get(n.id) ?? blankFor(n.id)) }));
   const printed = resolved.filter((x) => x.r.state !== "none" && x.r.state !== "snag").length;
   const snags = resolved.filter((x) => x.r.state === "snag").length;
 
@@ -253,7 +412,7 @@ export default function LabelForm(p: Props) {
   const live = new Map<number, CustomNutrient>();
   for (const s of p.suggestions ?? []) {
     // A reading with no figure in it cannot be confirmed, so it is not offered.
-    if (!SPINE.has(s.nutrient_id) || handled.has(s.nutrient_id) || !usable(s)) continue;
+    if (!lineIds.has(s.nutrient_id) || handled.has(s.nutrient_id) || !usable(s)) continue;
     live.set(s.nutrient_id, s);
   }
   const offers = new Map<number, Offer>();
@@ -331,9 +490,45 @@ export default function LabelForm(p: Props) {
       <div className="lform__head">
         <span className="group__name">What the pack prints</span>
         <span className="lform__count num">
-          {printed} of {LABEL_NUTRIENTS.length}
+          {printed} of {lines.length}
         </span>
       </div>
+
+      {table !== null && (
+        <div className="lform__kind">
+          <div className="chips" role="group" aria-label="Kind of label">
+            <button
+              className="chip chip--sm"
+              type="button"
+              aria-pressed={p.dvBasis === "current"}
+              onClick={() => p.onDvBasisChange("current")}
+            >
+              Current label
+            </button>
+            <button
+              className="chip chip--sm"
+              type="button"
+              aria-pressed={p.dvBasis === "older"}
+              onClick={() => p.onDvBasisChange("older")}
+            >
+              Older label, before 2020
+            </button>
+          </div>
+          <p className="lform__basis">
+            {p.dvBasis === "older" ? (
+              <>
+                Percentages are read against the older Daily Values — calcium 1,000 mg, vitamin
+                D 400 IU — not today's.
+              </>
+            ) : (
+              <>
+                An older label prints vitamins as a percentage only (Vitamin A 10% • Vitamin C
+                4%) and ends with a table for 2,000 and 2,500 calorie diets.
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
       <p className="lform__basis">
         {per100 !== null ? (
@@ -388,13 +583,37 @@ export default function LabelForm(p: Props) {
 
       <div className="lrows">
         {resolved.map(({ n, r }) => {
-          const row = rows.get(n.id) ?? BLANK;
+          const row = rows.get(n.id) ?? blankFor(n.id);
           const o = offers.get(n.id);
+          const info = infoOf(n.id);
           return (
             <div className={`lrow${r.state === "none" ? " is-blank" : ""}`} key={n.id}>
               <span className="lrow__name">
                 {n.name}
-                <span className="lrow__unit">{n.unit}</span>
+                {info || row.pct ? (
+                  <span className="chips lrow__units" role="group" aria-label={`${n.name} is printed as`}>
+                    <button
+                      type="button"
+                      className="chip chip--sm"
+                      aria-pressed={!row.pct}
+                      onClick={() => writeAs(n.id, false)}
+                      aria-label={`${n.name} as an amount in ${n.unit}`}
+                    >
+                      {n.unit}
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip--sm"
+                      aria-pressed={row.pct}
+                      onClick={() => writeAs(n.id, true)}
+                      aria-label={`${n.name} as a percentage of the Daily Value`}
+                    >
+                      %
+                    </button>
+                  </span>
+                ) : (
+                  <span className="lrow__unit">{n.unit}</span>
+                )}
               </span>
 
               <input
@@ -406,7 +625,11 @@ export default function LabelForm(p: Props) {
                 placeholder="—"
                 value={row.text}
                 onChange={(e) => edit(n.id, { text: e.target.value })}
-                aria-label={`${n.name} on the pack, in ${n.unit} per serving`}
+                aria-label={
+                  row.pct
+                    ? `${n.name} on the pack, as a percentage of the Daily Value`
+                    : `${n.name} on the pack, in ${n.unit} per serving`
+                }
               />
 
               {/* A bound, not a figure: "contains less than 1 g of fat" is a ceiling
@@ -421,8 +644,24 @@ export default function LabelForm(p: Props) {
                 less than
               </button>
 
+              {row.pct && info && info.forms.length > 0 && (
+                <div className="chips lrow__forms" role="group" aria-label={`Which ${n.name}`}>
+                  {info.forms.map((f) => (
+                    <button
+                      key={f.form}
+                      className="chip chip--sm"
+                      type="button"
+                      aria-pressed={row.form === f.form}
+                      onClick={() => edit(n.id, { form: f.form })}
+                    >
+                      {COMPOUND[f.form] ?? f.form}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <span className={`lrow__says${r.state === "snag" ? " is-snag" : ""}`}>
-                {says(r, n.unit, per100, basis, p.baseName ?? null)}
+                {says(r, n.unit, per100, basis, p.baseName ?? null, row.pct ? info : null)}
               </span>
 
               {o && (
@@ -472,6 +711,37 @@ export default function LabelForm(p: Props) {
         })}
       </div>
 
+      {table !== null && (() => {
+        const more = table.filter((t) => !lineIds.has(t.nutrient_id));
+        if (more.length === 0) return null;
+        return adding ? (
+          <div className="lform__add">
+            <div className="chips">
+              {more.map((t) => (
+                <button
+                  key={t.nutrient_id}
+                  className="chip chip--sm"
+                  type="button"
+                  onClick={() => {
+                    setAdded((a) => new Set(a).add(t.nutrient_id));
+                    setAdding(false);
+                  }}
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+            <button className="link" type="button" onClick={() => setAdding(false)}>
+              cancel
+            </button>
+          </div>
+        ) : (
+          <button className="btn btn--quiet lform__addbtn" type="button" onClick={() => setAdding(true)}>
+            Add a line the pack prints
+          </button>
+        );
+      })()}
+
       {snags > 0 && (
         <p className="lform__snag">
           {plural(snags, "line")} cannot be read as printed, and will be saved as not printed.
@@ -488,7 +758,23 @@ function says(
   per100: number | null,
   basis: string,
   base: string | null,
+  info: PercentBasis | null,
 ): string {
+  if (info && r.state !== "none" && r.state !== "snag" && r.pct !== undefined) {
+    // Non-breaking spaces keep each figure with its unit when the line wraps.
+    const nb = "\u00a0";
+    const of = `${r.pct}% of ${info.reference_amount.toLocaleString()}${nb}${shown(info.reference_unit)}`;
+    switch (r.state) {
+      case "printed":
+        return per100 !== null
+          ? `${of} — ${fig(r.amount)}${nb}${unit} a serving, ${fig(r.amount * per100)}${nb}${unit} ${basis.replace(/ /g, nb)}`
+          : `${of} — ${fig(r.amount)}${nb}${unit} a serving`;
+      case "zero":
+        return `a printed 0% means under ${fig(r.ceiling)}${nb}${unit} — kept as that bound, not as none`;
+      case "under":
+        return `less than ${of} — no more than ${fig(r.upper)}${nb}${unit} a serving`;
+    }
+  }
   switch (r.state) {
     case "none":
       if (r.lt) return "type the figure the pack prints after “less than”";
@@ -506,14 +792,63 @@ function says(
   }
 }
 
-/** One line's typed text, read as what the pack says. */
-function resolve(id: number, row: Row): Resolved {
+/**
+ * One line's typed text, read as what the pack says.
+ *
+ * A percentage becomes the amount it stands for here, for the preview, by the
+ * backend's own figure for 1% (`info`). Saving converts it again from what
+ * was printed, so this is a preview of the stored amount and never its source.
+ */
+function resolve(id: number, row: Row, info: PercentBasis | null, fallback: number | null): Resolved {
   const t = row.text.trim();
   if (t === "") return { state: "none", lt: row.lt };
 
   const n = Number(t);
   if (!Number.isFinite(n) || n < 0) {
     return { state: "snag", why: "not a figure a pack can print" };
+  }
+
+  if (row.pct) {
+    if (!info) {
+      return {
+        state: "snag",
+        why: "this kind of label has no Daily Value for it, so a percentage is not a figure — type the amount",
+      };
+    }
+    let per = info.per_percent;
+    let form: Compound | null = null;
+    if (per === null) {
+      const f = info.forms.find((x) => x.form === row.form);
+      if (!f) return { state: "snag", why: ASK[id] ?? "say which form the pack names" };
+      per = f.per_percent;
+      form = f.form;
+    }
+    const base = { nutrient_id: id, printed_pct: n, label_form: form };
+    if (row.lt) {
+      if (n === 0) {
+        return { state: "snag", why: "“less than 0%” is a claim of absence, not a bound" };
+      }
+      return {
+        state: "under",
+        upper: n * per,
+        pct: n,
+        value: { ...base, kind: row.ltKind, amount: null, upper: n * per },
+      };
+    }
+    if (n === 0) {
+      return {
+        state: "zero",
+        ceiling: 2 * per,
+        pct: 0,
+        value: { ...base, kind: "label_zero", amount: null, upper: 2 * per },
+      };
+    }
+    return {
+      state: "printed",
+      amount: n * per,
+      pct: n,
+      value: { ...base, kind: "measured", amount: n * per, upper: null },
+    };
   }
 
   if (row.lt) {
@@ -528,7 +863,10 @@ function resolve(id: number, row: Row): Resolved {
   }
 
   if (n === 0) {
-    const ceiling = CEILING[id];
+    const ceiling = CEILING[id] ?? fallback;
+    if (ceiling === null || ceiling === undefined) {
+      return { state: "snag", why: "a printed 0 here has no threshold to bound it with" };
+    }
     return {
       state: "zero",
       ceiling,
@@ -599,14 +937,48 @@ function zeroish(n: CustomNutrient): boolean {
   return n.kind === "label_zero" || (n.kind === "measured" && n.amount === 0);
 }
 
-function build(rows: Map<number, Row>): CustomNutrient[] {
+function build(
+  lines: Line[],
+  rows: Map<number, Row>,
+  resolveRow: (id: number, row: Row) => Resolved,
+): CustomNutrient[] {
   const out: CustomNutrient[] = [];
-  for (const n of LABEL_NUTRIENTS) {
-    const r = resolve(n.id, rows.get(n.id) ?? BLANK);
+  for (const n of lines) {
+    const r = resolveRow(n.id, rows.get(n.id) ?? BLANK);
     if (r.state === "none" || r.state === "snag") continue;
     out.push(r.value);
   }
   return out;
+}
+
+/**
+ * The lines on screen, in the order the pack prints them.
+ *
+ * The fifteen always; then what else this pack carries. An older panel lists
+ * Vitamins A and C straight after protein ("Vitamin A 10% • Vitamin C 4%,
+ * Vitamin D 25% • Calcium 30%"), so they go there; anything else follows.
+ */
+function linesFor(
+  basis: DvBasis,
+  table: PercentLine[] | null,
+  added: Set<number>,
+  have: Set<number>,
+): Line[] {
+  const spine: Line[] = LABEL_NUTRIENTS.map((n) => ({ id: n.id, name: n.name, unit: n.unit }));
+  const extras: Line[] = (table ?? [])
+    .filter(
+      (t) =>
+        !SPINE.has(t.nutrient_id) &&
+        (added.has(t.nutrient_id) ||
+          have.has(t.nutrient_id) ||
+          (basis === "older" && OLDER_ALWAYS.includes(t.nutrient_id))),
+    )
+    .map((t) => ({ id: t.nutrient_id, name: t.name, unit: shown(t.unit) }));
+  if (basis !== "older") return [...spine, ...extras];
+  const ac = extras.filter((e) => OLDER_ALWAYS.includes(e.id));
+  const rest = extras.filter((e) => !OLDER_ALWAYS.includes(e.id));
+  const at = spine.findIndex((l) => l.id === 1114);
+  return [...spine.slice(0, at), ...ac, ...spine.slice(at), ...rest];
 }
 
 /**
@@ -615,17 +987,33 @@ function build(rows: Map<number, Row>): CustomNutrient[] {
  * reading that arrives with no bound on it still saves as the right one.
  */
 function rowOf(saved: CustomNutrient): Row {
+  // A line the pack printed as a percentage edits as that percentage: the
+  // amount stored beside it is derived, and showing it would ask the user to
+  // check a number that is not on the pack.
+  if (saved.printed_pct !== undefined && saved.printed_pct !== null) {
+    const pct = { pct: true, form: saved.label_form ?? null };
+    switch (saved.kind) {
+      case "measured":
+        return { text: String(saved.printed_pct), lt: false, ltKind: "below_loq", ...pct };
+      case "label_zero":
+        return { text: "0", lt: false, ltKind: "below_loq", ...pct };
+      case "below_loq":
+      case "trace":
+        return { text: String(saved.printed_pct), lt: true, ltKind: saved.kind, ...pct };
+    }
+  }
+  const amount = { pct: false, form: null };
   switch (saved.kind) {
     case "measured":
-      return { text: saved.amount === null ? "" : String(saved.amount), lt: false, ltKind: "below_loq" };
+      return { text: saved.amount === null ? "" : String(saved.amount), lt: false, ltKind: "below_loq", ...amount };
     case "label_zero":
-      return { text: "0", lt: false, ltKind: "below_loq" };
+      return { text: "0", lt: false, ltKind: "below_loq", ...amount };
     // A `trace` row cannot be typed here, but a food could carry one from
     // elsewhere. It edits as the bound it is, and keeps its own kind rather
     // than being quietly reclassified on the way back out.
     case "below_loq":
     case "trace":
-      return { text: saved.upper === null ? "" : String(saved.upper), lt: true, ltKind: saved.kind };
+      return { text: saved.upper === null ? "" : String(saved.upper), lt: true, ltKind: saved.kind, ...amount };
   }
 }
 
@@ -647,16 +1035,24 @@ function rowOf(saved: CustomNutrient): Row {
  * the one that line already emits. Every id the change did not touch keeps its
  * text, its toggle and its caret.
  */
-function reseed(was: Map<number, Row>, nutrients: CustomNutrient[]): Map<number, Row> {
+function reseed(
+  was: Map<number, Row>,
+  nutrients: CustomNutrient[],
+  resolveRow: (id: number, row: Row) => Resolved,
+  blank: (id: number) => Row,
+): Map<number, Row> {
   const by = new Map<number, CustomNutrient>();
   for (const n of nutrients) by.set(n.nutrient_id, n);
 
+  // Every line either side knows about: the fifteen, anything typed here, and
+  // anything arriving — Vitamin A on an older panel is not on the spine.
+  const ids = new Set<number>([...LABEL_NUTRIENTS.map((n) => n.id), ...was.keys(), ...by.keys()]);
   const rows = new Map<number, Row>();
-  for (const n of LABEL_NUTRIENTS) {
-    const row = was.get(n.id) ?? BLANK;
-    const r = resolve(n.id, row);
+  for (const id of ids) {
+    const row = was.get(id) ?? blank(id);
+    const r = resolveRow(id, row);
     const ours = r.state === "none" || r.state === "snag" ? null : r.value;
-    const theirs = by.get(n.id) ?? null;
+    const theirs = by.get(id) ?? null;
     // Field by field rather than by serialisation: a value that arrived from
     // the scan carries the same facts in a different key order.
     const same =
@@ -665,21 +1061,18 @@ function reseed(was: Map<number, Row>, nutrients: CustomNutrient[]): Map<number,
         : theirs !== null &&
           ours.kind === theirs.kind &&
           ours.amount === theirs.amount &&
-          ours.upper === theirs.upper;
-    rows.set(n.id, same ? row : theirs ? rowOf(theirs) : BLANK);
+          ours.upper === theirs.upper &&
+          (ours.printed_pct ?? null) === (theirs.printed_pct ?? null) &&
+          (ours.label_form ?? null) === (theirs.label_form ?? null);
+    rows.set(id, same ? row : theirs ? rowOf(theirs) : blank(id));
   }
   return rows;
 }
 
 function seed(nutrients: CustomNutrient[]): Map<number, Row> {
-  const by = new Map<number, CustomNutrient>();
-  for (const n of nutrients) by.set(n.nutrient_id, n);
-
   const rows = new Map<number, Row>();
-  for (const n of LABEL_NUTRIENTS) {
-    const saved = by.get(n.id);
-    rows.set(n.id, saved ? rowOf(saved) : BLANK);
-  }
+  for (const n of LABEL_NUTRIENTS) rows.set(n.id, BLANK);
+  for (const n of nutrients) rows.set(n.nutrient_id, rowOf(n));
   return rows;
 }
 

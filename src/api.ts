@@ -13,6 +13,7 @@ import type {
   FoodTasteFactor,
   FoodUsage,
   Pantry,
+  PercentLine,
   BarcodeScan,
   CustomFood,
   CustomFoodDetail,
@@ -447,6 +448,13 @@ export const convertLabelFigure = (
   form: LabelForm,
 ) =>
   invoke<SupplementNutrient>("convert_label_figure", { nutrientId, amount, unit, form });
+
+/**
+ * Every nutrient a pack can print as "% Daily Value", with what 1% is worth
+ * on a current panel and on an older one — the backend's own figures, so a
+ * percentage previewed on the transcription screen is the amount saved.
+ */
+export const labelPercentTable = () => invoke<PercentLine[]>("label_percent_table");
 
 export const listRecipes = () => invoke<Recipe[]>("list_recipes");
 

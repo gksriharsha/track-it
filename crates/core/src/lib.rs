@@ -16,6 +16,7 @@ pub mod aggregate;
 pub mod dri;
 pub mod barcode;
 pub mod container;
+pub mod daily_value;
 pub mod ingredients;
 pub mod label;
 pub mod panel;

@@ -427,6 +427,11 @@ CREATE TABLE IF NOT EXISTS custom_foods (
   -- do not swarm either list; NOT excluded from the path a day's own history
   -- resolves through, for the same reason a soft-deleted food isn't either.
   import_only INTEGER NOT NULL DEFAULT 0,
+  -- What the pack's percentages are percentages OF: the Daily Values of a
+  -- current panel (2020 onward), or the older panel's 1993 reference amounts.
+  -- A statement about the pack, made once, and the basis every `printed_pct`
+  -- below converts against. See D29.
+  dv_basis TEXT NOT NULL DEFAULT 'current' CHECK (dv_basis IN ('current','older')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT,
@@ -465,6 +470,16 @@ CREATE TABLE IF NOT EXISTS custom_food_nutrients (
   kind        TEXT NOT NULL CHECK (kind IN ('measured','label_zero','below_loq','trace')),
   amount      REAL,   -- per serving, as printed
   upper       REAL,   -- per serving
+  -- Set when the pack printed this line as a percentage of the Daily Value
+  -- rather than an amount ("Vitamin A 10%"). It is what was printed; `amount`
+  -- or `upper` is then derived from it against the food's `dv_basis`, and is
+  -- what every reader uses, so nothing downstream has to know a percentage
+  -- was ever involved.
+  printed_pct REAL CHECK (printed_pct IS NULL OR printed_pct >= 0),
+  -- The compound, where an older panel's percentage cannot be converted
+  -- without it: retinol or beta-carotene for vitamin A, natural or synthetic
+  -- vitamin E, added folic acid or food folate. See D29.
+  label_form  TEXT,
   CHECK ((kind = 'measured') = (amount IS NOT NULL)),
   CHECK ((kind = 'measured') = (upper IS NULL)),
   CHECK (amount IS NULL OR amount >= 0),
@@ -1343,6 +1358,15 @@ pub struct CustomNutrient {
     pub kind: String,        // measured | label_zero | below_loq | trace
     pub amount: Option<f64>, // per serving
     pub upper: Option<f64>,  // per serving
+    /// The percentage of the Daily Value the pack printed, when it printed
+    /// one instead of an amount. `amount` / `upper` are then derived from it
+    /// on save — whatever the caller sent for them is replaced. See D29.
+    #[serde(default)]
+    pub printed_pct: Option<f64>,
+    /// The compound an older panel's percentage needs, as a
+    /// `supplement::Form` name. Ignored where no compound is asked for.
+    #[serde(default)]
+    pub label_form: Option<String>,
 }
 
 /// A food defined from its pack rather than from the reference dataset.
@@ -1383,6 +1407,15 @@ pub struct CustomFood {
     /// exactly as it does today, defaulting to `false`.
     #[serde(default)]
     pub import_only: bool,
+    /// `current` or `older`: which Daily Values the pack's percentages are of.
+    /// Defaults to `current` so a payload from before percentages existed
+    /// still deserializes.
+    #[serde(default = "default_dv_basis")]
+    pub dv_basis: String,
+}
+
+fn default_dv_basis() -> String {
+    "current".into()
 }
 
 /// The kinds a `custom_food_nutrients` row may carry, mirroring the table's
@@ -1391,7 +1424,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-pub(crate) const SCHEMA_VERSION: i64 = 22;
+pub(crate) const SCHEMA_VERSION: i64 = 23;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -3231,6 +3264,30 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
         .map_err(|e| format!("migrating cook_ingredients to v22: {e}"))?;
     }
 
+    // v22 -> v23: a pack's line may be a percentage of the Daily Value, and a
+    // food says which Daily Values those are. See D29.
+    //
+    // Plain ADD COLUMN: each new column is nullable or has a constant default,
+    // and none tightens what an existing row may hold. Every food already
+    // saved was typed as amounts, so `current` is true of it whatever its
+    // pack says — no percentage of it was ever converted against a basis.
+    // Last, like the arm above it, so no earlier rebuild can drop the columns.
+    if !columns(conn, "custom_foods")?.iter().any(|c| c == "dv_basis") {
+        conn.execute_batch(
+            "ALTER TABLE custom_foods ADD COLUMN dv_basis TEXT NOT NULL DEFAULT 'current'
+               CHECK (dv_basis IN ('current','older'));",
+        )
+        .map_err(|e| format!("migrating custom_foods to v23: {e}"))?;
+    }
+    if !columns(conn, "custom_food_nutrients")?.iter().any(|c| c == "printed_pct") {
+        conn.execute_batch(
+            "ALTER TABLE custom_food_nutrients ADD COLUMN printed_pct REAL
+               CHECK (printed_pct IS NULL OR printed_pct >= 0);
+             ALTER TABLE custom_food_nutrients ADD COLUMN label_form TEXT;",
+        )
+        .map_err(|e| format!("migrating custom_food_nutrients to v23: {e}"))?;
+    }
+
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
     // column this indexes does not exist yet and the whole batch would fail.
@@ -4546,6 +4603,69 @@ fn opt_trim(v: Option<&String>) -> Option<String> {
 /// Reject a nutrient row a label could not have produced, before SQLite does.
 /// The CHECKs on `custom_food_nutrients` would catch all of this, but they
 /// report a constraint code; the person transcribing a pack deserves a sentence.
+/// One line as stored: a percentage replaced by the amount it stands for.
+///
+/// A line with no `printed_pct` passes through untouched. One with a
+/// percentage has its `amount` or `upper` derived from it, by kind:
+///
+/// - `measured`: the percentage of the Daily Value, as an amount.
+/// - `label_zero`: a printed 0% — under 2% of the Daily Value, the threshold
+///   below which a panel may print zero, then as now.
+/// - `below_loq` / `trace`: "less than N%", as a ceiling at N%.
+///
+/// Whatever the caller sent for the amount is discarded: two sources for one
+/// number is how they drift apart.
+fn from_percent(
+    n: &CustomNutrient,
+    basis: trackit_core::daily_value::Basis,
+) -> Result<CustomNutrient, String> {
+    use trackit_core::daily_value as dv;
+    use trackit_core::supplement::Form;
+    let Some(pct) = n.printed_pct else {
+        // A form without a percentage describes nothing.
+        return Ok(CustomNutrient {
+            label_form: None,
+            ..n.clone()
+        });
+    };
+    let line = dv::name(n.nutrient_id).unwrap_or("A line");
+    if !(pct.is_finite() && pct >= 0.0) {
+        return Err(format!("{line}: a printed percentage must be zero or more"));
+    }
+    let form = match n.label_form.as_deref() {
+        None => Form::Unspecified,
+        Some(s) => Form::parse(s)
+            .ok_or_else(|| format!("{line}: “{s}” is not a form this app knows"))?,
+    };
+    let per = dv::per_percent(n.nutrient_id, basis, form)?;
+    // Keep the form only where the basis asks for one, so a line edited from
+    // an older panel to a current one does not carry a stale compound.
+    let label_form = (!dv::forms(n.nutrient_id, basis).is_empty())
+        .then(|| form.as_str().to_string());
+    let (amount, upper) = match n.kind.as_str() {
+        "measured" => (Some(pct * per), None),
+        "label_zero" => (None, Some(2.0 * per)),
+        "below_loq" | "trace" => {
+            if pct <= 0.0 {
+                return Err(format!("{line}: “less than 0%” is a claim of absence, not a bound"));
+            }
+            (None, Some(pct * per))
+        }
+        other => {
+            return Err(format!(
+                "{line}: a pack can print a number, a zero, a \"less than\" or a trace — not {other:?}"
+            ))
+        }
+    };
+    Ok(CustomNutrient {
+        amount,
+        upper,
+        printed_pct: Some(pct),
+        label_form,
+        ..n.clone()
+    })
+}
+
 fn check_nutrient(n: &CustomNutrient) -> Result<(), String> {
     if !LABEL_KINDS.contains(&n.kind.as_str()) {
         return Err(format!(
@@ -4653,8 +4773,22 @@ pub fn save_custom_food(
             return Err("say how many pieces the serving is, or leave the pieces out".into())
         }
     }
-    let mut seen: Vec<i64> = Vec::with_capacity(f.nutrients.len());
-    for n in &f.nutrients {
+    let basis = trackit_core::daily_value::Basis::parse(&f.dv_basis).ok_or_else(|| {
+        format!(
+            "“{}” is not a kind of label; a pack's percentages are of current or older Daily Values",
+            f.dv_basis
+        )
+    })?;
+    // A percentage is turned into the amount it stands for HERE, against the
+    // food's own basis, so the screen cannot store a figure the arithmetic
+    // disagrees with — and every reader downstream sees only an amount.
+    let nutrients = f
+        .nutrients
+        .iter()
+        .map(|n| from_percent(n, basis))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut seen: Vec<i64> = Vec::with_capacity(nutrients.len());
+    for n in &nutrients {
         check_nutrient(n)?;
         if seen.contains(&n.nutrient_id) {
             return Err(format!(
@@ -4682,7 +4816,7 @@ pub fn save_custom_food(
                            serving_label = ?6, ingredients = ?7, barcode = ?8,
                            photo_label = ?9, photo_ingredients = ?10, import_only = ?11,
                            updated_at = ?12, serving_ml = ?13, serving_pieces = ?14,
-                           piece_noun = ?15
+                           piece_noun = ?15, dv_basis = ?16
                      WHERE id = ?1 AND deleted_at IS NULL",
                     rusqlite::params![
                         existing,
@@ -4699,7 +4833,8 @@ pub fn save_custom_food(
                         now,
                         f.serving_ml,
                         f.serving_pieces,
-                        piece_noun
+                        piece_noun,
+                        basis.as_str()
                     ],
                 )
                 .map_err(|e| e.to_string())?;
@@ -4719,8 +4854,8 @@ pub fn save_custom_food(
                 "INSERT INTO custom_foods
                    (id, name, brand, overrides_fdc_id, serving_g, serving_label,
                     ingredients, barcode, photo_label, photo_ingredients, import_only,
-                    created_at, updated_at, serving_ml, serving_pieces, piece_noun)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14,?15)",
+                    created_at, updated_at, serving_ml, serving_pieces, piece_noun, dv_basis)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14,?15,?16)",
                 rusqlite::params![
                     new,
                     name,
@@ -4736,7 +4871,8 @@ pub fn save_custom_food(
                     now,
                     f.serving_ml,
                     f.serving_pieces,
-                    piece_noun
+                    piece_noun,
+                    basis.as_str()
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -4744,12 +4880,22 @@ pub fn save_custom_food(
         }
     };
 
-    for n in &f.nutrients {
+    for n in &nutrients {
         let nid = new_id(&tx)?;
         tx.execute(
-            "INSERT INTO custom_food_nutrients (id, food_id, nutrient_id, kind, amount, upper)
-             VALUES (?1,?2,?3,?4,?5,?6)",
-            rusqlite::params![nid, food_id, n.nutrient_id, n.kind, n.amount, n.upper],
+            "INSERT INTO custom_food_nutrients
+               (id, food_id, nutrient_id, kind, amount, upper, printed_pct, label_form)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            rusqlite::params![
+                nid,
+                food_id,
+                n.nutrient_id,
+                n.kind,
+                n.amount,
+                n.upper,
+                n.printed_pct,
+                n.label_form
+            ],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -4781,12 +4927,12 @@ fn get_custom_food_inner(
     let sql = if include_deleted {
         "SELECT name, brand, overrides_fdc_id, serving_g, serving_label,
                 ingredients, barcode, photo_label, photo_ingredients, import_only, serving_ml,
-                serving_pieces, piece_noun
+                serving_pieces, piece_noun, dv_basis
          FROM custom_foods WHERE id = ?1"
     } else {
         "SELECT name, brand, overrides_fdc_id, serving_g, serving_label,
                 ingredients, barcode, photo_label, photo_ingredients, import_only, serving_ml,
-                serving_pieces, piece_noun
+                serving_pieces, piece_noun, dv_basis
          FROM custom_foods WHERE id = ?1 AND deleted_at IS NULL"
     };
     let mut food = conn
@@ -4807,14 +4953,15 @@ fn get_custom_food_inner(
                 photo_ingredients: r.get(8)?,
                 nutrients: Vec::new(),
                 import_only: r.get::<_, i64>(9)? != 0,
+                dv_basis: r.get(13)?,
             })
         })
         .map_err(|e| format!("custom food {id}: {e}"))?;
 
     let mut stmt = conn
         .prepare(
-            "SELECT nutrient_id, kind, amount, upper FROM custom_food_nutrients
-             WHERE food_id = ?1 ORDER BY nutrient_id",
+            "SELECT nutrient_id, kind, amount, upper, printed_pct, label_form
+             FROM custom_food_nutrients WHERE food_id = ?1 ORDER BY nutrient_id",
         )
         .map_err(|e| e.to_string())?;
     food.nutrients = stmt
@@ -4824,6 +4971,8 @@ fn get_custom_food_inner(
                 kind: r.get(1)?,
                 amount: r.get(2)?,
                 upper: r.get(3)?,
+                printed_pct: r.get(4)?,
+                label_form: r.get(5)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -8664,6 +8813,7 @@ mod tests {
             kind: "measured".into(),
             amount: Some(amount),
             upper: None,
+            printed_pct: None, label_form: None,
         }
     }
 
@@ -8673,6 +8823,7 @@ mod tests {
             kind: kind.into(),
             amount: None,
             upper: Some(upper),
+            printed_pct: None, label_form: None,
         }
     }
 
@@ -8695,6 +8846,7 @@ mod tests {
             photo_ingredients: None,
             nutrients,
             import_only: false,
+            dv_basis: "current".into(),
         }
     }
 
@@ -12387,7 +12539,9 @@ mod tests {
                     kind: "measured".into(),
                     amount: Some(13.0),
                     upper: None,
+                    printed_pct: None, label_form: None,
                 }],
+                dv_basis: "current".into(),
             },
         )
         .unwrap();

@@ -751,6 +751,43 @@ export interface CustomNutrient {
   amount: number | null;
   /** Per serving. The bound for `label_zero`, `below_loq` and `trace`. */
   upper: number | null;
+  /**
+   * The percentage of the Daily Value the pack printed, when it printed one
+   * instead of an amount ("Vitamin A 10%"). The backend derives `amount` or
+   * `upper` from it against the food's `dv_basis` when the food is saved,
+   * replacing whatever was sent. Absent or null for a line typed as an amount.
+   */
+  printed_pct?: number | null;
+  /** The compound an older panel's percentage needs (vitamin A, E, folate). */
+  label_form?: LabelForm | null;
+}
+
+/**
+ * Which Daily Values a pack's percentages are of: a current panel's (2020
+ * onward) or an older panel's 1993 reference amounts, under which milk's
+ * "Calcium 30%" is 300 mg rather than 390 mg.
+ */
+export type DvBasis = "current" | "older";
+
+/** What 1% of a Daily Value is under one basis. See `label_percent_table`. */
+export interface PercentBasis {
+  /** What the panel's 100% was, as printed: 5,000 IU, 1,000 mg. */
+  reference_amount: number;
+  reference_unit: string;
+  /** 1% in the unit the app stores, when no compound has to be named. */
+  per_percent: number | null;
+  /** When one does: 1% under each compound it may be. */
+  forms: { form: LabelForm; per_percent: number }[];
+}
+
+/** A nutrient a pack can print as "% Daily Value". */
+export interface PercentLine {
+  nutrient_id: number;
+  name: string;
+  /** The magnitude the app stores it in: "g", "mg", "ug". */
+  unit: string;
+  current: PercentBasis | null;
+  older: PercentBasis | null;
 }
 
 /**
@@ -798,6 +835,8 @@ export interface CustomFood {
   photo_label: string | null;
   photo_ingredients: string | null;
   nutrients: CustomNutrient[];
+  /** Which Daily Values its percentages are of. Missing reads as "current". */
+  dv_basis?: DvBasis;
   /**
    * True for a row a spreadsheet import created rather than a person typing a
    * pack in. These are excluded from search and "My foods" — a year of history
