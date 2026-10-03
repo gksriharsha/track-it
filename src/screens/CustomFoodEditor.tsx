@@ -20,6 +20,7 @@ import type {
   BarcodeScan,
   CustomFood,
   CustomNutrient,
+  DvBasis,
   FoodHit,
   IngredientsScan,
   NutrientRow,
@@ -86,6 +87,8 @@ export default function CustomFoodEditor(p: Props) {
   const [photoLabel, setPhotoLabel] = useState<string | null>(first?.photoLabel ?? null);
   const [photoIngredients, setPhotoIngredients] = useState<string | null>(first?.photoIngredients ?? null);
   const [nutrients, setNutrients] = useState<CustomNutrient[]>(first?.nutrients ?? []);
+  /** Which Daily Values the pack's percentages are of. See `DvBasis`. */
+  const [dvBasis, setDvBasis] = useState<DvBasis>(first?.dvBasis ?? "current");
 
   const [wasRestored, setWasRestored] = useState(!!first);
   const [loading, setLoading] = useState(p.id !== null && !first);
@@ -386,6 +389,9 @@ export default function CustomFoodEditor(p: Props) {
     setPhotoLabel(d.photoLabel);
     setPhotoIngredients(d.photoIngredients);
     setNutrients(d.nutrients);
+    // A draft written before percentages existed has no basis, and every
+    // figure in it was typed as an amount — which is what "current" assumes.
+    setDvBasis(d.dvBasis ?? "current");
   }, []);
 
   // One place decides what the form starts as: an unsaved draft for this exact
@@ -454,11 +460,11 @@ export default function CustomFoodEditor(p: Props) {
     () =>
       JSON.stringify({
         forId: p.id, name, brand, barcode, overridesFdcId, serving, servingUnit, pieces, pieceNoun,
-        servingLabel, ingredients, photoLabel, photoIngredients, nutrients: settled(nutrients),
+        servingLabel, ingredients, photoLabel, photoIngredients, nutrients: settled(nutrients), dvBasis,
       } satisfies Persisted),
     [p.id, name, brand, barcode, overridesFdcId, serving, servingUnit, pieces, pieceNoun, servingLabel,
       ingredients,
-      photoLabel, photoIngredients, nutrients],
+      photoLabel, photoIngredients, nutrients, dvBasis],
   );
 
   const dirty = baseline === null || snapshot !== baseline;
@@ -603,6 +609,7 @@ export default function CustomFoodEditor(p: Props) {
       photo_label: photoLabel,
       photo_ingredients: photoIngredients,
       nutrients,
+      dv_basis: dvBasis,
     };
 
     setSaving(true);
@@ -1039,6 +1046,8 @@ export default function CustomFoodEditor(p: Props) {
           suggestions={suggestions}
           onAcceptSuggestion={acceptSuggestion}
           onAcceptAll={acceptAll}
+          dvBasis={dvBasis}
+          onDvBasisChange={setDvBasis}
         />
         {summary && baseRows !== null && summary.unknown > 0 && (
           <div className="card__foot">
@@ -1479,6 +1488,8 @@ interface Persisted {
   photoLabel: string | null;
   photoIngredients: string | null;
   nutrients: CustomNutrient[];
+  /** Optional only so a draft saved before percentages existed still loads. */
+  dvBasis?: DvBasis;
 }
 
 const blankDraft = (forId: string | null): Persisted => ({
@@ -1488,6 +1499,7 @@ const blankDraft = (forId: string | null): Persisted => ({
   serving: "", servingUnit: "g", pieces: "", pieceNoun: "", servingLabel: "", ingredients: "",
   photoLabel: null, photoIngredients: null,
   nutrients: [],
+  dvBasis: "current",
 });
 
 /**
@@ -1502,7 +1514,16 @@ const blankDraft = (forId: string | null): Persisted => ({
 const settled = (ns: CustomNutrient[]): CustomNutrient[] =>
   [...ns]
     .sort((a, b) => a.nutrient_id - b.nutrient_id)
-    .map((n) => ({ nutrient_id: n.nutrient_id, kind: n.kind, amount: n.amount, upper: n.upper }));
+    .map((n) => ({
+      nutrient_id: n.nutrient_id,
+      kind: n.kind,
+      amount: n.amount,
+      upper: n.upper,
+      // Kept, or a percentage typed into a draft would come back as the amount
+      // it was converted to — a number that is not on the pack.
+      printed_pct: n.printed_pct ?? null,
+      label_form: n.label_form ?? null,
+    }));
 
 const draftOf = (f: CustomFood): Persisted => ({
   forId: f.id,
@@ -1521,6 +1542,7 @@ const draftOf = (f: CustomFood): Persisted => ({
   photoLabel: f.photo_label,
   photoIngredients: f.photo_ingredients,
   nutrients: settled(f.nutrients),
+  dvBasis: f.dv_basis ?? "current",
 });
 
 function loadDraft(forId: string | null): Persisted | null {

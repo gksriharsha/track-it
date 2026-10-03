@@ -6,6 +6,8 @@ mod containers;
 mod db;
 mod export;
 mod keystore;
+#[cfg(test)]
+mod percent_tests;
 mod store;
 mod sync;
 mod vault;
@@ -18,6 +20,7 @@ use std::sync::Mutex;
 
 use trackit_core::aggregate::{sum, Contribution, DailyTotal};
 use trackit_core::barcode;
+use trackit_core::daily_value;
 use trackit_core::ingredients;
 use trackit_core::label::{self, LabelEntry};
 use trackit_core::panel;
@@ -1553,9 +1556,11 @@ fn import_one_row(
                 kind: "measured".into(),
                 amount: Some(n.amount),
                 upper: None,
+                printed_pct: None, label_form: None,
             })
             .collect(),
         import_only: true,
+        dv_basis: "current".into(),
     };
 
     let food_id = store::save_custom_food(conn, None, &food)?;
@@ -2082,6 +2087,96 @@ fn convert_label_figure(
         }
     }
     Ok(row)
+}
+
+/// What 1% of the Daily Value is under one basis, for one nutrient.
+#[derive(Debug, Serialize)]
+struct PercentBasis {
+    /// What the panel's 100% was, as it printed it: 5,000 IU, 1,000 mg.
+    reference_amount: f64,
+    reference_unit: &'static str,
+    /// 1% of it in the unit the app stores, when no compound is needed.
+    per_percent: Option<f64>,
+    /// When a compound is needed: 1% under each one it may be.
+    forms: Vec<PercentForm>,
+}
+
+#[derive(Debug, Serialize)]
+struct PercentForm {
+    form: &'static str,
+    per_percent: f64,
+}
+
+/// One nutrient a pack can print as a percentage of its Daily Value.
+#[derive(Debug, Serialize)]
+struct PercentLine {
+    nutrient_id: i64,
+    name: &'static str,
+    /// The magnitude the app stores it in: "g", "mg", "ug".
+    unit: String,
+    current: Option<PercentBasis>,
+    older: Option<PercentBasis>,
+}
+
+fn percent_basis(nutrient_id: i64, basis: daily_value::Basis) -> Option<PercentBasis> {
+    use trackit_core::supplement::Form;
+    let (reference_amount, reference_unit) = match basis {
+        daily_value::Basis::Current => {
+            let d = targets::all().into_iter().find(|d| d.nutrient_id == nutrient_id)?;
+            (d.amount, d.unit)
+        }
+        daily_value::Basis::Older => {
+            let (amount, unit) = daily_value::older_reference(nutrient_id)?;
+            (amount, unit.as_str())
+        }
+    };
+    let forms = daily_value::forms(nutrient_id, basis);
+    Some(PercentBasis {
+        reference_amount,
+        reference_unit,
+        per_percent: if forms.is_empty() {
+            daily_value::per_percent(nutrient_id, basis, Form::Unspecified).ok()
+        } else {
+            None
+        },
+        forms: forms
+            .iter()
+            .filter_map(|f| {
+                daily_value::per_percent(nutrient_id, basis, *f)
+                    .ok()
+                    .map(|per_percent| PercentForm { form: f.as_str(), per_percent })
+            })
+            .collect(),
+    })
+}
+
+/// Every nutrient a pack can print as "% Daily Value", with what 1% is worth
+/// on a current panel and on an older one.
+///
+/// The transcription screen multiplies by these to show, as the figure is
+/// typed, what a line will count as. Saving converts again from the same
+/// functions (`store::save_custom_food`), so the preview and the stored
+/// amount cannot disagree. Limited to what this app displays: a line the app
+/// would not show is not one worth asking for.
+#[tauri::command]
+fn label_percent_table(refdb: State<'_, db::Db>) -> Result<Vec<PercentLine>, String> {
+    let conn = refdb.0.lock().map_err(|e| e.to_string())?;
+    let shown = db::displayed_nutrients(&conn)?;
+    Ok(daily_value::NAMES
+        .iter()
+        .filter_map(|(id, name)| {
+            let meta = shown.iter().find(|m| m.id == *id)?;
+            let current = percent_basis(*id, daily_value::Basis::Current);
+            let older = percent_basis(*id, daily_value::Basis::Older);
+            (current.is_some() || older.is_some()).then(|| PercentLine {
+                nutrient_id: *id,
+                name,
+                unit: meta.magnitude.clone(),
+                current,
+                older,
+            })
+        })
+        .collect())
 }
 
 /// The full panel for one of the user's own foods, every value labelled with
@@ -5141,6 +5236,7 @@ pub fn run() {
             delete_supplement,
             get_supplement_detail,
             convert_label_figure,
+            label_percent_table,
             recall_tags,
             set_entry_tags,
             list_cuisines,
@@ -5226,6 +5322,7 @@ mod tests {
             kind: kind.into(),
             amount,
             upper,
+            printed_pct: None, label_form: None,
         }
     }
 
@@ -5250,6 +5347,7 @@ mod tests {
                 nutrient(1093, "label_zero", None, Some(5.0)),
             ],
             import_only: false,
+            dv_basis: "current".into(),
         }
     }
 
@@ -8135,6 +8233,7 @@ mod tests {
                     nutrient(1004, "label_zero", None, Some(0.5)),
                 ],
                 import_only: false,
+                dv_basis: "current".into(),
             }
         }
 
@@ -8287,6 +8386,7 @@ mod tests {
                 photo_ingredients: None,
                 nutrients: vec![nutrient(1008, "measured", Some(200.0), None)],
                 import_only: false,
+                dv_basis: "current".into(),
             }
         }
 

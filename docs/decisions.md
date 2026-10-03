@@ -1509,3 +1509,51 @@ written.
 - If the family takes from a container and nothing records it, that use is set against the logged
   to-taste uses and overstates them. Accepted: it errs toward more sodium and sugar rather than
   less, and the usage comparison makes the gap visible.
+
+## D29 — A pack's "% Daily Value" is read against the Daily Values that pack was printed under
+
+**Context.** Older US nutrition panels print vitamins and minerals as a percentage only — "Vitamin
+A 10% • Vitamin C 4%" — above a footnote table for 2,000 and 2,500 calorie diets. The transcription
+form took amounts alone, and Vitamin A and C had no line at all, so a carton of milk could not be
+entered as printed.
+
+**Decision.** A food says once which Daily Values its percentages are of (`custom_foods.dv_basis`):
+**current** (the 2016 rule, on packs from 2020 onward, the table in `targets.rs`) or **older** (the
+1993 Reference Daily Intakes and Daily Reference Values, in `daily_value.rs`). Any line with a Daily
+Value may be typed as a percentage; the line keeps what was printed (`printed_pct`) and the store
+derives `amount`, or a bound, from it when the food is saved, replacing whatever the screen sent.
+Every reader downstream sees only an amount, so nothing else had to learn about percentages.
+
+- **The basis is the person's statement, never inferred.** The two disagree by enough to matter:
+  milk's "Calcium 30%" is 300 mg on an older panel and 390 mg against today's 1,300 mg; its "Vitamin
+  D 25%" is 2.5 µg, not 5 µg.
+- **Older panels state vitamins A and E in IU, and folate as plain µg**, so converting them needs
+  the compound, exactly as on a supplement panel (D6): retinol or beta-carotene for vitamin A,
+  natural or synthetic vitamin E, added folic acid or food folate. Unnamed is a refusal with a
+  sentence, never a default. Current panels already count RAE, alpha-tocopherol and DFE, so they
+  ask nothing.
+- **A printed 0% is under 2% of the Daily Value** of the panel's own basis; "less than N%" is a
+  ceiling at N%.
+- **Vitamins A and C appear by themselves on an older panel**, where they were mandatory, and any
+  other line with a Daily Value can be added to either kind of panel.
+- **A line starts in the notation its pack uses.** On an older panel the vitamins and minerals start
+  in %, the only way it prints them; its Daily Reference Values (fat, cholesterol, sodium,
+  potassium, carbohydrate, fibre, protein) start as amounts, as it prints them beside their
+  percentage.
+- **Switching a line between amount and % changes how the figure is written, never what it comes
+  to.** 300 mg of calcium becomes 30% on an older panel, not 300%. With nothing to convert by, as
+  when a compound is not named yet, the box empties rather than keeping digits that now mean
+  something else.
+- **The preview cannot drift from the store.** The screen multiplies by figures served from
+  `label_percent_table`, which comes from the same Rust functions the save path calls.
+
+**Consequences.**
+
+- **Schema v23**: `dv_basis` on `custom_foods`, `printed_pct` and `label_form` on
+  `custom_food_nutrients`, by plain `ADD COLUMN`. Foods saved before read as `current`, which is
+  true of them: nothing in them was ever a percentage. A household peer on an older build ignores
+  the new columns and reads the derived amount, which is already right. A food's lines travel
+  whole, though, so if that peer edits the food, the lines come back without `printed_pct` and
+  read as the amounts they were derived to; the amounts themselves do not move.
+- The camera still never turns a percentage into an amount (`suppanel`'s rule stands): this is a
+  person typing what the pack says, with the basis named.

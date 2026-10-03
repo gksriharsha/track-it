@@ -66,6 +66,8 @@ import type {
   FoodTasteFactor,
   Pantry,
   PantryFood,
+  PercentBasis,
+  PercentLine,
 } from "../types";
 
 /* ── the nutrients this fixture knows about ─────────────────────────────── */
@@ -499,6 +501,44 @@ function ownDetail(f: CustomFood): CustomFoodDetail {
     from_label: f.nutrients.length, from_base: 0, unknown: nutrients.length - f.nutrients.length,
   };
 }
+
+/**
+ * A slice of `label_percent_table` for the browser fixture: the backend's
+ * figures for 1% of each Daily Value, copied for the lines a design pass
+ * needs. The app reads them from Rust; nothing outside this file uses these.
+ */
+const pb = (amount: number, unit: string, per: number | null, forms: PercentBasis["forms"] = []): PercentBasis => ({
+  reference_amount: amount,
+  reference_unit: unit,
+  per_percent: per,
+  forms,
+});
+const PERCENT_TABLE: PercentLine[] = [
+  { nutrient_id: 1004, name: "Total fat", unit: "g", current: pb(78, "g", 0.78), older: pb(65, "g", 0.65) },
+  { nutrient_id: 1258, name: "Saturated fat", unit: "g", current: pb(20, "g", 0.2), older: pb(20, "g", 0.2) },
+  { nutrient_id: 1253, name: "Cholesterol", unit: "mg", current: pb(300, "mg", 3), older: pb(300, "mg", 3) },
+  { nutrient_id: 1093, name: "Sodium", unit: "mg", current: pb(2300, "mg", 23), older: pb(2400, "mg", 24) },
+  { nutrient_id: 1005, name: "Total carbohydrate", unit: "g", current: pb(275, "g", 2.75), older: pb(300, "g", 3) },
+  { nutrient_id: 1079, name: "Dietary fiber", unit: "g", current: pb(28, "g", 0.28), older: pb(25, "g", 0.25) },
+  { nutrient_id: 1235, name: "Added sugars", unit: "g", current: pb(50, "g", 0.5), older: null },
+  { nutrient_id: 1003, name: "Protein", unit: "g", current: pb(50, "g", 0.5), older: pb(50, "g", 0.5) },
+  {
+    nutrient_id: 1106, name: "Vitamin A", unit: "ug",
+    current: pb(900, "ug", 9),
+    older: pb(5000, "IU", null, [
+      { form: "retinol", per_percent: 15 },
+      { form: "beta_carotene_supplemental", per_percent: 15 },
+      { form: "beta_carotene_dietary", per_percent: 2.5 },
+    ]),
+  },
+  { nutrient_id: 1162, name: "Vitamin C", unit: "mg", current: pb(90, "mg", 0.9), older: pb(60, "mg", 0.6) },
+  { nutrient_id: 1114, name: "Vitamin D", unit: "ug", current: pb(20, "ug", 0.2), older: pb(400, "IU", 0.1) },
+  { nutrient_id: 1087, name: "Calcium", unit: "mg", current: pb(1300, "mg", 13), older: pb(1000, "mg", 10) },
+  { nutrient_id: 1089, name: "Iron", unit: "mg", current: pb(18, "mg", 0.18), older: pb(18, "mg", 0.18) },
+  { nutrient_id: 1092, name: "Potassium", unit: "mg", current: pb(4700, "mg", 47), older: pb(3500, "mg", 35) },
+  { nutrient_id: 1178, name: "Vitamin B12", unit: "ug", current: pb(2.4, "ug", 0.024), older: pb(6, "ug", 0.06) },
+  { nutrient_id: 1095, name: "Zinc", unit: "mg", current: pb(11, "mg", 0.11), older: pb(15, "mg", 0.15) },
+];
 
 const PROFILE: Profile = {
   sex: "male",
@@ -969,6 +1009,7 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
     if (at >= 0) CUSTOM.splice(at, 1);
     return undefined;
   },
+  label_percent_table: () => PERCENT_TABLE,
   list_cuisines: () => ["South Indian", "North Indian", "Gujarati", "Bengali"],
   recall_tags: () => ({ origin: null, cuisine: null }),
   set_entry_tags: () => undefined,

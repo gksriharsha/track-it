@@ -340,7 +340,7 @@ mod upgrade {
         assert_eq!(r.ingredients[0].raw_g, 6.0);
         assert!(!r.ingredients[0].to_taste);
         let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(v, 22);
+        assert_eq!(v, store::SCHEMA_VERSION);
         drop(c);
         let _ = std::fs::remove_dir_all(&dir);
     }

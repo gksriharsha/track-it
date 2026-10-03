@@ -1851,6 +1851,17 @@ b, strong, th { font-weight: 600; }
 .lrow__says.is-snag { color: var(--ink-2); }
 .lrow.is-blank .lrow__name { color: var(--ink-2); }
 
+/* Which kind of label: decides what every percentage below is a percentage of. */
+.lform__kind { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); }
+
+/* Amount or percentage, per line: two small segments rather than one toggle, so
+   the current choice is always readable without pressing anything. */
+/* Amount or percentage, as two small chips like every other unit choice. */
+.lrow__units { display: inline-flex; flex-wrap: nowrap; gap: var(--s1); }
+.lrow__forms { grid-column: 1 / -1; }
+.lform__add { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); margin-top: var(--s3); }
+.lform__addbtn { align-self: flex-start; margin-top: var(--s3); }
+
 @media (max-width: 720px) {
   /* Name across the top, the figure and its "less than" toggle beneath: both stay
      full-size targets rather than shrinking to sit beside the longest name. */

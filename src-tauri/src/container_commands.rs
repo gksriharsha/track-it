@@ -421,6 +421,7 @@ mod tests {
             photo_ingredients: None,
             nutrients: Vec::new(),
             import_only: false,
+            dv_basis: "current".into(),
         };
         let d = label_density(&f).unwrap();
         assert!((d.g_per_ml - 14.0 / 15.0).abs() < 1e-9);
