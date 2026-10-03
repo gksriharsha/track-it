@@ -24,6 +24,7 @@ import type {
   PairCodeScan,
   PairingOffer,
   PairingState,
+  Per100g,
   Profile,
   SyncOutcome,
   WidgetLanding,
@@ -97,6 +98,21 @@ export const searchFoods = (query: string, limit = 40, includeOverridden = false
 
 export const getFoodDetail = (fdcId: number) =>
   invoke<FoodDetail>("get_food_detail", { fdcId });
+
+/** Something weighed to value per 100 g: never a supplement, which is counted. */
+export type WeighedSource =
+  | { fdcId: number }
+  | { customFoodId: string }
+  | { recipeId: string }
+  | { cookId: string };
+
+/**
+ * Each of `items` per 100 g, in the order asked, or null for one that cannot
+ * be valued — a food deleted since it was picked. For the line under the
+ * amount being set; nothing is written.
+ */
+export const per100g = (items: WeighedSource[]) =>
+  invoke<(Per100g | null)[]>("per_100g", { items });
 
 /**
  * What this person has been logging most days over the past three months —

@@ -15,7 +15,7 @@
  * target on an Android tablet, and keying the titlebar inset off width alone
  * would punch a hole in the top of the Windows and Android builds.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { inTauri } from "./bridge";
 
 /**
@@ -57,6 +57,24 @@ export const isAndroid = (): boolean => {
     new URLSearchParams(window.location.search).has("android")
   );
 };
+
+/**
+ * Whether a media query holds, kept current as the window is resized or a
+ * pointer comes and goes. For the few places where the two layouts differ in
+ * structure rather than in their CSS — the amount beside the list or in a
+ * sheet over it, a keypad drawn or not.
+ */
+export function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const change = () => setOn(m.matches);
+    change();
+    m.addEventListener("change", change);
+    return () => m.removeEventListener("change", change);
+  }, [query]);
+  return on;
+}
 
 /* ── keyboard ───────────────────────────────────────────────────────────── */
 

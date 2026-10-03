@@ -3638,6 +3638,125 @@ fn contribution_of(c: &store::SnapComponent, value: NutrientValue) -> Contributi
     }
 }
 
+/// What 100 g of a food comes to: its energy, and the three nutrients energy
+/// is made of.
+///
+/// For the line under the amount being set, which scales it by the grams.
+/// Worked out the way a logged entry's own energy is — resolved by
+/// `resolve_contribution` as though 100 g were being logged, then summed per
+/// nutrient through `contribution_of` and `sum` — so a figure seen before
+/// logging cannot be arrived at by a different law from the entry it becomes.
+///
+/// Per 100 g because a portion's energy is in proportion to its mass: every
+/// component of it, a dish's ingredients included, is the same fraction of
+/// what was made, so the bounds scale with the grams and the coverage does
+/// not move. A screen multiplies by grams ÷ 100 as the amount is typed,
+/// rather than asking again at every key.
+#[derive(Debug, Clone, Serialize)]
+pub struct Per100g {
+    pub energy: DailyTotal,
+    pub protein: DailyTotal,
+    pub carbs: DailyTotal,
+    pub fat: DailyTotal,
+}
+
+/// Something to value per 100 g, named the way a log entry names it: exactly
+/// one of a reference food, one of the user's own foods, a recipe or a pot.
+/// Never a supplement, which is counted rather than weighed, and never water,
+/// which is not food.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToValue {
+    fdc_id: Option<i64>,
+    custom_food_id: Option<String>,
+    recipe_id: Option<String>,
+    cook_id: Option<String>,
+}
+
+impl ToValue {
+    fn source(&self) -> Result<store::Source<'_>, String> {
+        match (
+            self.fdc_id,
+            self.custom_food_id.as_deref(),
+            self.recipe_id.as_deref(),
+            self.cook_id.as_deref(),
+        ) {
+            (Some(id), None, None, None) => Ok(store::Source::Food(id)),
+            (None, Some(id), None, None) => Ok(store::Source::Custom(id)),
+            (None, None, Some(id), None) => Ok(store::Source::Recipe(id)),
+            (None, None, None, Some(id)) => Ok(store::Source::Cook(id)),
+            _ => Err("a figure per 100 g is for exactly one of a food, one of your own foods, \
+                      a recipe or a pot"
+                .into()),
+        }
+    }
+}
+
+fn per_100g_of(
+    refconn: &rusqlite::Connection,
+    uconn: &rusqlite::Connection,
+    source: store::Source<'_>,
+) -> Result<Per100g, String> {
+    // The description only names a plain food's one component, and nothing is
+    // written here, so there is none to give.
+    let (_, components) =
+        resolve_contribution(refconn, uconn, source, "", store::Quantity::Grams(100.0))?;
+    let total = |id: i64| {
+        let parts: Vec<Contribution> = components
+            .iter()
+            .map(|c| {
+                // As in `collect_day`: a nutrient with no row is a gap, never a zero.
+                let value = c
+                    .values
+                    .iter()
+                    .find(|(n, _)| *n == id)
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or(NutrientValue::Absent);
+                contribution_of(c, value)
+            })
+            .collect();
+        sum(&parts)
+    };
+    Ok(Per100g {
+        energy: total(ENERGY_ID),
+        protein: total(1003),
+        carbs: total(1005),
+        fat: total(1004),
+    })
+}
+
+/// Each of `items` per 100 g, in order, or `None` for one that cannot be
+/// valued — a food deleted since it was picked, a pot that records nothing
+/// coming out of it. No figure is the honest outcome there, and one that
+/// cannot be valued must not take the others' figures with it.
+fn per_100g_each(
+    refconn: &rusqlite::Connection,
+    uconn: &rusqlite::Connection,
+    items: &[ToValue],
+) -> Vec<Option<Per100g>> {
+    items
+        .iter()
+        .map(|it| {
+            it.source()
+                .and_then(|s| per_100g_of(refconn, uconn, s))
+                .map_err(|e| eprintln!("could not value {it:?} per 100 g: {e}"))
+                .ok()
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn per_100g(
+    items: Vec<ToValue>,
+    refdb: State<'_, db::Db>,
+    user: State<'_, store::Store>,
+) -> Result<Vec<Option<Per100g>>, String> {
+    // Reference before user, the order every command holding both takes them in.
+    let refconn = refdb.0.lock().map_err(|e| e.to_string())?;
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    Ok(per_100g_each(&refconn, &conn, &items))
+}
+
 /// Each sitting's energy, summed from the same contributions its entries were.
 ///
 /// From the contributions and not from the entries' totals: a total has
@@ -4850,6 +4969,7 @@ pub fn run() {
             log_water,
             log_whole_bottle,
             log_bottle_share,
+            per_100g,
             frequent_foods,
             list_custom_foods,
             get_custom_food,
@@ -7714,6 +7834,107 @@ mod tests {
             let v = e.water.expect("a water entry carries a volume");
             assert!((v.ml() - 375.0).abs() < 0.01, "half of 750 ml, on the bottle's own calibration");
             assert!(close(sum(&by[&1051]).lower, 380.0), "380 g of it as water");
+        }
+    }
+
+    /// The figure the line under an amount is worked out from.
+    mod per_100g_figures {
+        use super::*;
+
+        const DAY: &str = "2026-10-02";
+
+        fn by_food(fdc_id: i64) -> ToValue {
+            ToValue { fdc_id: Some(fdc_id), custom_food_id: None, recipe_id: None, cook_id: None }
+        }
+
+        /// Cheddar, and drumstick pods with no data, 50 g of each raw for 100 g made.
+        fn sambar(uc: &mut Connection) -> String {
+            let line = |position: i64, fdc_id: Option<i64>, description: &str| store::RecipeIngredient {
+                id: String::new(),
+                position,
+                fdc_id,
+                custom_food_id: None,
+                description: description.into(),
+                raw_g: 50.0,
+                optional: false,
+            };
+            store::save_recipe(
+                uc, "Sambar", 100.0, None, None,
+                &[line(0, Some(328637), "Cheddar"), line(1, None, "Drumstick pods")],
+                &[], &store::Tags::default(),
+            )
+            .unwrap()
+        }
+
+        #[test]
+        fn a_portion_reads_as_its_hundred_grams_scaled_and_as_the_entry_it_becomes() {
+            let Some(rc) = refdb() else { return };
+            let dim = nutrient_dim(&rc).unwrap();
+            let mut uc = user_db();
+            let rid = sambar(&mut uc);
+            let bar_id = store::save_custom_food(&mut uc, None, &bar(None)).unwrap();
+
+            let per = per_100g_each(&rc, &uc, &[
+                by_food(328637),
+                ToValue { fdc_id: None, custom_food_id: None, recipe_id: Some(rid.clone()), cook_id: None },
+                ToValue { fdc_id: None, custom_food_id: Some(bar_id.clone()), recipe_id: None, cook_id: None },
+            ]);
+            let [Some(cheddar), Some(dish), Some(pack)] = &per[..] else {
+                panic!("all three valued: {per:?}")
+            };
+
+            // The three states a row reads in.
+            assert!(close(cheddar.energy.lower, 408.0), "cheddar at 408 kcal/100 g");
+            assert_eq!(cheddar.energy.coverage, Some(1.0));
+            assert!(close(dish.energy.lower, 204.0), "the cheddar half is all it accounts for");
+            assert_eq!(dish.energy.coverage, Some(0.5));
+            assert_eq!(dish.energy.upper, None, "an unmeasured line bounds nothing above");
+            assert_eq!(pack.energy.coverage, Some(0.0), "the pack prints no energy: unknown, not zero");
+            assert!(cheddar.protein.lower > 0.0 && cheddar.fat.lower > 0.0, "{cheddar:?}");
+
+            // Logged at amounts other than 100 g, each entry's energy is its
+            // hundred grams scaled by the grams, with the coverage unmoved.
+            let logged = [
+                (store::Source::Food(328637), "Cheddar", 40.0, cheddar),
+                (store::Source::Recipe(&rid), "Sambar", 250.0, dish),
+                (store::Source::Custom(&bar_id), "Milk chocolate bar", BAR, pack),
+            ];
+            for (src, d, g, _) in &logged {
+                add_frozen(&rc, &mut uc, DAY, Some("lunch"), *src, d, store::Quantity::Grams(*g), None,
+                    &store::Tags::default()).unwrap();
+            }
+            let user = store::Store(Mutex::new(uc));
+            let (entries, breakdowns, _) = collect_day(&rc, &user, &dim, DAY).unwrap();
+            for (_, d, g, per) in &logged {
+                let e = entries.iter().find(|e| e.description == *d).unwrap();
+                let got = breakdowns.iter().find(|b| b.entry_id == e.id).unwrap().energy.as_ref().unwrap();
+                let k = g / 100.0;
+                assert!((got.lower - per.energy.lower * k).abs() < 1e-6, "{d}: {} against {}",
+                    got.lower, per.energy.lower * k);
+                match (got.upper, per.energy.upper) {
+                    (Some(a), Some(b)) => assert!((a - b * k).abs() < 1e-6, "{d}: ceiling {a} against {}", b * k),
+                    (None, None) => {}
+                    other => panic!("{d}: ceilings {other:?}"),
+                }
+                assert_eq!(got.coverage, per.energy.coverage, "{d}: the coverage does not move with the grams");
+                assert_eq!((got.items_total, got.items_covered), (per.energy.items_total, per.energy.items_covered));
+            }
+        }
+
+        #[test]
+        fn what_cannot_be_valued_has_no_figure_and_leaves_the_rest_theirs() {
+            let Some(rc) = refdb() else { return };
+            let uc = user_db();
+            let per = per_100g_each(&rc, &uc, &[
+                ToValue { fdc_id: None, custom_food_id: None, recipe_id: None, cook_id: None },
+                ToValue { fdc_id: Some(328637), custom_food_id: None, recipe_id: Some("r".into()), cook_id: None },
+                ToValue { fdc_id: None, custom_food_id: None, recipe_id: None, cook_id: Some("no-such-pot".into()) },
+                by_food(328637),
+            ]);
+            assert!(per[0].is_none(), "naming nothing values nothing");
+            assert!(per[1].is_none(), "naming two things values neither");
+            assert!(per[2].is_none(), "a pot that is not there");
+            assert!(per[3].is_some(), "one row without a figure takes no other row's");
         }
     }
 

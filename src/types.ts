@@ -466,6 +466,20 @@ export interface FoodHit {
 }
 
 /**
+ * What 100 g of a food, one of your own foods, a recipe or a pot comes to —
+ * its energy and the three nutrients energy is made of — worked out the way
+ * a logged entry's own energy is (`per_100g` in Rust). A portion is this
+ * scaled by its grams (`atGrams`): the bounds move with the mass and the
+ * coverage does not.
+ */
+export interface Per100g {
+  energy: DailyTotal;
+  protein: DailyTotal;
+  carbs: DailyTotal;
+  fat: DailyTotal;
+}
+
+/**
  * One row of the quick-add list: something logged often enough lately to be
  * worth a shortcut, with the last amount to open the portion step on.
  *

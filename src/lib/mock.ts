@@ -845,6 +845,14 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   // the corrections — which change the day `get_day` reads back.
   ...DAY_TABLE,
   ...ACTIVITY_TABLE,
+  // A plate weighed with vessels under it is logged at what is left once they
+  // come off, as the backend does, from the library here.
+  add_log_entry: (a) => {
+    if (a.grossG == null) return DAY_TABLE.add_log_entry(a);
+    const ids = (a.vesselIds as string[] | null) ?? [];
+    const tare = VESSELS.filter((v) => ids.includes(v.id)).reduce((t, v) => t + v.grams, 0);
+    return DAY_TABLE.add_log_entry({ ...a, grams: Number(a.grossG) - tare, grossG: null });
+  },
 };
 
 /**
