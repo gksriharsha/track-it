@@ -159,6 +159,35 @@ export const addLogEntry = (
     units: null,
     grossG: null,
     vesselIds: null,
+    ml: null,
+    ...tagArgs(tags),
+  });
+
+/**
+ * Log a drink by its volume: one of the user's own foods whose pack gives its
+ * figures per ml. Its own entry point for the reason a dose has one — a volume
+ * is never weighed, so it takes neither weight path and carries no tare. The
+ * backend values it at the grams its pack's serving was counted at, so the
+ * panel's figures per ml come back out exactly.
+ */
+export const addMeasuredLogEntry = (
+  loggedOn: string,
+  meal: Meal,
+  customFoodId: string,
+  description: string,
+  ml: number,
+  tags: EntryTags = {},
+) =>
+  invoke<string>("add_log_entry", {
+    loggedOn,
+    meal,
+    ...sourceArgs({ customFoodId }),
+    description,
+    grams: null,
+    units: null,
+    grossG: null,
+    vesselIds: null,
+    ml,
     ...tagArgs(tags),
   });
 
@@ -186,6 +215,7 @@ export const addSupplementLogEntry = (
     units,
     grossG: null,
     vesselIds: null,
+    ml: null,
     // A supplement is not a dish: it has no origin and no cuisine.
     origin: null,
     cuisine: null,
@@ -215,6 +245,7 @@ export const addWeighedLogEntry = (
     units: null,
     grossG,
     vesselIds,
+    ml: null,
     ...tagArgs(tags),
   });
 
@@ -700,7 +731,8 @@ export const correctEntryAmount = (
   entryId: string,
   grams: number | null,
   units: number | null,
-) => invoke<void>("correct_entry_amount", { entryId, grams, units });
+  ml: number | null = null,
+) => invoke<void>("correct_entry_amount", { entryId, grams, units, ml });
 
 /**
  * Correct one recorded value on one part of an entry.

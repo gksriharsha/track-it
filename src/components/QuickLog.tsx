@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { addLogEntry, deleteLogEntry, recallTags } from "../api";
+import { addLogEntry, addMeasuredLogEntry, deleteLogEntry, recallTags } from "../api";
 import type { FrequentFood, Meal } from "../types";
 import { useAnnounce } from "./UndoBar";
 
@@ -57,7 +57,12 @@ export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
         // reason to refuse the log: an untagged entry is a perfectly good
         // entry, and the tags can be set on it afterwards from Today.
         const tags = await recallTags(source).catch(() => ({ origin: null, cuisine: null }));
-        const entryId = await addLogEntry(date, meal, source, f.description, f.last_grams, tags);
+        // A drink last had by the can comes back by the can: measured in ml,
+        // as the button says, rather than as the grams its sums ran on.
+        const entryId =
+          f.last_ml !== null && f.custom_food_id !== null
+            ? await addMeasuredLogEntry(date, meal, f.custom_food_id, f.description, f.last_ml, tags)
+            : await addLogEntry(date, meal, source, f.description, f.last_grams, tags);
         onLoggedRef.current();
         announce({
           // In the words the button carried before it was pressed.

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import type { Meal, Origin, Per100g, Vessel } from "../types";
+import type { Meal, Origin, Per100g, ServingUnit, Vessel } from "../types";
 import { ORIGIN_LABEL } from "../types";
 import { DOTS, KEYS, atGrams, digitsOf, pasted, press, ticking, weighing } from "../lib/amount";
 import type { Key, Readout } from "../lib/amount";
@@ -10,10 +10,13 @@ import { useKeepAwake } from "../lib/awake";
 import TagPicker from "./TagPicker";
 import Glyph from "./Glyph";
 
-/** A serving to start from: what its chip says ("1 cup · 185 g"), and what it weighs. */
+/**
+ * A serving to start from: what its chip says ("1 cup · 185 g"), and how much
+ * it is in the food's own unit — what it weighs, or for a can what it holds.
+ */
 export interface Serving {
   label: string;
-  grams: number;
+  amount: number;
 }
 
 interface Props {
@@ -40,7 +43,17 @@ interface Props {
   ticked: string[];
   setTicked: Dispatch<SetStateAction<string[]>>;
   servings: Serving[];
-  /** The food per 100 g, for the line under the window; undefined while it is read. */
+  /**
+   * What the window reads in. Grams, off a scale, for nearly everything;
+   * millilitres for one of the user's own foods whose pack is per ml — a can,
+   * a carton — which is measured and never weighed, so it has no bowl to take
+   * off either.
+   */
+  unit?: ServingUnit;
+  /**
+   * The food per 100 of `unit`, for the line under the window; undefined
+   * while it is read.
+   */
   per100: Per100g | null | undefined;
   vessels: Vessel[];
   onManageVessels: () => void;
@@ -75,6 +88,8 @@ interface Props {
  */
 export default function Amount(p: Props) {
   const { readout: r, setReadout: setR, setTicked } = p;
+  const unit = p.unit ?? "g";
+  const measured = unit === "ml";
   const [showVessels, setShowVessels] = useState(false);
   const [showTags, setShowTags] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -105,7 +120,7 @@ export default function Amount(p: Props) {
   function serve(s: Serving) {
     // A serving is an amount of food on its own; nothing is under it.
     setTicked([]);
-    setR({ digits: digitsOf(s.grams), from: "serving" });
+    setR({ digits: digitsOf(s.amount), from: "serving" });
   }
 
   /* A real keyboard, on a desktop: the same keys, by the same rules. Native
@@ -162,7 +177,7 @@ export default function Amount(p: Props) {
         <div className="readout__win">
           <Dots text={shown === "" ? "0" : shown} faint={faint} />
           {focused && <span className="readout__caret" aria-hidden />}
-          <span className="readout__u" aria-hidden>g</span>
+          <span className="readout__u" aria-hidden>{unit}</span>
           {/* The keyboard's way in, laid over the window. Its own value is
               only ever what the keys made, for a screen reader to read out;
               where the keypad is drawn it asks the phone for no keyboard. */}
@@ -178,14 +193,19 @@ export default function Amount(p: Props) {
             inputMode={p.keypad ? "none" : "decimal"}
             enterKeyHint="done"
             autoComplete="off"
-            aria-label={tared ? "What the scale reads, bowl and all, in grams" : "Grams of food"}
+            aria-label={tared ? "What the scale reads, bowl and all, in grams"
+              : measured ? "Millilitres" : "Grams of food"}
           />
         </div>
-        <button type="button" className="readout__tare" aria-expanded={showVessels || tared}
-          onClick={() => setShowVessels((s) => !s)}>
-          <Glyph name="bowl" size={18} />
-          <span>{tareLine}</span>
-        </button>
+        {/* A volume is poured or drunk from the can, never weighed, so there
+            is no bowl under it to take off. */}
+        {!measured && (
+          <button type="button" className="readout__tare" aria-expanded={showVessels || tared}
+            onClick={() => setShowVessels((s) => !s)}>
+            <Glyph name="bowl" size={18} />
+            <span>{tareLine}</span>
+          </button>
+        )}
         {tared && (
           <span className="vh" aria-live="polite">
             {net === null ? "" : `${digitsOf(net)} grams of food`}
@@ -193,7 +213,7 @@ export default function Amount(p: Props) {
         )}
       </div>
 
-      {(showVessels || tared) && (
+      {!measured && (showVessels || tared) && (
         p.vessels.length === 0 ? (
           <p className="amount__note">
             No bowls weighed yet.{" "}
@@ -231,7 +251,7 @@ export default function Amount(p: Props) {
         <div className="amount__servings" role="group" aria-label="Servings">
           {p.servings.map((s, i) => (
             <button type="button" key={`${i}-${s.label}`} className="chip"
-              aria-pressed={reading !== null && reading === Math.round(s.grams * 10) / 10}
+              aria-pressed={reading !== null && reading === Math.round(s.amount * 10) / 10}
               onClick={() => serve(s)}>
               {s.label}
             </button>

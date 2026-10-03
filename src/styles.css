@@ -1705,6 +1705,12 @@ b, strong, th { font-weight: 600; }
 .vform { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; gap: var(--s3); align-items: end; }
 .vform__cell { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
 .vform__cell--g .field { text-align: right; }
+/* An amount and what it is measured in, on one line: the figure takes the
+   room, the unit chips keep theirs. */
+.vform__amt { display: flex; align-items: center; gap: var(--s2); }
+.vform__amt .field { flex: 1; min-width: 0; }
+.vform__units { flex: none; flex-wrap: nowrap; }
+.vform__units .chip { min-width: 44px; }
 .vform__go { white-space: nowrap; }
 
 .vrow { grid-template-columns: minmax(0, 1fr) auto auto; }

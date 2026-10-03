@@ -90,6 +90,14 @@ CREATE TABLE IF NOT EXISTS log_entries (
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL,
   deleted_at  TEXT,
+  -- How much was had in millilitres, for one of the user's own foods whose pack
+  -- gives its figures per ml (`custom_foods.serving_ml`): a can, a carton. NULL
+  -- for everything weighed or counted. `grams` is still set beside it, as the
+  -- volume counted at that food's grams per ml, because every nutrient sum in
+  -- the app runs on a mass; but the volume is what was measured, so it is the
+  -- amount the entry is shown as. Last in the table because it was added last,
+  -- and a fresh table matches one upgraded to it column for column.
+  ml          REAL CHECK (ml IS NULL OR (ml > 0 AND grams IS NOT NULL)),
   CHECK ((source_kind = 'food')   = (fdc_id    IS NOT NULL)),
   CHECK ((source_kind = 'recipe') = (recipe_id IS NOT NULL)),
   CHECK ((source_kind = 'cook')   = (cook_id   IS NOT NULL)),
@@ -404,7 +412,15 @@ CREATE TABLE IF NOT EXISTS custom_foods (
   import_only INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  deleted_at TEXT
+  deleted_at TEXT,
+  -- The serving as a volume, for a pack whose panel is per millilitre: "per
+  -- 100 ml", "per can (330 ml)". NULL for a pack whose serving is a weight,
+  -- which is nearly all of them. Where it is set, `serving_g` holds this volume
+  -- counted at 1 g per ml — the mass the per-100 g sums divide by, never a
+  -- weighing — and the food is logged in millilitres (`log_entries.ml`). The
+  -- assumption cancels out of anything logged by volume, which is all the
+  -- logging screen offers for such a food.
+  serving_ml REAL CHECK (serving_ml IS NULL OR serving_ml > 0)
 );
 CREATE INDEX IF NOT EXISTS idx_cf_live ON custom_foods(name)
   WHERE deleted_at IS NULL AND import_only = 0;
@@ -1043,6 +1059,12 @@ pub struct LogEntry {
     /// The dose taken, counted in the supplement's own unit noun. `Some` for a
     /// supplement and `None` for everything else.
     pub units: Option<f64>,
+    /// How much was had in millilitres, for one of the user's own foods whose
+    /// pack is per ml. `grams` is set beside it as the mass the sums ran on, but
+    /// this is what was measured and what the entry is shown as. `None` for
+    /// everything weighed or counted — and for water, whose volume is worked
+    /// out from its bottle (`water`) rather than measured.
+    pub ml: Option<f64>,
     /// The scale reading and what came off it, when the entry was weighed with
     /// vessels under the food. All three are NULL together for a typed weight.
     pub gross_g: Option<f64>,
@@ -1286,7 +1308,16 @@ pub struct CustomFood {
     pub name: String,
     pub brand: Option<String>,
     pub overrides_fdc_id: Option<i64>,
+    /// What the panel's figures are per, as a mass. For a pack whose serving is
+    /// a volume this is `serving_ml` counted at 1 g per ml — see the column.
     pub serving_g: f64,
+    /// The serving as a volume, for a pack whose panel is per ml; `None` for one
+    /// whose serving is a weight. Where it is set the food is logged in
+    /// millilitres. `#[serde(default)]` so a payload from before it existed —
+    /// an older editor, a household peer on an older build — still reads, as a
+    /// pack weighed in grams, which is what every such food was.
+    #[serde(default)]
+    pub serving_ml: Option<f64>,
     pub serving_label: Option<String>,
     pub ingredients: Option<String>,
     pub barcode: Option<String>,
@@ -1307,7 +1338,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-pub(crate) const SCHEMA_VERSION: i64 = 20;
+pub(crate) const SCHEMA_VERSION: i64 = 21;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -3077,6 +3108,36 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    // v20 -> v21: a pack whose panel is per millilitre, and entries measured
+    // in them. Both columns are added plain, as v20's was: each is nullable
+    // with a CHECK that every existing row passes as NULL, so nothing is
+    // rebuilt and no row moves. Every food already saved has its serving in
+    // grams and every entry already logged was weighed or counted, and NULL
+    // says exactly that.
+    //
+    // One transaction for the pair, so a database is never left with foods
+    // that can be measured by volume and nowhere to record a volume logged.
+    let food_ml = columns(conn, "custom_foods")?.iter().any(|c| c == "serving_ml");
+    let entry_ml = columns(conn, "log_entries")?.iter().any(|c| c == "ml");
+    if !food_ml || !entry_ml {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        if !food_ml {
+            tx.execute_batch(
+                "ALTER TABLE custom_foods ADD COLUMN serving_ml REAL
+                   CHECK (serving_ml IS NULL OR serving_ml > 0);",
+            )
+            .map_err(|e| format!("migrating custom_foods to v21: {e}"))?;
+        }
+        if !entry_ml {
+            tx.execute_batch(
+                "ALTER TABLE log_entries ADD COLUMN ml REAL
+                   CHECK (ml IS NULL OR (ml > 0 AND grams IS NOT NULL));",
+            )
+            .map_err(|e| format!("migrating log_entries to v21: {e}"))?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
     // column this indexes does not exist yet and the whole batch would fail.
@@ -3124,10 +3185,57 @@ impl Source<'_> {
 
 /// How much of it. A dose is counted and a food is weighed, and the two are
 /// separate variants so that no call site can supply a mass for a tablet.
+///
+/// A drink from a pack whose panel is per millilitre is measured instead, and
+/// is a third variant for the same reason: no call site can pour a volume of
+/// something whose figures are per gram.
 #[derive(Debug, Clone, Copy)]
 pub enum Quantity {
     Grams(f64),
     Units(f64),
+    Millilitres(f64),
+}
+
+/// The mass a millilitre is counted as, for a pack that gives its figures per
+/// ml and a sum that runs on grams.
+///
+/// One, and not water's 0.9982 (see `trackit_core::water`): a can of cola or a
+/// carton of milk is denser than water, not lighter, and nobody's pack states
+/// how much. It costs nothing where it is used. A food measured by volume has
+/// its serving counted at this figure AND every amount logged of it, so the
+/// figure divides out and the nutrients are exactly the panel's per ml. It
+/// would only show if such a drink were put on the scale, and nothing offers
+/// that.
+pub const GRAMS_PER_ML: f64 = 1.0;
+
+/// The mass basis of `ml` of one of the user's own foods, and the food's
+/// name, for a sentence.
+///
+/// Scaled by the food's own serving rather than by [`GRAMS_PER_ML`] directly,
+/// so a volume is always valued against the same mass its panel was divided
+/// by. Refuses a food whose serving is a weight: pouring a volume of something
+/// whose figures are per gram would need a density nobody gave.
+pub fn mass_of_volume(conn: &Connection, custom_food_id: &str, ml: f64) -> Result<f64, String> {
+    if !(ml.is_finite() && ml > 0.0) {
+        return Err("millilitres must be a positive number".into());
+    }
+    let (name, serving_g, serving_ml): (String, f64, Option<f64>) = conn
+        .query_row(
+            "SELECT name, serving_g, serving_ml FROM custom_foods WHERE id = ?1",
+            [custom_food_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| format!("custom food {custom_food_id}: {e}"))?;
+    let Some(serving_ml) = serving_ml else {
+        return Err(format!(
+            "{name} has its serving as a weight, so it is weighed in grams rather than measured in ml"
+        ));
+    };
+    let grams = ml * serving_g / serving_ml;
+    if !(grams.is_finite() && grams > 0.0) {
+        return Err(format!("{name} records a serving that cannot scale a volume"));
+    }
+    Ok(grams)
 }
 
 /// The user's own answer about where a dish came from. Both fields are optional
@@ -3180,7 +3288,7 @@ pub fn add(
     }
     // Counted xor weighed, checked here as well as in SQL: the table can only
     // answer with a constraint code, and the caller deserves a sentence.
-    let (grams, units) = match (quantity, source) {
+    let (grams, units, ml) = match (quantity, source) {
         (Quantity::Grams(_), Source::Supplement(_)) => {
             return Err("a supplement is taken by count, not by weight".into())
         }
@@ -3191,15 +3299,30 @@ pub fn add(
             if !(g.is_finite() && g > 0.0) {
                 return Err("grams must be a positive number".into());
             }
-            (Some(g), None)
+            (Some(g), None, None)
         }
         (Quantity::Units(u), _) => {
             if !(u.is_finite() && u > 0.0) {
                 return Err("the dose must be a positive number".into());
             }
-            (None, Some(u))
+            (None, Some(u), None)
+        }
+        // Measured, and only for a pack that gives its figures per ml. The
+        // mass beside it is what the sums run on; the volume is what was had.
+        (Quantity::Millilitres(v), Source::Custom(id)) => {
+            (Some(mass_of_volume(conn, id, v)?), None, Some(v))
+        }
+        (Quantity::Millilitres(_), Source::Supplement(_)) => {
+            return Err("a supplement is taken by count, not by volume".into())
+        }
+        (Quantity::Millilitres(_), s) => {
+            return Err(format!("a {} is logged by weight, not by volume", s.kind()))
         }
     };
+    // A tare is the provenance of a weighing, and a volume was never weighed.
+    if tare.is_some() && ml.is_some() {
+        return Err("a volume does not come off a scale, so it cannot carry a tare".into());
+    }
     check_origin(tags.origin.as_deref())?;
     let cuisine = opt_trim(tags.cuisine.as_ref());
     let cuisine_key = cuisine.as_deref().map(folded);
@@ -3237,8 +3360,8 @@ pub fn add(
         "INSERT INTO log_entries
            (id, logged_on, meal, source_kind, fdc_id, recipe_id, cook_id, custom_food_id,
             supplement_id, bottle_id, description, grams, units, gross_g, tare_g, tare_note,
-            origin, cuisine, cuisine_key, created_at, updated_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?20)",
+            origin, cuisine, cuisine_key, created_at, updated_at, ml)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?20,?21)",
         rusqlite::params![
             id,
             logged_on,
@@ -3259,7 +3382,8 @@ pub fn add(
             tags.origin.as_deref(),
             cuisine,
             cuisine_key,
-            now
+            now,
+            ml
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -4314,12 +4438,29 @@ pub fn save_custom_food(
     if f.name.trim().is_empty() {
         return Err("a custom food needs a name".into());
     }
-    if !(f.serving_g.is_finite() && f.serving_g > 0.0) {
-        return Err(
-            "a serving must weigh a positive number of grams: the label's figures are per serving"
-                .into(),
-        );
-    }
+    // A pack whose serving is a volume has its mass basis set here from that
+    // volume, whatever the payload says: the two must not disagree, and the
+    // volume is the one the pack printed.
+    let serving_g = match f.serving_ml {
+        Some(ml) => {
+            if !(ml.is_finite() && ml > 0.0) {
+                return Err(
+                    "a serving must be a positive number of millilitres: the label's figures are per serving"
+                        .into(),
+                );
+            }
+            ml * GRAMS_PER_ML
+        }
+        None => {
+            if !(f.serving_g.is_finite() && f.serving_g > 0.0) {
+                return Err(
+                    "a serving must weigh a positive number of grams: the label's figures are per serving"
+                        .into(),
+                );
+            }
+            f.serving_g
+        }
+    };
     let mut seen: Vec<i64> = Vec::with_capacity(f.nutrients.len());
     for n in &f.nutrients {
         check_nutrient(n)?;
@@ -4348,21 +4489,22 @@ pub fn save_custom_food(
                        SET name = ?2, brand = ?3, overrides_fdc_id = ?4, serving_g = ?5,
                            serving_label = ?6, ingredients = ?7, barcode = ?8,
                            photo_label = ?9, photo_ingredients = ?10, import_only = ?11,
-                           updated_at = ?12
+                           updated_at = ?12, serving_ml = ?13
                      WHERE id = ?1 AND deleted_at IS NULL",
                     rusqlite::params![
                         existing,
                         name,
                         brand,
                         f.overrides_fdc_id,
-                        f.serving_g,
+                        serving_g,
                         serving_label,
                         ingredients,
                         barcode,
                         f.photo_label,
                         f.photo_ingredients,
                         f.import_only as i64,
-                        now
+                        now,
+                        f.serving_ml
                     ],
                 )
                 .map_err(|e| e.to_string())?;
@@ -4382,21 +4524,22 @@ pub fn save_custom_food(
                 "INSERT INTO custom_foods
                    (id, name, brand, overrides_fdc_id, serving_g, serving_label,
                     ingredients, barcode, photo_label, photo_ingredients, import_only,
-                    created_at, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12)",
+                    created_at, updated_at, serving_ml)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13)",
                 rusqlite::params![
                     new,
                     name,
                     brand,
                     f.overrides_fdc_id,
-                    f.serving_g,
+                    serving_g,
                     serving_label,
                     ingredients,
                     barcode,
                     f.photo_label,
                     f.photo_ingredients,
                     f.import_only as i64,
-                    now
+                    now,
+                    f.serving_ml
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -4440,11 +4583,11 @@ fn get_custom_food_inner(
 ) -> Result<CustomFood, String> {
     let sql = if include_deleted {
         "SELECT name, brand, overrides_fdc_id, serving_g, serving_label,
-                ingredients, barcode, photo_label, photo_ingredients, import_only
+                ingredients, barcode, photo_label, photo_ingredients, import_only, serving_ml
          FROM custom_foods WHERE id = ?1"
     } else {
         "SELECT name, brand, overrides_fdc_id, serving_g, serving_label,
-                ingredients, barcode, photo_label, photo_ingredients, import_only
+                ingredients, barcode, photo_label, photo_ingredients, import_only, serving_ml
          FROM custom_foods WHERE id = ?1 AND deleted_at IS NULL"
     };
     let mut food = conn
@@ -4455,6 +4598,7 @@ fn get_custom_food_inner(
                 brand: r.get(1)?,
                 overrides_fdc_id: r.get(2)?,
                 serving_g: r.get(3)?,
+                serving_ml: r.get(10)?,
                 serving_label: r.get(4)?,
                 ingredients: r.get(5)?,
                 barcode: r.get(6)?,
@@ -4817,7 +4961,7 @@ pub fn day(conn: &Connection, logged_on: &str) -> Result<Vec<LogEntry>, String> 
             "SELECT e.id, e.logged_on, e.meal, e.source_kind, e.fdc_id, e.recipe_id,
                     e.custom_food_id, e.description, e.grams, e.gross_g, e.tare_g, e.tare_note,
                     e.supplement_id, e.units, e.origin, e.cuisine, e.bottle_id, e.cook_id,
-                    b.empty_g, b.full_g, b.volume_ml
+                    b.empty_g, b.full_g, b.volume_ml, e.ml
              FROM log_entries e
              LEFT JOIN bottles b ON b.id = e.bottle_id
              WHERE e.logged_on = ?1 AND e.deleted_at IS NULL
@@ -4857,6 +5001,7 @@ pub fn day(conn: &Connection, logged_on: &str) -> Result<Vec<LogEntry>, String> 
                 tare_note: r.get(11)?,
                 supplement_id: r.get(12)?,
                 units: r.get(13)?,
+                ml: r.get(21)?,
                 origin: r.get(14)?,
                 cuisine: r.get(15)?,
                 bottle_id: r.get(16)?,
@@ -5246,8 +5391,13 @@ pub struct FrequentFood {
     /// biconditionals on `log_entries` make a supplement the only kind that
     /// may omit `grams`, and no supplement reaches this list.
     pub last_grams: f64,
-    /// `last_grams` already written out — "150 g". Pre-formatted because the
-    /// home-screen widget is Kotlin and has no `fmtAmount`.
+    /// The volume of the most recent entry, where it was measured in ml — one
+    /// of the user's own foods whose pack is per ml. A repeat logs this, not
+    /// `last_grams`, so it comes back as the volume it was.
+    pub last_ml: Option<f64>,
+    /// The last amount already written out — "150 g", or "330 ml" where it was
+    /// measured. Pre-formatted because the home-screen widget is Kotlin and has
+    /// no `fmtAmount`.
     pub last_amount_label: String,
 }
 
@@ -5262,16 +5412,31 @@ pub struct FrequentFood {
 /// side of the boundary, and a food weight never reaches the digit counts
 /// where the Indian grouping would part company with it.
 fn grams_label(grams: f64) -> String {
-    let whole = grams.round().max(0.0) as u64;
+    format!("{} g", grouped(grams))
+}
+
+/// A volume as the screens write one: millilitres up to a litre and litres
+/// past it, the rule `describeVolume` follows on the TypeScript side and
+/// `water::describe` here — "330 ml", "1.5 L".
+fn ml_label(ml: f64) -> String {
+    if ml >= 1000.0 {
+        format!("{:.1} L", ml / 1000.0)
+    } else {
+        format!("{} ml", grouped(ml))
+    }
+}
+
+/// A whole number grouped in threes, for the reason `grams_label` gives.
+fn grouped(n: f64) -> String {
+    let whole = n.round().max(0.0) as u64;
     let digits = whole.to_string();
-    let mut out = String::with_capacity(digits.len() + 4);
+    let mut out = String::with_capacity(digits.len() + 2);
     for (i, ch) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i) % 3 == 0 {
             out.push(',');
         }
         out.push(ch);
     }
-    out.push_str(" g");
     out
 }
 
@@ -5393,9 +5558,9 @@ pub fn frequent_foods_at(
         // order clause `recall_tags` uses, instead of being reconstructed
         // inside a grouped SELECT where SQLite would be free to hand back a
         // bare column from some other row of the group.
-        let (description, last_grams) = conn
+        let (description, last_grams, last_ml) = conn
             .query_row(
-                "SELECT description, grams FROM log_entries
+                "SELECT description, grams, ml FROM log_entries
                   WHERE deleted_at IS NULL AND source_kind = ?1
                     AND (?2 IS NULL OR fdc_id = ?2)
                     AND (?3 IS NULL OR custom_food_id = ?3)
@@ -5403,7 +5568,13 @@ pub fn frequent_foods_at(
                   ORDER BY logged_on DESC, created_at DESC, rowid DESC
                   LIMIT 1",
                 rusqlite::params![source_kind, fdc_id, custom_food_id, meal],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, f64>(1)?,
+                        r.get::<_, Option<f64>>(2)?,
+                    ))
+                },
             )
             .map_err(|e| e.to_string())?;
 
@@ -5411,16 +5582,28 @@ pub fn frequent_foods_at(
         // already established the row is there and undeleted, so a missing one
         // here is a database that changed underneath us rather than an
         // ordinary case, and the plumbing breadcrumb is the honest answer.
-        let (description, brand) = match custom_food_id.as_deref() {
+        //
+        // Whether it is measured by volume is read live too, for the reason
+        // the name is: the repeat logs the food as it stands. A pack switched
+        // back to grams since its last helping cannot take a volume, so that
+        // helping is repeated by the mass it was valued at instead.
+        let (description, brand, by_volume) = match custom_food_id.as_deref() {
             Some(id) => conn
                 .query_row(
-                    "SELECT name, brand FROM custom_foods WHERE id = ?1",
+                    "SELECT name, brand, serving_ml IS NOT NULL FROM custom_foods WHERE id = ?1",
                     [id],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, Option<String>>(1)?,
+                            r.get::<_, bool>(2)?,
+                        ))
+                    },
                 )
                 .map_err(|e| format!("reading the name of a quick-add food: {e}"))?,
-            None => (description, None),
+            None => (description, None, false),
         };
+        let last_ml = last_ml.filter(|_| by_volume);
 
         let key = match (fdc_id, custom_food_id.as_deref()) {
             (Some(id), _) => format!("food:{id}"),
@@ -5440,7 +5623,11 @@ pub fn frequent_foods_at(
             description,
             brand,
             last_grams,
-            last_amount_label: grams_label(last_grams),
+            last_ml,
+            last_amount_label: match last_ml {
+                Some(v) => ml_label(v),
+                None => grams_label(last_grams),
+            },
         });
     }
     Ok(out)
@@ -6702,7 +6889,7 @@ pub fn entry_by_id(conn: &Connection, id: &str) -> Result<LogEntry, String> {
         .prepare(
             "SELECT id, logged_on, meal, source_kind, fdc_id, recipe_id, custom_food_id,
                     description, grams, gross_g, tare_g, tare_note,
-                    supplement_id, units, origin, cuisine, bottle_id, cook_id
+                    supplement_id, units, origin, cuisine, bottle_id, cook_id, ml
              FROM log_entries WHERE id = ?1",
         )
         .map_err(|e| e.to_string())?;
@@ -6726,6 +6913,7 @@ pub fn entry_by_id(conn: &Connection, id: &str) -> Result<LogEntry, String> {
             tare_note: r.get(11)?,
             supplement_id: r.get(12)?,
             units: r.get(13)?,
+            ml: r.get(18)?,
             origin: r.get(14)?,
             cuisine: r.get(15)?,
             bottle_id: r.get(16)?,
@@ -6778,24 +6966,49 @@ pub fn correct_amount(
         return Err(format!("log entry {entry_id} has no stored nutrition to correct"));
     };
 
-    let (old, new, grams, units) = match (quantity, entry.grams, entry.units) {
-        (Quantity::Grams(g), Some(was), _) => {
+    let (old, new, grams, units, ml) = match (quantity, entry.grams, entry.units, entry.ml) {
+        (Quantity::Millilitres(v), Some(was_g), _, Some(was_ml)) => {
+            if !(v.is_finite() && v > 0.0) {
+                return Err("a corrected volume must be a positive number of millilitres".into());
+            }
+            // The mass moves with the volume by the same ratio, so the entry
+            // keeps the grams per ml it was valued at.
+            (was_ml, v, Some(was_g * v / was_ml), None, Some(v))
+        }
+        (Quantity::Millilitres(_), _, Some(_), _) => {
+            return Err("this entry is a dose; correct the number taken, not a volume".into())
+        }
+        (Quantity::Millilitres(_), _, _, None) => {
+            return Err("this entry was weighed; correct its weight, not a volume".into())
+        }
+        (Quantity::Grams(_), _, _, Some(_)) | (Quantity::Units(_), _, _, Some(_)) => {
+            return Err(
+                "this entry was measured in millilitres; correct the volume, not a weight or a count"
+                    .into(),
+            )
+        }
+        (Quantity::Grams(g), Some(was), _, None) => {
             if !(g.is_finite() && g > 0.0) {
                 return Err("a corrected weight must be a positive number of grams".into());
             }
-            (was, g, Some(g), None)
+            (was, g, Some(g), None, None)
         }
-        (Quantity::Units(u), _, Some(was)) => {
+        (Quantity::Units(u), _, Some(was), None) => {
             if !(u.is_finite() && u > 0.0) {
                 return Err("a corrected dose must be a positive number".into());
             }
-            (was, u, None, Some(u))
+            (was, u, None, Some(u), None)
         }
-        (Quantity::Grams(_), None, _) => {
+        (Quantity::Grams(_), None, _, None) => {
             return Err("this entry is a dose; correct the number taken, not a weight".into())
         }
-        (Quantity::Units(_), _, None) => {
+        (Quantity::Units(_), _, None, None) => {
             return Err("this entry was weighed; correct its weight, not a count".into())
+        }
+        // A volume with no mass beside it is refused by the table's CHECK, so
+        // no stored entry can reach here; answered rather than assumed.
+        (Quantity::Millilitres(_), None, None, Some(_)) => {
+            return Err(format!("log entry {entry_id} records a volume with no mass beside it"))
         }
     };
     if !(old.is_finite() && old > 0.0) {
@@ -6820,9 +7033,9 @@ pub fn correct_amount(
     tx.execute(
         "UPDATE log_entries
             SET grams = ?2, units = ?3, gross_g = NULL, tare_g = NULL, tare_note = NULL,
-                updated_at = ?4
+                updated_at = ?4, ml = ?5
           WHERE id = ?1",
-        rusqlite::params![entry_id, grams, units, now],
+        rusqlite::params![entry_id, grams, units, now, ml],
     )
     .map_err(|e| e.to_string())?;
     // The pot has to hear about it too. Correcting 200 g to 250 g means 50 g
@@ -8203,6 +8416,7 @@ mod tests {
             brand: None,
             overrides_fdc_id: None,
             serving_g,
+            serving_ml: None,
             serving_label: None,
             ingredients: None,
             barcode: None,
@@ -11876,6 +12090,7 @@ mod tests {
                 brand: Some("Hershey's".into()),
                 overrides_fdc_id: None,
                 serving_g: 43.0,
+                serving_ml: None,
                 serving_label: Some("1 bar".into()),
                 ingredients: Some("sugar, milk".into()),
                 barcode: None,
@@ -13415,6 +13630,168 @@ mod tests {
             vec![(Some(111), 40.0), (Some(222), 156.0)],
             "every sitting counts, and the amount is the last helping at any of them"
         );
+    }
+
+    /// A 330 ml can, its panel per can.
+    fn can() -> CustomFood {
+        let mut f = pack("Cola", 330.0, vec![measured(1008, 139.0)]);
+        f.serving_ml = Some(330.0);
+        f
+    }
+
+    #[test]
+    fn migrates_a_v20_database_and_only_then_measures_a_drink() {
+        let mut c = db();
+        // The v20 shape: neither column, and a food and an entry already in it,
+        // written as that build wrote them — this build's writers name a column
+        // a v20 table does not have.
+        c.execute_batch(
+            "ALTER TABLE log_entries DROP COLUMN ml;
+             ALTER TABLE custom_foods DROP COLUMN serving_ml;
+             INSERT INTO custom_foods (id, name, serving_g, created_at, updated_at)
+               VALUES ('bar', 'Bar', 43, 't', 't');
+             INSERT INTO log_entries (id, logged_on, meal, source_kind, custom_food_id,
+                                      description, grams, created_at, updated_at)
+               VALUES ('eaten', '2026-10-01', 'lunch', 'custom', 'bar', 'Bar', 43, 't', 't');",
+        )
+        .unwrap();
+        let (bar, eaten) = ("bar", "eaten");
+        c.pragma_update(None, "user_version", 20).unwrap();
+
+        migrate(&mut c).unwrap();
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+        assert_eq!(get_custom_food(&c, &bar).unwrap().serving_ml, None, "a pack weighed in grams stays one");
+        let e = entry_by_id(&c, &eaten).unwrap();
+        assert_eq!((e.grams, e.ml), (Some(43.0), None), "an entry weighed stays weighed");
+
+        // Only now can a can be saved and drunk, and the CHECKs came with the columns.
+        let cola = save_custom_food(&mut c, None, &can()).unwrap();
+        let drunk = add(
+            &c, "2026-10-01", Some("lunch"), Source::Custom(&cola), "Cola",
+            Quantity::Millilitres(330.0), None, &Tags::default(),
+        )
+        .unwrap();
+        assert_eq!(entry_by_id(&c, &drunk).unwrap().ml, Some(330.0));
+        assert!(
+            c.execute("UPDATE log_entries SET grams = NULL WHERE id = ?1", [&drunk]).is_err(),
+            "a volume never stands without the mass it was valued at"
+        );
+        assert!(c.execute("UPDATE custom_foods SET serving_ml = 0 WHERE id = ?1", [&cola]).is_err());
+
+        // And a second run is the no-op every arm promises.
+        migrate(&mut c).unwrap();
+    }
+
+    #[test]
+    fn a_can_has_its_mass_counted_from_its_volume_and_nothing_else() {
+        let mut c = db();
+        let mut f = can();
+        // Whatever the payload says the serving weighs, the volume decides it.
+        f.serving_g = 999.0;
+        let id = save_custom_food(&mut c, None, &f).unwrap();
+        let got = get_custom_food(&c, &id).unwrap();
+        assert_eq!((got.serving_ml, got.serving_g), (Some(330.0), 330.0 * GRAMS_PER_ML));
+
+        for bad in [0.0, -330.0, f64::NAN, f64::INFINITY] {
+            f.serving_ml = Some(bad);
+            let err = save_custom_food(&mut c, None, &f).unwrap_err();
+            assert!(err.contains("millilitres"), "{bad}: {err}");
+        }
+
+        // Switched back to a weight, it is a pack weighed in grams again.
+        f.serving_ml = None;
+        f.serving_g = 250.0;
+        save_custom_food(&mut c, Some(&id), &f).unwrap();
+        let got = get_custom_food(&c, &id).unwrap();
+        assert_eq!((got.serving_ml, got.serving_g), (None, 250.0));
+    }
+
+    #[test]
+    fn only_a_pack_measured_by_volume_is_logged_in_ml() {
+        let mut c = db();
+        let cola = save_custom_food(&mut c, None, &can()).unwrap();
+        let bar = save_custom_food(&mut c, None, &pack("Bar", 43.0, vec![])).unwrap();
+        let ml = Quantity::Millilitres(200.0);
+        let t = Tags::default();
+        let lunch = Some("lunch");
+
+        let id = add(&c, "2026-10-01", lunch, Source::Custom(&cola), "Cola", ml, None, &t).unwrap();
+        let e = entry_by_id(&c, &id).unwrap();
+        assert_eq!((e.ml, e.grams, e.units), (Some(200.0), Some(200.0), None));
+
+        let err = add(&c, "2026-10-01", lunch, Source::Custom(&bar), "Bar", ml, None, &t).unwrap_err();
+        assert!(err.contains("weighed in grams"), "{err}");
+        let err = add(&c, "2026-10-01", lunch, Source::Food(1), "Milk", ml, None, &t).unwrap_err();
+        assert!(err.contains("by weight, not by volume"), "{err}");
+        let tare = Tare { gross_g: 400.0, tare_g: 200.0, note: "Glass".into() };
+        let err = add(&c, "2026-10-01", lunch, Source::Custom(&cola), "Cola", ml, Some(&tare), &t)
+            .unwrap_err();
+        assert!(err.contains("scale"), "a volume was never weighed, so nothing came off it: {err}");
+        for bad in [0.0, -1.0, f64::NAN] {
+            assert!(add(&c, "2026-10-01", lunch, Source::Custom(&cola), "Cola",
+                Quantity::Millilitres(bad), None, &t).is_err(), "{bad}");
+        }
+        let n: i64 = c.query_row("SELECT COUNT(*) FROM log_entries", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1, "only the can was written");
+    }
+
+    #[test]
+    fn a_drink_repeats_as_the_volume_it_was() {
+        let mut c = db();
+        let mut f = can();
+        let cola = save_custom_food(&mut c, None, &f).unwrap();
+        let t = Tags::default();
+        for (day, ml) in [("2026-10-01", 330.0), ("2026-10-02", 1500.0)] {
+            add(&c, day, Some("lunch"), Source::Custom(&cola), "Cola",
+                Quantity::Millilitres(ml), None, &t).unwrap();
+        }
+        let rows = frequent_foods(&c, "2026-09-01", 4).unwrap();
+        assert_eq!(rows[0].last_ml, Some(1500.0));
+        assert_eq!(rows[0].last_amount_label, "1.5 L", "litres past a litre, as water says it");
+
+        add(&c, "2026-10-03", Some("lunch"), Source::Custom(&cola), "Cola",
+            Quantity::Millilitres(330.0), None, &t).unwrap();
+        let rows = frequent_foods(&c, "2026-09-01", 4).unwrap();
+        assert_eq!(rows[0].last_amount_label, "330 ml");
+
+        // Weighed in grams since, the food cannot take a volume, so the repeat
+        // is the mass that helping was valued at.
+        f.serving_ml = None;
+        save_custom_food(&mut c, Some(&cola), &f).unwrap();
+        let rows = frequent_foods(&c, "2026-09-01", 4).unwrap();
+        assert_eq!((rows[0].last_ml, rows[0].last_amount_label.as_str()), (None, "330 g"));
+    }
+
+    /// A can travels with its volume, and a peer on a build from before
+    /// volumes cannot strip it off by not knowing the column.
+    #[test]
+    fn a_can_keeps_its_volume_across_the_household() {
+        let (mut a, mut b) = paired();
+        let a_id = device_id(&a).unwrap();
+        let mut f = can();
+        let id = save_custom_food(&mut a, None, &f).unwrap();
+        hand_over(&a, &mut b, &a_id);
+        assert_eq!(get_custom_food(&b, &id).unwrap().serving_ml, Some(330.0));
+
+        // Renamed on A, then sent the way an older build sends it: no such column.
+        f.name = "Cola, can".into();
+        save_custom_food(&mut a, Some(&id), &f).unwrap();
+        let (rows, upto, _) = feed_since(&a, 0, 1000).unwrap();
+        let row = rows.iter().find(|r| r.table == "custom_foods").unwrap();
+        let mut body = row.body.clone();
+        body["custom_foods"].as_object_mut().unwrap().remove("serving_ml");
+        let text = serde_json::to_string(&serde_json::json!({
+            "table": row.table, "id": row.id, "version": row.version,
+            "device_id": row.device_id, "seq": row.seq,
+            "changed_at": row.changed_at, "body": body,
+        }))
+        .unwrap();
+        apply_batch(&mut b, &a_id, &[Incoming::from_envelope(&text).unwrap()], upto, None).unwrap();
+
+        let got = get_custom_food(&b, &id).unwrap();
+        assert_eq!(got.name, "Cola, can", "the edit was taken");
+        assert_eq!(got.serving_ml, Some(330.0), "a column the sender did not know is not one it cleared");
     }
 
 }

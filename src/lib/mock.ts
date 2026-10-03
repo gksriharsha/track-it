@@ -32,11 +32,14 @@ import {
   dayMeals,
   localIso,
   localToday,
+  OWN_KCAL_100,
 } from "./mockDay";
 import type {
   BackupStatus,
   Cook,
   CustomFood,
+  CustomFoodDetail,
+  CustomNutrientRow,
   DaySummary,
   DayView,
   EnergyTarget,
@@ -49,6 +52,7 @@ import type {
   Meal,
   NutrientMeta,
   NutrientTotal,
+  NutrientValue,
   Profile,
   RangeView,
   Recipe,
@@ -253,7 +257,11 @@ function search(query: string, limit: number): FoodHit[] {
     (h.note ?? "").toLowerCase().includes(q) ||
     (h.brand ?? "").toLowerCase().includes(q);
   // The user's own foods first, the same order the real backend returns.
-  return [...OWN.filter(matches), ...CATALOGUE.filter(matches)].slice(0, limit);
+  const saved: FoodHit[] = CUSTOM.filter((f) => !OWN.some((h) => h.custom_food_id === f.id)).map((f) => ({
+    kind: "custom", fdc_id: null, custom_food_id: f.id, description: f.name, brand: f.brand,
+    data_type: "custom", note: null, matched_alias: false,
+  }));
+  return [...OWN.filter(matches), ...saved.filter(matches), ...CATALOGUE.filter(matches)].slice(0, limit);
 }
 
 function detail(fdcId: number): FoodDetail {
@@ -287,11 +295,8 @@ function detail(fdcId: number): FoodDetail {
  *
  * Not an oversight and not a claim that the real list is reference-only — the
  * backend happily ranks the user's own packs alongside these. It is that this
- * fixture has no `get_custom_food_detail`, so a custom row here would draw a
- * shortcut whose only behaviour in a browser is to throw. The same limit
- * already applies to the one custom search hit in `OWN`; a fixture that
- * invents a path the fixture cannot walk is worse than a fixture that is
- * plainly narrower than the app.
+ * fixture's own foods live for the life of a tab (see `CUSTOM`), and a
+ * shortcut naming one would open a food a reload has already forgotten.
  *
  * The amounts are uneven and one of them is four figures, because
  * `last_amount_label` is generated in Rust and the whole reason it exists is
@@ -306,6 +311,7 @@ const FREQUENT: FrequentFood[] = [
     description: "Rice, white, long-grain, regular, raw",
     brand: null,
     last_grams: 85,
+    last_ml: null,
     last_amount_label: "85 g",
   },
   {
@@ -316,6 +322,7 @@ const FREQUENT: FrequentFood[] = [
     description: "Lentils, mature seeds, raw",
     brand: null,
     last_grams: 60,
+    last_ml: null,
     last_amount_label: "60 g",
   },
   {
@@ -326,6 +333,7 @@ const FREQUENT: FrequentFood[] = [
     description: "Yogurt, plain, whole milk",
     brand: null,
     last_grams: 1200,
+    last_ml: null,
     last_amount_label: "1,200 g",
   },
   {
@@ -336,6 +344,7 @@ const FREQUENT: FrequentFood[] = [
     description: "Ghee, clarified butter",
     brand: null,
     last_grams: 12,
+    last_ml: null,
     last_amount_label: "12 g",
   },
   {
@@ -346,6 +355,7 @@ const FREQUENT: FrequentFood[] = [
     description: "Spinach, raw",
     brand: null,
     last_grams: 150,
+    last_ml: null,
     last_amount_label: "150 g",
   },
 ];
@@ -419,7 +429,59 @@ const SUPPLEMENTS: Supplement[] = [
     barcode: null, photo_panel: null, photo_ingredients: null, nutrients: [],
   },
 ];
-const CUSTOM: CustomFood[] = [];
+/**
+ * The user's own foods, for the life of a tab: the one pack `OWN` finds in a
+ * search, and whatever is saved in the editor after it. Enough to walk the
+ * editor and a pack's amount step in a browser, a can included.
+ */
+const CUSTOM: CustomFood[] = [
+  {
+    id: "c1", name: "Roasted chana, salted", brand: "Haldiram's", overrides_fdc_id: null,
+    serving_g: 30, serving_ml: null, serving_label: "1 pack (30 g)", ingredients: null, barcode: null,
+    photo_label: null, photo_ingredients: null, import_only: false,
+    nutrients: [{ nutrient_id: 1008, kind: "measured", amount: 123, upper: null }],
+  },
+];
+OWN_KCAL_100.c1 = 410;
+let ownSeq = 0;
+
+function ownFood(id: string): CustomFood {
+  const f = CUSTOM.find((x) => x.id === id);
+  if (!f) throw new Error(`custom food ${id}: not in this tab's fixture`);
+  return structuredClone(f);
+}
+
+/** As the backend saves one: a serving that is a volume is counted at a gram a ml. */
+function saveOwn(food: CustomFood, id: string | null): string {
+  const saved: CustomFood = { ...food, id: id ?? `own-${++ownSeq}`, serving_g: food.serving_ml ?? food.serving_g };
+  const at = CUSTOM.findIndex((x) => x.id === saved.id);
+  if (at >= 0) CUSTOM[at] = saved;
+  else CUSTOM.push(saved);
+  const energy = saved.nutrients.find((n) => n.nutrient_id === 1008);
+  OWN_KCAL_100[saved.id] = energy?.amount != null ? (energy.amount * 100) / saved.serving_g : null;
+  return saved.id;
+}
+
+/** The pack's own lines per 100 of what it is measured in, and nothing borrowed. */
+function ownDetail(f: CustomFood): CustomFoodDetail {
+  const per = 100 / f.serving_g;
+  const nutrients: CustomNutrientRow[] = LABEL_NUTRIENTS.map((l) => {
+    const n = f.nutrients.find((x) => x.nutrient_id === l.id);
+    const value: NutrientValue = !n
+      ? { kind: "absent" }
+      : n.kind === "measured"
+        ? { kind: "measured", amount: (n.amount ?? 0) * per }
+        : ({ kind: n.kind, upper: (n.upper ?? 0) * per } as NutrientValue);
+    return {
+      id: l.id, name: l.name, magnitude: l.unit, basis: f.serving_ml != null ? "per 100 ml" : "per 100 g",
+      tier: "core", group: "Label", value, provenance: n ? "label" : "unknown",
+    };
+  });
+  return {
+    food: f, nutrients, base_description: null,
+    from_label: f.nutrients.length, from_base: 0, unknown: nutrients.length - f.nutrients.length,
+  };
+}
 
 const PROFILE: Profile = {
   sex: "male",
@@ -759,7 +821,15 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   list_recipes: () => RECIPES,
   list_open_cooks: () => COOKS,
   list_supplements: () => SUPPLEMENTS,
-  list_custom_foods: () => CUSTOM,
+  list_custom_foods: () => structuredClone(CUSTOM),
+  get_custom_food: (a) => ownFood(String(a.id)),
+  get_custom_food_detail: (a) => ownDetail(ownFood(String(a.id))),
+  save_custom_food: (a) => saveOwn(a.food as CustomFood, (a.id as string | null) ?? null),
+  delete_custom_food: (a) => {
+    const at = CUSTOM.findIndex((x) => x.id === String(a.id));
+    if (at >= 0) CUSTOM.splice(at, 1);
+    return undefined;
+  },
   list_cuisines: () => ["South Indian", "North Indian", "Gujarati", "Bengali"],
   recall_tags: () => ({ origin: null, cuisine: null }),
   set_entry_tags: () => undefined,

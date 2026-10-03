@@ -114,6 +114,14 @@ export interface LogEntry {
   grams: number | null;
   /** The dose taken, counted in the supplement's own unit noun. */
   units: number | null;
+  /**
+   * How much was had in millilitres, for one of the user's own foods whose pack
+   * gives its figures per ml — a can, a carton. `grams` is set beside it as the
+   * mass the sums ran on, but this is what was measured, so it is the amount
+   * the entry is shown as. Null for everything weighed or counted, and for
+   * water, whose volume comes from its bottle (`water`).
+   */
+  ml: number | null;
   /** What the scale read with the vessels on it, or null if weighed directly. */
   gross_g: number | null;
   /** What came off. Null exactly when `gross_g` is. */
@@ -516,7 +524,12 @@ export interface FrequentFood {
    * that may omit a weight and no supplement reaches this list.
    */
   last_grams: number;
-  /** `last_grams` already written out, e.g. "150 g". */
+  /**
+   * The last volume, where that helping was measured in ml. A repeat logs
+   * this rather than `last_grams`, so it comes back as the volume it was.
+   */
+  last_ml: number | null;
+  /** The last amount already written out, e.g. "150 g", or "330 ml". */
   last_amount_label: string;
 }
 
@@ -559,6 +572,13 @@ export interface CustomNutrient {
 }
 
 /**
+ * What a pack's serving is measured in: a weight for nearly every pack, a
+ * volume for one that gives its figures per ml — a can, a carton — which is
+ * then logged in millilitres too.
+ */
+export type ServingUnit = "g" | "ml";
+
+/**
  * A food as the pack describes it. `serving_g` is mandatory because label
  * figures are per serving while the rest of the app is per 100 g; without it
  * every transcribed number is wrong by whatever the serving happens to be.
@@ -569,7 +589,17 @@ export interface CustomFood {
   brand: string | null;
   /** The generic reference entry this replaces in search, or null. */
   overrides_fdc_id: number | null;
+  /**
+   * What the figures are per, as a mass. For a pack whose serving is a volume
+   * this is `serving_ml` counted at a gram a millilitre — set by the backend,
+   * whatever is sent.
+   */
   serving_g: number;
+  /**
+   * The serving as a volume, for a pack whose figures are per ml; null for one
+   * whose serving is a weight. Where it is set the food is logged in ml.
+   */
+  serving_ml: number | null;
   /** The pack's own wording, e.g. "1 bar (43 g)". */
   serving_label: string | null;
   ingredients: string | null;
@@ -1081,6 +1111,8 @@ export type ScanReading = CustomNutrient;
 export interface Scan {
   /** Grams per serving, where the panel printed them. Suggested, not filled in. */
   serving_g: number | null;
+  /** Millilitres per serving, where the panel printed them: "1 can (330 mL)". */
+  serving_ml: number | null;
   /** The pack's own wording of the serving, e.g. "1 package (57g)". */
   serving_label: string | null;
   readings: ScanReading[];
@@ -1447,6 +1479,8 @@ export interface EntrySnapshotView {
   corrected_at: string | null;
   grams: number | null;
   units: number | null;
+  /** Set where the amount was measured in ml, which a correction then changes. */
+  ml: number | null;
   /** A supplement's own word for one of itself — "tablet", "gummy". */
   unit_noun: string | null;
   recipe_name: string | null;

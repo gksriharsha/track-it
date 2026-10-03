@@ -23,6 +23,9 @@ export function quantityText(e: LogEntry): string {
   // bottle says what that comes to, and that is the number to show — nobody
   // thinks about their day in grams of water.
   if (e.water) return describeVolume(e.water.ml);
+  // A drink from a pack that is per ml was measured, not weighed. The grams
+  // beside it are only what the sums ran on; the volume is what was had.
+  if (e.ml !== null && e.ml !== undefined) return describeVolume(e.ml);
   return e.grams === null ? "weight not recorded" : `${Math.round(e.grams)} g`;
 }
 
