@@ -13,6 +13,7 @@ import {
   todayIso,
 } from "../api";
 import CameraCapture from "../components/CameraCapture";
+import { nounFor, pieceText } from "../lib/pieces";
 import LabelForm from "../components/LabelForm";
 import PhotoSlot from "../components/PhotoSlot";
 import type {
@@ -23,6 +24,7 @@ import type {
   IngredientsScan,
   NutrientRow,
   Scan,
+  ServingUnit,
 } from "../types";
 import { LABEL_NUTRIENTS } from "../types";
 import ScreenHead from "../components/ScreenHead";
@@ -64,7 +66,21 @@ export default function CustomFoodEditor(p: Props) {
      one already stored. */
   const [barcode, setBarcode] = useState(first?.barcode ?? (p.id === null ? (p.barcode ?? "") : ""));
   const [overridesFdcId, setOverridesFdcId] = useState<number | null>(first?.overridesFdcId ?? null);
-  const [servingG, setServingG] = useState(first?.servingG ?? "");
+  /** The serving the panel's figures are per, as typed, in `servingUnit`. */
+  const [serving, setServing] = useState(first?.serving ?? "");
+  /**
+   * What that serving is measured in: grams for nearly every pack, millilitres
+   * for one that gives its figures per ml — a can, a carton. A food saved in
+   * millilitres is logged in them as well.
+   */
+  const [servingUnit, setServingUnit] = useState<ServingUnit>(first?.servingUnit ?? "g");
+  /**
+   * The serving counted in pieces, where the pack counts it — "2 figs (57 g)"
+   * — as typed: how many, and what one is called. Both blank for a pack that
+   * does not; where both are given, the food can be logged by the piece.
+   */
+  const [pieces, setPieces] = useState(first?.pieces ?? "");
+  const [pieceNoun, setPieceNoun] = useState(first?.pieceNoun ?? "");
   const [servingLabel, setServingLabel] = useState(first?.servingLabel ?? "");
   const [ingredients, setIngredients] = useState(first?.ingredients ?? "");
   const [photoLabel, setPhotoLabel] = useState<string | null>(first?.photoLabel ?? null);
@@ -111,7 +127,9 @@ export default function CustomFoodEditor(p: Props) {
   const [scanNote, setScanNote] = useState<ScanNote | null>(null);
   const [scanning, setScanning] = useState(false);
   /** The serving the panel printed. Offered, never typed in on the user's behalf. */
-  const [servingHint, setServingHint] = useState<{ g: number | null; label: string | null } | null>(null);
+  const [servingHint, setServingHint] = useState<
+    { g: number | null; ml: number | null; label: string | null } | null
+  >(null);
 
   /** Which scan is the current one, so a second photo's result cannot land after it. */
   const scanSeq = useRef(0);
@@ -141,8 +159,8 @@ export default function CustomFoodEditor(p: Props) {
       if (mine !== scanSeq.current) return;
       setSuggestions(s.readings.length > 0 ? s.readings : null);
       setScanNote(noteOf(s));
-      setServingHint(s.serving_g !== null || s.serving_label !== null
-        ? { g: s.serving_g, label: s.serving_label }
+      setServingHint(s.serving_g !== null || s.serving_ml !== null || s.serving_label !== null
+        ? { g: s.serving_g, ml: s.serving_ml, label: s.serving_label }
         : null);
     } catch (e) {
       if (mine !== scanSeq.current) return;
@@ -177,9 +195,14 @@ export default function CustomFoodEditor(p: Props) {
     setSuggestions(null);
   }
 
-  function acceptServing() {
+  /** Take the photo's serving, in the unit the button named. */
+  function acceptServing(unit: ServingUnit) {
     if (!servingHint) return;
-    if (servingHint.g !== null) setServingG(String(servingHint.g));
+    const amount = unit === "ml" ? servingHint.ml : servingHint.g;
+    if (amount !== null) {
+      setServing(String(amount));
+      setServingUnit(unit);
+    }
     if (servingHint.label !== null && !servingLabel.trim()) setServingLabel(servingHint.label);
     setServingHint(null);
   }
@@ -353,7 +376,11 @@ export default function CustomFoodEditor(p: Props) {
     setBrand(d.brand);
     setBarcode(d.barcode);
     setOverridesFdcId(d.overridesFdcId);
-    setServingG(d.servingG);
+    setServing(d.serving);
+    // A draft from before volumes existed has no unit, and was in grams.
+    setServingUnit(d.servingUnit ?? "g");
+    setPieces(d.pieces ?? "");
+    setPieceNoun(d.pieceNoun ?? "");
     setServingLabel(d.servingLabel);
     setIngredients(d.ingredients);
     setPhotoLabel(d.photoLabel);
@@ -426,10 +453,11 @@ export default function CustomFoodEditor(p: Props) {
   const snapshot = useMemo(
     () =>
       JSON.stringify({
-        forId: p.id, name, brand, barcode, overridesFdcId, servingG, servingLabel,
-        ingredients, photoLabel, photoIngredients, nutrients: settled(nutrients),
+        forId: p.id, name, brand, barcode, overridesFdcId, serving, servingUnit, pieces, pieceNoun,
+        servingLabel, ingredients, photoLabel, photoIngredients, nutrients: settled(nutrients),
       } satisfies Persisted),
-    [p.id, name, brand, barcode, overridesFdcId, servingG, servingLabel, ingredients,
+    [p.id, name, brand, barcode, overridesFdcId, serving, servingUnit, pieces, pieceNoun, servingLabel,
+      ingredients,
       photoLabel, photoIngredients, nutrients],
   );
 
@@ -532,9 +560,23 @@ export default function CustomFoodEditor(p: Props) {
   async function save() {
     setError(null);
     if (!name.trim()) return setError("Give the food a name — what the pack calls it.");
-    const g = Number(servingG);
-    if (!servingG.trim() || !Number.isFinite(g) || g <= 0) {
-      return setError("Enter the serving size in grams, greater than zero. Every label figure is per this weight.");
+    const amount = Number(serving);
+    if (!serving.trim() || !Number.isFinite(amount) || amount <= 0) {
+      return setError(servingUnit === "ml"
+        ? "Enter the serving size in millilitres, greater than zero. Every label figure is per this volume."
+        : "Enter the serving size in grams, greater than zero. Every label figure is per this weight.");
+    }
+    // Counted in pieces: both boxes or neither. A count with no name could not
+    // be said back, and a name with no count could not be valued.
+    const count = Number(pieces);
+    const noun = pieceNoun.trim();
+    if (pieces.trim() || noun) {
+      if (!pieces.trim() || !Number.isFinite(count) || count <= 0) {
+        return setError("Enter how many pieces a serving is, greater than zero — or clear both piece boxes.");
+      }
+      if (!noun) {
+        return setError("Say what one piece is called — a fig, a biscuit — or clear both piece boxes.");
+      }
     }
     const ids = nutrients.map((n) => n.nutrient_id);
     if (new Set(ids).size !== ids.length) {
@@ -550,7 +592,11 @@ export default function CustomFoodEditor(p: Props) {
       name: name.trim(),
       brand: nz(brand),
       overrides_fdc_id: overridesFdcId,
-      serving_g: g,
+      // For a volume the backend counts the mass from it, whatever this says.
+      serving_g: amount,
+      serving_ml: servingUnit === "ml" ? amount : null,
+      serving_pieces: pieces.trim() ? count : null,
+      piece_noun: noun || null,
       serving_label: nz(servingLabel),
       ingredients: nz(ingredients),
       barcode: nz(barcode),
@@ -839,27 +885,66 @@ export default function CustomFoodEditor(p: Props) {
       <section className="card">
         <div className="card__head"><h2>Serving</h2></div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--s3)", marginTop: "var(--s4)" }}>
-          <label className="vform__cell vform__cell--g">
-            <span className="group__name">Grams</span>
-            <input
-              className="field tnum"
-              type="number"
-              min="0"
-              step="any"
-              inputMode="decimal"
-              value={servingG}
-              onChange={(e) => setServingG(e.target.value)}
-              placeholder="43"
-              aria-label="Serving size in grams"
-            />
-          </label>
+          {/* Not a <label> around the input: the unit chips sit in this cell,
+              and a button inside a label is a click that also lands on the box. */}
+          <div className="vform__cell vform__cell--g">
+            <span className="group__name">Serving size</span>
+            <div className="vform__amt">
+              <input
+                className="field tnum"
+                type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
+                value={serving}
+                onChange={(e) => setServing(e.target.value)}
+                placeholder={servingUnit === "ml" ? "330" : "43"}
+                aria-label={servingUnit === "ml" ? "Serving size in millilitres" : "Serving size in grams"}
+              />
+              {/* Whichever the pack's figures are per: a weight for nearly every
+                  pack, a volume for a can or a carton printed "per 100 ml". */}
+              <div className="chips vform__units" role="group" aria-label="Measured in">
+                <button type="button" className="chip" aria-pressed={servingUnit === "g"}
+                  aria-label="Grams" onClick={() => setServingUnit("g")}>g</button>
+                <button type="button" className="chip" aria-pressed={servingUnit === "ml"}
+                  aria-label="Millilitres" onClick={() => setServingUnit("ml")}>ml</button>
+              </div>
+            </div>
+          </div>
+          {/* Optional, as the pack's own wording is: a pack that counts its
+              serving can then be logged by the piece. Not a <label> around
+              the boxes, for the reason the serving size's cell is not one. */}
+          <div className="vform__cell">
+            <span className="group__name">Counted in pieces</span>
+            <div className="vform__amt">
+              <input
+                className="field tnum vform__count"
+                type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
+                value={pieces}
+                onChange={(e) => setPieces(e.target.value)}
+                placeholder="2"
+                aria-label="How many pieces a serving is"
+              />
+              <input
+                className="field"
+                value={pieceNoun}
+                onChange={(e) => setPieceNoun(e.target.value)}
+                placeholder="fig"
+                autoCapitalize="none"
+                aria-label="What one piece is called"
+              />
+            </div>
+          </div>
           <label className="vform__cell">
             <span className="group__name">As the pack words it</span>
             <input
               className="field"
               value={servingLabel}
               onChange={(e) => setServingLabel(e.target.value)}
-              placeholder="1 bar (43 g)"
+              placeholder={servingUnit === "ml" ? "1 can (330 ml)" : "1 bar (43 g)"}
               aria-label="Serving as worded on the pack"
             />
           </label>
@@ -867,24 +952,37 @@ export default function CustomFoodEditor(p: Props) {
 
         {/* Offered, not filled in. The box stays as the user left it until they
             press the button — a misread serving multiplies every figure on the
-            panel by the wrong factor, so this is the last number to guess at. */}
-        {servingHint && !servingG.trim() && (
+            panel by the wrong factor, so this is the last number to guess at.
+            A row that prints both a volume and a weight offers each, by name:
+            which one the figures are per is the person's call, not the photo's. */}
+        {servingHint && !serving.trim() && (
           <div className="t-sm" style={SUGGESTED}>
             <span style={{ minWidth: 0, flex: 1 }}>
-              {servingHint.g !== null ? (
+              {servingHint.ml !== null || servingHint.g !== null ? (
                 <>
-                  The photo reads <strong className="num">{servingHint.g}</strong> g per serving
+                  The photo reads{" "}
+                  {servingHint.ml !== null && <><strong className="num">{servingHint.ml}</strong> ml</>}
+                  {servingHint.ml !== null && servingHint.g !== null && " and "}
+                  {servingHint.g !== null && <><strong className="num">{servingHint.g}</strong> g</>}
+                  {" "}per serving
                   {servingHint.label && <> — “{servingHint.label}”</>}.
                 </>
               ) : (
                 <>
-                  The photo reads the serving as “{servingHint.label}” but no weight in grams.
-                  Weigh one and type it in.
+                  The photo reads the serving as “{servingHint.label}” but no weight or volume.
+                  Type the one the pack prints, or weigh one.
                 </>
               )}
             </span>
+            {servingHint.ml !== null && (
+              <button className="btn vrow__btn" onClick={() => acceptServing("ml")}>
+                {servingHint.g !== null ? `Use ${servingHint.ml} ml` : "Use it"}
+              </button>
+            )}
             {servingHint.g !== null && (
-              <button className="btn vrow__btn" onClick={acceptServing}>Use it</button>
+              <button className="btn vrow__btn" onClick={() => acceptServing("g")}>
+                {servingHint.ml !== null ? `Use ${servingHint.g} g` : "Use it"}
+              </button>
             )}
             <button className="btn btn--quiet vrow__btn" onClick={() => setServingHint(null)}>
               Ignore
@@ -892,10 +990,26 @@ export default function CustomFoodEditor(p: Props) {
           </div>
         )}
 
+        {pieceLine(serving, servingUnit, pieces, pieceNoun) && (
+          <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
+            {pieceLine(serving, servingUnit, pieces, pieceNoun)}
+          </p>
+        )}
+
         <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Every figure in the label below is per this weight. The app stores food per 100 g and
-          converts, so a serving size that is wrong makes every transcribed number wrong by the
-          same factor — take it from the pack rather than from the scale.
+          {servingUnit === "ml" ? (
+            <>
+              Every figure in the label below is per this volume, and the food is logged in
+              millilitres — by the can, or as much as was poured. A serving that is wrong makes
+              every transcribed number wrong by the same factor, so take it from the pack.
+            </>
+          ) : (
+            <>
+              Every figure in the label below is per this weight. The app stores food per 100 g and
+              converts, so a serving size that is wrong makes every transcribed number wrong by the
+              same factor — take it from the pack rather than from the scale.
+            </>
+          )}
         </p>
       </section>
 
@@ -917,7 +1031,8 @@ export default function CustomFoodEditor(p: Props) {
             different when a generic entry is standing behind it, and the row is
             where that difference has to be visible. */}
         <LabelForm
-          servingG={servingG}
+          serving={serving}
+          unit={servingUnit}
           nutrients={nutrients}
           onChange={setNutrients}
           baseName={baseName}
@@ -1352,7 +1467,12 @@ interface Persisted {
   brand: string;
   barcode: string;
   overridesFdcId: number | null;
-  servingG: string;
+  /** The serving as typed, in `servingUnit`. */
+  serving: string;
+  servingUnit: ServingUnit;
+  /** The serving counted in pieces, as typed, and what one is called. */
+  pieces: string;
+  pieceNoun: string;
   servingLabel: string;
   ingredients: string;
   /** Photos are already on disk by the time they reach the draft — only the names travel. */
@@ -1365,7 +1485,7 @@ const blankDraft = (forId: string | null): Persisted => ({
   forId,
   name: "", brand: "", barcode: "",
   overridesFdcId: null,
-  servingG: "", servingLabel: "", ingredients: "",
+  serving: "", servingUnit: "g", pieces: "", pieceNoun: "", servingLabel: "", ingredients: "",
   photoLabel: null, photoIngredients: null,
   nutrients: [],
 });
@@ -1390,7 +1510,12 @@ const draftOf = (f: CustomFood): Persisted => ({
   brand: f.brand ?? "",
   barcode: f.barcode ?? "",
   overridesFdcId: f.overrides_fdc_id,
-  servingG: String(f.serving_g),
+  // A pack measured by volume is edited in the volume it printed, never in
+  // the grams its sums are counted at.
+  serving: String(f.serving_ml ?? f.serving_g),
+  servingUnit: f.serving_ml != null ? "ml" : "g",
+  pieces: f.serving_pieces != null ? String(f.serving_pieces) : "",
+  pieceNoun: f.piece_noun ?? "",
   servingLabel: f.serving_label ?? "",
   ingredients: f.ingredients ?? "",
   photoLabel: f.photo_label,
@@ -1410,6 +1535,20 @@ function loadDraft(forId: string | null): Persisted | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * What the count makes of one piece, once both boxes and the serving can be
+ * read: "Logged by the fig: 2 figs a serving, so one is 28.5 g." The plural is
+ * spelled out as it will be shown, so a name typed in the plural is seen here.
+ */
+function pieceLine(serving: string, unit: ServingUnit, pieces: string, noun: string): string | null {
+  const count = Number(pieces);
+  const amount = Number(serving);
+  const name = noun.trim();
+  if (!pieces.trim() || !(count > 0) || !name || !(amount > 0)) return null;
+  const each = Math.round((amount / count) * 10) / 10;
+  return `Logged by the ${nounFor(1, name)}: ${pieceText(count, name)} a serving, so one is ${each.toLocaleString()} ${unit}.`;
 }
 
 /* ── validation ────────────────────────────────────────────────────────── */

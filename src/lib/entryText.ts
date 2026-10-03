@@ -1,5 +1,6 @@
 import type { EntryBreakdown, LogEntry, Origin, SnapshotBasis } from "../types";
 import { ORIGIN_LABEL, PART_BOTTLE_NOTE, WHOLE_BOTTLE_NOTE, describeVolume } from "../types";
+import { pieceText } from "./pieces";
 
 /*
   The words a logged entry is described in, shared by its row on Today and by
@@ -23,6 +24,12 @@ export function quantityText(e: LogEntry): string {
   // bottle says what that comes to, and that is the number to show — nobody
   // thinks about their day in grams of water.
   if (e.water) return describeVolume(e.water.ml);
+  // A drink from a pack that is per ml was measured, not weighed. The grams
+  // beside it are only what the sums ran on; the volume is what was had.
+  if (e.ml !== null && e.ml !== undefined) return describeVolume(e.ml);
+  // Pieces off a pack that counts its serving were counted, and the count is
+  // what was had: "3 figs", in the name the piece had then.
+  if (e.pieces != null && e.piece_noun) return pieceText(e.pieces, e.piece_noun);
   return e.grams === null ? "weight not recorded" : `${Math.round(e.grams)} g`;
 }
 

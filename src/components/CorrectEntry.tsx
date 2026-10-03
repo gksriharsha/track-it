@@ -25,6 +25,7 @@ import type {
   NutrientValue,
 } from "../types";
 import { provenanceText } from "../lib/entryText";
+import { nounFor } from "../lib/pieces";
 
 /** The recorded value in words, so the user can see what they are replacing. */
 function said(v: NutrientValue | undefined, magnitude: string): string {
@@ -89,7 +90,9 @@ export default function CorrectEntry({
     try {
       const s = await getEntrySnapshot(entryId);
       setSnap(s);
-      setAmount(String(s.grams ?? s.units ?? ""));
+      // A drink is corrected in the millilitres it was measured in; the grams
+      // beside them are only what its sums ran on, and move with them.
+      setAmount(String(s.ml ?? s.pieces ?? s.grams ?? s.units ?? ""));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -105,12 +108,22 @@ export default function CorrectEntry({
   if (!snap) return <p className="breakdown__note">Reading what this day recorded…</p>;
 
   const counted = snap.units != null;
-  const noun = counted ? (snap.unit_noun ?? "unit") : "g";
+  const measured = snap.ml != null;
+  // Pieces off a pack that counts its serving are corrected as a count, in
+  // the name the piece had when they were logged.
+  const pieced = snap.pieces != null && !!snap.piece_noun;
+  const noun = counted
+    ? (snap.unit_noun ?? "unit")
+    : pieced
+      ? nounFor(Number(amount) || 0, snap.piece_noun ?? "")
+      : measured ? "ml" : "g";
   const chosen = snap.parts[part];
   // Values are stored on the basis their part is measured in, and a person
   // typing a figure has to be told which. Getting this wrong by a factor of the
   // serving size is the easiest mistake available here.
-  const basis = chosen?.servings != null ? "per serving" : "per 100 g";
+  // A drink's values were divided by its serving counted at a gram a ml, so
+  // per 100 g of it is per 100 ml — the unit it is measured in.
+  const basis = chosen?.servings != null ? "per serving" : measured ? "per 100 ml" : "per 100 g";
   const meta = nutrients.find((n) => n.id === nutrientId);
   const current = chosen?.values.find((v) => v.nutrient_id === nutrientId)?.value;
 
@@ -134,7 +147,7 @@ export default function CorrectEntry({
 
       <div className="correct__block">
         <label className="correct__label" htmlFor={`amt-${entryId}`}>
-          How much {counted ? "was taken" : "was eaten"}
+          How much {counted ? "was taken" : measured || pieced ? "was had" : "was eaten"}
         </label>
         <div className="correct__row">
           <input
@@ -153,7 +166,13 @@ export default function CorrectEntry({
               run(async () => {
                 const n = Number(amount);
                 if (!Number.isFinite(n) || n <= 0) throw new Error("that needs to be a positive number");
-                await correctEntryAmount(entryId, counted ? null : n, counted ? n : null);
+                await correctEntryAmount(
+                  entryId,
+                  counted || measured || pieced ? null : n,
+                  counted ? n : null,
+                  measured ? n : null,
+                  pieced ? n : null,
+                );
               })
             }
           >

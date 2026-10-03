@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  addCountedLogEntry,
   addLogEntry,
+  addMeasuredLogEntry,
   addSupplementLogEntry,
   addWeighedLogEntry,
   getCustomFoodDetail,
@@ -36,11 +38,13 @@ import type {
   Portion,
   Cook,
   Recipe,
+  ServingUnit,
   Vessel,
 } from "../types";
 import { MEALS, describeVolume, parsePick } from "../types";
 import { fmtAmount } from "../lib/nutrient";
 import { digitsOf, weighing } from "../lib/amount";
+import { pieceText } from "../lib/pieces";
 import type { Readout } from "../lib/amount";
 import Amount, { AmountTitle, Dose } from "../components/Amount";
 import type { Serving } from "../components/Amount";
@@ -301,7 +305,20 @@ export default function Foods(p: Props) {
     the reading and the vessels' ids and subtracts from its own library, so the
     log cannot disagree with it.
   */
-  const now = weighing(readout, ticked, vessels);
+  /*
+    One of the user's own foods whose pack is per ml is measured, not weighed:
+    the window reads millilitres and nothing is ever under it. Vessels ticked
+    for something else — or left ticked by a deep link that opened this food
+    without clearing them — must not come off a volume.
+  */
+  const measured = pickedCustom?.food.serving_ml != null;
+  /*
+    Counting pieces of a pack that counts its serving — "2 figs (57 g)" — rather
+    than weighing it. The window reads a count, and nothing is under that either.
+  */
+  const [counting, setCounting] = useState(false);
+  const counted = counting && pickedCustom?.food.serving_pieces != null && !!pickedCustom.food.piece_noun;
+  const now = weighing(readout, measured || counted ? NO_VESSELS : ticked, vessels);
   const grams = now.net === null ? "" : String(now.net);
   const weighed: Weighed | null =
     now.vesselIds.length > 0 && now.reading !== null && now.net !== null
@@ -499,7 +516,7 @@ export default function Foods(p: Props) {
           setPicked(null);
           setPickedCustom(d);
           setShowPanel(false);
-          setNet(String(round(d.food.serving_g)));
+          startOwn(d);
           openAmount();
           await recall({ customFoodId: target.id as string });
         } else {
@@ -580,7 +597,7 @@ export default function Foods(p: Props) {
         setPicked(null);
         setPickedCustom(d);
         setShowPanel(false);
-        setNet(String(round(d.food.serving_g)));
+        startOwn(d);
         openAmount();
         await recall({ customFoodId: hit.custom_food_id });
       } else {
@@ -602,7 +619,26 @@ export default function Foods(p: Props) {
   function clearPicks() {
     setError(null);
     setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
-    setPickedSupplement(null); setTicked([]);
+    setPickedSupplement(null); setTicked([]); setCounting(false);
+  }
+
+  /**
+   * Open one of the user's own foods on what its pack calls a serving: by the
+   * piece where the pack counts it, else in its own unit — grams, or ml for a
+   * can. A starting figure, to be typed over.
+   */
+  function startOwn(d: CustomFoodDetail) {
+    const byPiece = d.food.serving_pieces != null && !!d.food.piece_noun;
+    setCounting(byPiece);
+    setNet(String(byPiece ? d.food.serving_pieces : round(d.food.serving_ml ?? d.food.serving_g)));
+  }
+
+  /** Count pieces, or go back to weighing or measuring, starting from a serving either way. */
+  function countIn(by: boolean) {
+    const f = pickedCustom?.food;
+    if (!f) return;
+    setCounting(by);
+    setNet(String(by && f.serving_pieces != null ? f.serving_pieces : round(f.serving_ml ?? f.serving_g)));
   }
 
   /*
@@ -666,7 +702,8 @@ export default function Foods(p: Props) {
   function netOrError(): number | null {
     const g = Number(grams);
     if (!grams.trim() || !Number.isFinite(g) || g <= 0) {
-      setError("Enter a weight greater than zero.");
+      setError(counted ? "Enter how many, greater than zero."
+        : measured ? "Enter a volume greater than zero." : "Enter a weight greater than zero.");
       return null;
     }
     return g;
@@ -741,7 +778,13 @@ export default function Foods(p: Props) {
     const name = foodLabel(food);
     setSaving(true);
     try {
-      if (weighed) {
+      if (counted) {
+        // Pieces: the window read a count, and nothing was weighed.
+        await addCountedLogEntry(p.date, p.meal, food.id, name, g, { origin, cuisine });
+      } else if (food.serving_ml != null) {
+        // A can, a carton: the window read millilitres, and nothing was weighed.
+        await addMeasuredLogEntry(p.date, p.meal, food.id, name, g, { origin, cuisine });
+      } else if (weighed) {
         await addWeighedLogEntry(p.date, p.meal, { customFoodId: food.id }, name,
           weighed.grossG, weighed.vesselIds, { origin, cuisine });
       } else {
@@ -997,13 +1040,16 @@ export default function Foods(p: Props) {
      leads it, what it starts on and what is said at its foot. */
   const recalledNote = recalled ? "From the last time you logged this — change it if today was different." : null;
   const weigh = (lead: React.ReactNode, name: string, sub: React.ReactNode, servings: Serving[],
-    onCommit: () => void, foot: React.ReactNode, note: string | null = recalledNote) => ({
+    onCommit: () => void, foot: React.ReactNode, note: string | null = recalledNote,
+    unit: ServingUnit = "g", piece?: { noun: string; each: number }) => ({
     title: <AmountTitle lead={lead} name={name} sub={sub} />,
     body: (
       <Amount key={pickedKey ?? "none"} lead={lead} name={name} sub={sub} head={wide}
         onClose={wide ? clearPicks : undefined}
-        readout={readout} setReadout={setReadout} ticked={ticked} setTicked={setTicked}
-        servings={servings} per100={pickedPer100}
+        readout={readout} setReadout={setReadout}
+        ticked={unit === "ml" || (piece && counting) ? NO_VESSELS : ticked} setTicked={setTicked}
+        servings={servings} unit={unit} per100={pickedPer100}
+        piece={piece} counting={counting} onCounting={countIn}
         vessels={vessels} onManageVessels={p.onManageVessels}
         meal={p.meal} saving={saving} onCommit={onCommit}
         origin={origin} cuisine={cuisine}
@@ -1018,7 +1064,7 @@ export default function Foods(p: Props) {
       // Everything left, for the last helping: the one amount this can offer
       // without inventing one — the pot's own measurement less what is logged.
       c.remaining_g > 0
-        ? [{ label: `All that's left · ${Math.round(c.remaining_g)} g`, grams: Math.round(c.remaining_g) }]
+        ? [{ label: `All that's left · ${Math.round(c.remaining_g)} g`, amount: Math.round(c.remaining_g) }]
         : [],
       commitCook,
       <>
@@ -1039,7 +1085,7 @@ export default function Foods(p: Props) {
     // Only the portions the user named: a derived "1 serving" was a weight
     // nobody had measured dressed up as one they had.
     panel = weigh(recipeLead, r.name, `Your recipe, ${Math.round(r.yield_g).toLocaleString()} g as written`,
-      r.serving_options.map((so) => ({ label: `${so.label} · ${Math.round(so.grams)} g`, grams: Math.round(so.grams) })),
+      r.serving_options.map((so) => ({ label: `${so.label} · ${Math.round(so.grams)} g`, amount: Math.round(so.grams) })),
       commitRecipe,
       <p className="amount__note">
         Valued as the recipe is written. A pot cooked from it and weighed is valued as it came out.
@@ -1048,9 +1094,23 @@ export default function Foods(p: Props) {
     const { food, nutrients, base_description, from_label, from_base, unknown } = pickedCustom;
     const name = foodLabel(food);
     // The pack's own serving, in the pack's own words: what every figure it
-    // printed is per.
+    // printed is per. A can's is the volume it holds, and it is measured in ml.
+    const unit: ServingUnit = food.serving_ml != null ? "ml" : "g";
+    const size = round(food.serving_ml ?? food.serving_g);
+    const worded = food.serving_label ?? "1 serving";
+    // Said once, as a portion of so many grams is: a pack that words its
+    // serving "1 can (330 ml)" has already given the amount the chip is for.
+    const said = worded.replace(/\s+/g, "").toLowerCase().includes(`${size}${unit}`);
+    // A pack that counts its serving can be counted by the piece, each one its
+    // share of the serving; its chip is then the serving's count.
+    const piece = food.serving_pieces != null && food.piece_noun
+      ? { noun: food.piece_noun, each: (food.serving_ml ?? food.serving_g) / food.serving_pieces }
+      : undefined;
+    const byPiece = piece !== undefined && counting && food.serving_pieces != null;
     panel = weigh(<span className="lead lead--own" aria-hidden>{initials(name)}</span>, name, "Your food",
-      [{ label: `${food.serving_label ?? "1 serving"} · ${round(food.serving_g)} g`, grams: round(food.serving_g) }],
+      [byPiece
+        ? { label: food.serving_label ?? pieceText(food.serving_pieces ?? 0, piece.noun), amount: food.serving_pieces ?? 0 }
+        : { label: said ? worded : `${worded} · ${size} ${unit}`, amount: size }],
       commitCustom,
       <>
         <p className="amount__note">
@@ -1059,18 +1119,18 @@ export default function Foods(p: Props) {
           unmeasured.
         </p>
         <button className="link" onClick={() => setShowPanel((s) => !s)} aria-expanded={showPanel}>
-          {showPanel ? "Hide the values" : `All ${nutrients.length} values, per 100 g`}
+          {showPanel ? "Hide the values" : `All ${nutrients.length} values, per 100 ${unit}`}
         </button>
         {showPanel && (
           <div className="rows amount__panel">
             {nutrients.map((n) => <PanelRow key={n.id} n={n} base={base_description} />)}
           </div>
         )}
-      </>);
+      </>, recalledNote, unit, piece);
   } else if (picked) {
     panel = weigh(<span className="lead lead--ref" aria-hidden>{initials(picked.description)}</span>,
       picked.description, "From the USDA",
-      picked.portions.slice(0, 8).map((pt) => ({ label: portionLabel(pt), grams: round(pt.gram_weight) })),
+      picked.portions.slice(0, 8).map((pt) => ({ label: portionLabel(pt), amount: round(pt.gram_weight) })),
       commit,
       unmeasured > 0 ? (
         <p className="amount__note">
@@ -1622,6 +1682,9 @@ function portionLabel(pt: Portion): string {
   const qty = pt.amount === 1 ? "" : `${trim(pt.amount)} `;
   return `${qty}${named.trim()} · ${round(pt.gram_weight)} g`;
 }
+
+/** No vessels: what a volume has under it. One array, so a render does not make a new one. */
+const NO_VESSELS: string[] = [];
 
 /** The key a food's figure per 100 g is kept under. */
 function valueKey(s: WeighedSource): string {

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { CustomNutrient } from "../types";
+import type { CustomNutrient, ServingUnit } from "../types";
 import { LABEL_NUTRIENTS } from "../types";
 import { plural } from "../lib/nutrient";
 
 interface Props {
-  /** The serving weight as typed upstairs — the basis every figure here is per. */
-  servingG: string;
+  /** The serving as typed upstairs — the basis every figure here is per. */
+  serving: string;
+  /** What that serving is measured in: grams, or millilitres for a can. */
+  unit: ServingUnit;
   nutrients: CustomNutrient[];
   onChange: (n: CustomNutrient[]) => void;
   /**
@@ -219,8 +221,10 @@ export default function LabelForm(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offerKey]);
 
-  const serving = Number(p.servingG);
+  const serving = Number(p.serving);
   const per100 = Number.isFinite(serving) && serving > 0 ? 100 / serving : null;
+  /** What a line's converted figure is per: the app's basis, in the serving's own unit. */
+  const basis = `per 100 ${p.unit}`;
 
   // Anything the food carries that a panel does not print. Nothing in this app
   // writes one today, but a line this form cannot show is not a line it may
@@ -334,12 +338,12 @@ export default function LabelForm(p: Props) {
       <p className="lform__basis">
         {per100 !== null ? (
           <>
-            Every figure below is per serving — per {fig(serving)} g. They are converted to
-            this app's per-100 g basis when the food is saved.
+            Every figure below is per serving — per {fig(serving)} {p.unit}. They are converted to
+            a figure {basis} when the food is saved.
           </>
         ) : (
           <>
-            These figures are per serving, so set the serving weight above first. Without it
+            These figures are per serving, so set the serving size above first. Without it
             every number here is wrong by whatever the serving turns out to be.
           </>
         )}
@@ -418,7 +422,7 @@ export default function LabelForm(p: Props) {
               </button>
 
               <span className={`lrow__says${r.state === "snag" ? " is-snag" : ""}`}>
-                {says(r, n.unit, per100, p.baseName ?? null)}
+                {says(r, n.unit, per100, basis, p.baseName ?? null)}
               </span>
 
               {o && (
@@ -482,6 +486,7 @@ function says(
   r: Resolved,
   unit: string,
   per100: number | null,
+  basis: string,
   base: string | null,
 ): string {
   switch (r.state) {
@@ -490,7 +495,7 @@ function says(
       return base ? `not printed — from ${base}` : "not printed — unmeasured";
     case "printed":
       return per100 !== null
-        ? `${fig(r.amount * per100)} ${unit} per 100 g`
+        ? `${fig(r.amount * per100)} ${unit} ${basis}`
         : `${fig(r.amount)} ${unit} per serving`;
     case "zero":
       return `a printed 0 means under ${fig(r.ceiling)} ${unit} — kept as that bound, not as none`;

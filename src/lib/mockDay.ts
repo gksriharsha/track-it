@@ -82,6 +82,9 @@ function blank(id: string, meal: Meal | null, description: string): LogEntry {
     description,
     grams: null,
     units: null,
+    ml: null,
+    pieces: null,
+    piece_noun: null,
     gross_g: null,
     tare_g: null,
     tare_note: null,
@@ -317,6 +320,9 @@ function snapshot(l: Logged): EntrySnapshotView {
     corrected_at: l.correctedAt,
     grams: l.entry.grams,
     units: l.entry.units,
+    ml: l.entry.ml,
+    pieces: l.entry.pieces,
+    piece_noun: l.entry.piece_noun,
     unit_noun: l.entry.source_kind === "supplement" ? "tablet" : null,
     recipe_name: l.recipe?.name ?? null,
     parts: l.parts.map((p, ordinal) => {
@@ -392,13 +398,31 @@ interface Weighable {
  * a dish with drumstick pods in it is. `per_100g` values by it and the add
  * below logs by it, so what an amount previews is the entry Today then draws.
  */
+/**
+ * An own food's energy per 100 of what it is measured in, by id, as saved in
+ * this tab (mock.ts fills it): per 100 ml for a can, whose grams are its
+ * millilitres. Null where the pack printed no energy; a food not here at all
+ * reads at the fixture's old flat figure.
+ */
+export const OWN_KCAL_100: Record<string, number | null> = {};
+
+/**
+ * An own food's piece, by id, where its pack counts its serving: how much of
+ * the food's own unit one piece is, and what it is called. mock.ts fills it.
+ */
+export const OWN_PIECE: Record<string, { each: number; noun: string } | undefined> = {};
+
 function partsOf(src: Weighable, grams: number, description: string): Part[] {
   const k = grams / 100;
   if (src.fdcId != null) {
     const fdc = Number(src.fdcId);
     return [measured(description, fdc, grams, (KCAL_100G[fdc] ?? 60 + (fdc % 37) * 9) * k)];
   }
-  if (src.customFoodId != null) return [measured(description, null, grams, 410 * k)];
+  if (src.customFoodId != null) {
+    const kcal = OWN_KCAL_100[String(src.customFoodId)];
+    if (kcal === null) return [unmeasured(description, grams)];
+    return [measured(description, null, grams, (kcal ?? 410) * k)];
+  }
   const per = src.cookId === "c-sambar" ? 67 : src.cookId === "c-dal-tadka" ? 132 : 148;
   return [measured(description, null, grams * 0.7, per * k), unmeasured("Drumstick pods", grams * 0.3)];
 }
@@ -424,13 +448,20 @@ export const DAY_TABLE: Record<string, (a: Record<string, unknown>) => unknown> 
   add_log_entry: (a) => {
     addSeq += 1;
     const n = (k: string) => (a[k] == null ? null : Number(a[k]));
+    // A can is measured in ml and counted at a gram a ml, as the backend does,
+    // and pieces are their share of the pack's serving.
+    const ml = n("ml");
+    const pieces = n("pieces");
+    const piece = pieces === null ? undefined : OWN_PIECE[String(a.customFoodId)];
+    if (pieces !== null && !piece) throw new Error("that food does not count its serving in pieces");
     const e: LogEntry = {
       ...blank(`a-${addSeq}`, (a.meal as Meal) ?? "snack", String(a.description ?? "")),
       logged_on: String(a.loggedOn ?? localToday()),
       source_kind: a.supplementId ? "supplement" : a.customFoodId ? "custom" : a.recipeId ? "recipe" : a.cookId ? "cook" : "food",
       fdc_id: n("fdcId"), recipe_id: (a.recipeId as string) ?? null, cook_id: (a.cookId as string) ?? null,
       custom_food_id: (a.customFoodId as string) ?? null, supplement_id: (a.supplementId as string) ?? null,
-      grams: n("grams") ?? n("grossG"), units: n("units"),
+      grams: n("grams") ?? n("grossG") ?? ml ?? (piece && pieces !== null ? pieces * piece.each : null),
+      units: n("units"), ml, pieces, piece_noun: piece?.noun ?? null,
       origin: (a.origin as Origin) ?? null, cuisine: (a.cuisine as string) ?? null,
     };
     LOG.push(logged(e, e.units !== null
@@ -468,8 +499,8 @@ export const DAY_TABLE: Record<string, (a: Record<string, unknown>) => unknown> 
   // clears the scale reading that no longer explains the number.
   correct_entry_amount: (a) => {
     const l = find(String(a.entryId));
-    const was = l.entry.grams ?? l.entry.units ?? 0;
-    const now = Number(a.grams ?? a.units);
+    const was = l.entry.ml ?? l.entry.pieces ?? l.entry.grams ?? l.entry.units ?? 0;
+    const now = Number(a.ml ?? a.pieces ?? a.grams ?? a.units);
     if (!(now > 0) || !(was > 0)) throw new Error("that needs to be a positive number");
     const r = now / was;
     for (const p of l.parts) {
@@ -477,7 +508,14 @@ export const DAY_TABLE: Record<string, (a: Record<string, unknown>) => unknown> 
       p.upper = p.upper === null ? null : p.upper * r;
       if (p.grams !== null) p.grams *= r;
     }
-    if (l.entry.grams !== null) l.entry.grams = now;
+    // A volume is corrected as one, and its grams move with it.
+    if (l.entry.ml !== null) {
+      l.entry.ml = now;
+      l.entry.grams = (l.entry.grams ?? was) * r;
+    } else if (l.entry.pieces !== null) {
+      l.entry.pieces = now;
+      l.entry.grams = (l.entry.grams ?? was) * r;
+    } else if (l.entry.grams !== null) l.entry.grams = now;
     else l.entry.units = now;
     l.entry.gross_g = null;
     l.entry.tare_g = null;

@@ -54,6 +54,11 @@ pub struct Reading {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Panel {
     pub serving_g: Option<f64>,
+    /// The serving as a volume, where the serving row prints one: "1 can
+    /// (330 mL)". Read beside `serving_g` and never converted into it — a
+    /// pack that gives its figures per ml is transcribed per ml, and which of
+    /// the two to use is the person's choice, not the parser's.
+    pub serving_ml: Option<f64>,
     pub serving_label: Option<String>,
     pub readings: Vec<Reading>,
     /// Every label nutrient this panel did NOT yield, so the UI can say what
@@ -156,6 +161,7 @@ pub fn parse(blocks: &[TextBlock]) -> Panel {
 
     let mut readings: Vec<Reading> = Vec::new();
     let mut serving_g: Option<f64> = None;
+    let mut serving_ml: Option<f64> = None;
     let mut serving_label: Option<String> = None;
     let mut serving_seen = false;
     let mut unmatched_rows = 0usize;
@@ -171,9 +177,10 @@ pub fn parse(blocks: &[TextBlock]) -> Panel {
         // Only the first serving row counts. A pack that repeats it in another
         // language would otherwise overwrite the one we already read.
         if !serving_seen {
-            if let Some((grams, label)) = serving_from(&toks) {
+            if let Some((grams, ml, label)) = serving_from(&toks) {
                 serving_seen = true;
                 serving_g = grams;
+                serving_ml = ml;
                 serving_label = label;
                 attributed = true;
             }
@@ -210,6 +217,7 @@ pub fn parse(blocks: &[TextBlock]) -> Panel {
 
     Panel {
         serving_g,
+        serving_ml,
         serving_label,
         readings,
         missing,
@@ -400,6 +408,10 @@ enum Unit {
     Milligram,
     Microgram,
     Kcal,
+    /// A volume. Only a serving is ever read in it: no nutrient is stored per
+    /// millilitre, so `to_stored` refuses one on a nutrient row exactly as it
+    /// refused the unrecognised "ml" this used to be.
+    Millilitre,
     /// A %DV figure. Kept as a unit rather than dropped at parse time so the
     /// selector can say *why* it refused a number.
     Percent,
@@ -432,6 +444,9 @@ fn unit_word(s: &str) -> Option<Unit> {
             Some(Unit::Microgram)
         }
         "kcal" | "kcals" | "cal" | "cals" | "calories" => Some(Unit::Kcal),
+        "ml" | "mls" | "millilitre" | "millilitres" | "milliliter" | "milliliters" => {
+            Some(Unit::Millilitre)
+        }
         // A kilojoule is energy, but not the energy this app stores, and a
         // dual-unit row — "Energy 1004 kJ 240 kcal" — prints the kJ figure
         // first. Recognising it as a unit we cannot use is what makes the 1004
@@ -567,7 +582,7 @@ fn to_stored(value: f64, printed: Option<Unit>, nutrient_id: i64) -> Option<f64>
 /// `Some` when this row is the serving-size line, carrying its grams and its
 /// text. "6 servings per container" is a different row and does not match:
 /// the token is "servings", not "serving".
-fn serving_from(toks: &[Tok]) -> Option<(Option<f64>, Option<String>)> {
+fn serving_from(toks: &[Tok]) -> Option<(Option<f64>, Option<f64>, Option<String>)> {
     let at = (0..toks.len().saturating_sub(1))
         .find(|i| toks[*i].norm == "serving" && toks[i + 1].norm == "size")?;
     let rest = at + 2;
@@ -605,7 +620,20 @@ fn serving_from(toks: &[Tok]) -> Option<(Option<f64>, Option<String>)> {
         }
     });
 
-    Some((grams, if label.is_empty() { None } else { Some(label) }))
+    // A drink's serving is a volume, by the same rule: the bracketed figure,
+    // else the last one, and only one that says it is in millilitres.
+    let volumes: Vec<&NumCand> = nums
+        .iter()
+        .filter(|n| !n.less_than && n.unit == Some(Unit::Millilitre) && n.start >= rest)
+        .collect();
+    let ml = volumes
+        .iter()
+        .find(|n| n.parenthesised)
+        .or_else(|| volumes.last())
+        .map(|n| n.value)
+        .filter(|v| v.is_finite() && *v > 0.0);
+
+    Some((grams, ml, if label.is_empty() { None } else { Some(label) }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1080,9 +1108,38 @@ mod tests {
     }
 
     #[test]
+    fn a_cans_serving_is_read_as_the_volume_it_prints() {
+        let p = parse(&[
+            b("Serving size 1 can (330 mL)", 0.05, 0.12, 0.60, 0.028),
+            b("Calories 139", 0.05, 0.20, 0.50, 0.03),
+            b("Total Sugars 35g", 0.05, 0.26, 0.50, 0.026),
+        ]);
+        assert_eq!(p.serving_ml, Some(330.0));
+        assert_eq!(p.serving_g, None, "a volume is not a weight, and none is made of it");
+        assert_eq!(p.serving_label.as_deref(), Some("1 can (330 mL)"));
+        assert_eq!(entry(&p, 1008), Some(LabelEntry::Printed { amount: 139.0 }));
+        assert_eq!(entry(&p, 2000), Some(LabelEntry::Printed { amount: 35.0 }));
+
+        // Written solid, and beside a weight: each is read as what it says.
+        let p = parse(&one_row(&["Serving size 1 bottle 500ml (510 g)"]));
+        assert_eq!((p.serving_ml, p.serving_g), (Some(500.0), Some(510.0)));
+    }
+
+    #[test]
+    fn a_volume_on_a_nutrient_row_is_never_its_amount() {
+        // Before ml was a unit it was an unrecognised one, refused as an
+        // amount; it must stay refused now it has a name.
+        let p = parse(&one_row(&["Calories 139 per 330 ml"]));
+        assert_eq!(entry(&p, 1008), Some(LabelEntry::Printed { amount: 139.0 }));
+        let p = parse(&one_row(&["Sodium 330ml"]));
+        assert_eq!(entry(&p, 1093), None);
+    }
+
+    #[test]
     fn a_serving_row_without_a_weight_still_yields_its_label() {
         let p = parse(&one_row(&["Serving size 1 bar"]));
         assert_eq!(p.serving_g, None, "no grams printed, so none invented");
+        assert_eq!(p.serving_ml, None, "nor a volume");
         assert_eq!(p.serving_label.as_deref(), Some("1 bar"));
     }
 

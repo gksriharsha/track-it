@@ -148,8 +148,10 @@ export default function CustomFoods(p: Props) {
                     )}
                   </span>
                   <span className="vrow__g num">
-                    {fmt(f.serving_g)}
-                    <span className="vrow__u"> g</span>
+                    {/* A can is listed by the volume its pack printed, never
+                        by the grams its sums are counted at. */}
+                    {fmt(f.serving_ml ?? f.serving_g)}
+                    <span className="vrow__u">{f.serving_ml != null ? " ml" : " g"}</span>
                     {f.serving_label && (
                       <span className="row__sub" style={{ textAlign: "right" }}>
                         {f.serving_label}
