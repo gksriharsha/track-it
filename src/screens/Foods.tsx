@@ -40,7 +40,6 @@ import type {
 } from "../types";
 import { MEALS, describeVolume, parsePick } from "../types";
 import { fmtAmount } from "../lib/nutrient";
-import { rowFigure } from "../lib/energy";
 import { digitsOf, weighing } from "../lib/amount";
 import type { Readout } from "../lib/amount";
 import Amount, { AmountTitle, Dose } from "../components/Amount";
@@ -897,44 +896,33 @@ export default function Foods(p: Props) {
   }, [cooks]);
 
   /**
-   * Each food's energy per 100 g, by `valueKey`: undefined until read, null
-   * for one that cannot be valued. For the column beside the results and the
-   * line under the amount. Pots and recipes are read again whenever they are,
-   * since adjusting either moves its figure, and so are your own foods, which
-   * can be edited; a reference food's never moves and is read once.
+   * The picked food per 100 g, for the line under the amount, which scales it
+   * by the grams as they are typed. Read on every pick, and again when the
+   * picked pot is: adjusting a pot moves its figure.
+   *
+   * Only ever the picked food. The same figure stood beside every search
+   * result for a round, and the user found it weird and asked for it to go:
+   * energy is said where there is an amount, not down a list.
    */
-  const [per100, setPer100] = useState<Record<string, Per100g | null>>({});
-  const per100Now = useRef(per100);
-  per100Now.current = per100;
-  const value = useCallback((srcs: WeighedSource[]) => {
-    if (srcs.length === 0) return;
-    per100g(srcs)
-      .then((got) => setPer100((m) => {
-        const next = { ...m };
-        srcs.forEach((s, i) => { next[valueKey(s)] = got[i] ?? null; });
-        return next;
-      }))
-      // A figure beside a result was not asked for: a failure leaves it blank.
-      .catch(() => undefined);
-  }, []);
-  useEffect(() => { value(cooks.map((c) => ({ cookId: c.id }))); }, [cooks, value]);
-  useEffect(() => { value(recipes.map((r) => ({ recipeId: r.id }))); }, [recipes, value]);
-  useEffect(() => {
-    value(hits.flatMap((h): WeighedSource[] => {
-      if (h.kind === "custom") return h.custom_food_id === null ? [] : [{ customFoodId: h.custom_food_id }];
-      return h.fdc_id === null || `food:${h.fdc_id}` in per100Now.current ? [] : [{ fdcId: h.fdc_id }];
-    }));
-  }, [hits, value]);
+  const [per100, setPer100] = useState<{ key: string; value: Per100g | null } | null>(null);
   const pickedSrc: WeighedSource | null = pickedCook ? { cookId: pickedCook.id }
     : pickedRecipe ? { recipeId: pickedRecipe.id }
     : pickedCustom ? { customFoodId: pickedCustom.food.id }
     : picked ? { fdcId: picked.fdc_id } : null;
   const pickedKey = pickedSrc === null ? null : valueKey(pickedSrc);
   useEffect(() => {
-    // Picked from a widget, or before its row's figure arrived.
-    if (pickedSrc !== null && pickedKey !== null && !(pickedKey in per100Now.current)) value([pickedSrc]);
+    if (pickedSrc === null || pickedKey === null) return;
+    let live = true;
+    per100g([pickedSrc])
+      .then(([v]) => { if (live) setPer100({ key: pickedKey, value: v ?? null }); })
+      // The line under the amount was not asked for: a failure leaves it blank.
+      .catch(() => { if (live) setPer100({ key: pickedKey, value: null }); });
+    return () => { live = false; };
+    // `pickedSrc` is rebuilt every render from these two.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickedKey]);
+  }, [pickedKey, pickedCook]);
+  /** Undefined while it is read, so the line stays empty rather than showing the last food's. */
+  const pickedPer100 = per100 !== null && per100.key === pickedKey ? per100.value : undefined;
 
   /*
     Results rise from the field. On a phone the search sits at the foot of the
@@ -1002,11 +990,6 @@ export default function Foods(p: Props) {
   const recipeLead = <span className="lead lead--bought" aria-hidden><Glyph name="book" size={20} /></span>;
   const doseLead = <span className="lead lead--dose" aria-hidden><Glyph name="tablet" size={20} /></span>;
   const chev = <span className="food__chev" aria-hidden><Chevron /></span>;
-  /** A result's energy per 100 g, under the unit its section heads with; blank until read. */
-  const k100 = (key: string) => {
-    const v = per100[key];
-    return <span className="food__k tnum">{v ? rowFigure(v.energy) : ""}</span>;
-  };
 
   /* ── how much ─────────────────────────────────────────────────────────
      One panel for whatever is picked: by weight in the scale's window, or,
@@ -1020,7 +1003,7 @@ export default function Foods(p: Props) {
       <Amount key={pickedKey ?? "none"} lead={lead} name={name} sub={sub} head={wide}
         onClose={wide ? clearPicks : undefined}
         readout={readout} setReadout={setReadout} ticked={ticked} setTicked={setTicked}
-        servings={servings} per100={pickedKey === null ? undefined : per100[pickedKey]}
+        servings={servings} per100={pickedPer100}
         vessels={vessels} onManageVessels={p.onManageVessels}
         meal={p.meal} saving={saving} onCommit={onCommit}
         origin={origin} cuisine={cuisine}
@@ -1363,34 +1346,28 @@ export default function Foods(p: Props) {
                 <div className="food__results" id="food-hits">
                   {yoursCount > 0 && (
                     <section className="food__sec" aria-label="Yours">
-                      <h2 className="food__h">
-                        Yours
-                        {/* A supplement is counted, and has no figure per 100 g. */}
-                        {yoursCount > suppHits.length && <span className="food__unit">kcal per 100 g</span>}
-                      </h2>
+                      <h2 className="food__h">Yours</h2>
                       <div className="tiles">
                         {potHits.map((c, i) => row(`pot-${c.id}`, i, potLead, c.name,
-                          `${potWhen(c)}, ${potLeft(c)}`, k100(`cook:${c.id}`), () => void openCook(c)))}
+                          `${potWhen(c)}, ${potLeft(c)}`, chev, () => void openCook(c)))}
                         {recipeHits.map((r, i) => row(`rec-${r.id}`, potHits.length + i, recipeLead, r.name,
-                          "Your recipe", k100(`recipe:${r.id}`), () => void openRecipe(r)))}
+                          "Your recipe", chev, () => void openRecipe(r)))}
                         {suppHits.map((x, i) => row(`sup-${x.id}`, potHits.length + recipeHits.length + i,
-                          doseLead, supplementLabel(x), doseText(x), <span />, () => openSupplement(x)))}
+                          doseLead, supplementLabel(x), doseText(x), chev, () => openSupplement(x)))}
                         {ownHits.map((h, i) => row(`c-${h.custom_food_id}`,
                           potHits.length + recipeHits.length + suppHits.length + i,
                           <span className="lead lead--own" aria-hidden>{initials(h.description)}</span>,
-                          h.description, h.note ?? h.brand, k100(`custom:${h.custom_food_id}`), () => void pick(h)))}
+                          h.description, h.note ?? h.brand, chev, () => void pick(h)))}
                       </div>
                     </section>
                   )}
                   {refHits.length > 0 && (
                     <section className="food__sec" aria-label="From the USDA">
-                      <h2 className="food__h">
-                        From the USDA <span className="food__unit">kcal per 100 g</span>
-                      </h2>
+                      <h2 className="food__h">From the USDA</h2>
                       <div className="tiles">
                         {refHits.map((h, i) => row(`r-${h.fdc_id}`, yoursCount + i,
                           <span className="lead lead--ref" aria-hidden>{initials(h.description)}</span>,
-                          h.description, h.note, k100(`food:${h.fdc_id}`), () => void pick(h)))}
+                          h.description, h.note, chev, () => void pick(h)))}
                       </div>
                     </section>
                   )}

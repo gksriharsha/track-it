@@ -108,8 +108,8 @@ export type WeighedSource =
 
 /**
  * Each of `items` per 100 g, in the order asked, or null for one that cannot
- * be valued — a food deleted since the list was drawn. For the amount being
- * set and the figure beside each result; nothing is written.
+ * be valued — a food deleted since it was picked. For the line under the
+ * amount being set; nothing is written.
  */
 export const per100g = (items: WeighedSource[]) =>
   invoke<(Per100g | null)[]>("per_100g", { items });

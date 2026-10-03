@@ -3768,15 +3768,6 @@ b, strong, th { font-weight: 600; }
   .workbench.food[data-picked="true"] > .food__list { display: flex; }
 }
 
-/* The results' one figure, energy per 100 g, in the right-hand column. Its
-   unit is said once, at the head of the section, and not on every row. */
-.food__h { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
-.food__unit {
-  padding-right: 14px; color: var(--ink-3);
-  font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 400;
-}
-.food__k { min-width: 3ch; text-align: right; white-space: nowrap; font-weight: 500; }
-
 /* ── how much: the scale readout (Amount.tsx) ────────────────────
    As the user picked it, "Scale readout": the amount in a scale's display
    window with the bowl's weight taken off, and the keys under it. The window

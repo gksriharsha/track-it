@@ -3641,7 +3641,7 @@ fn contribution_of(c: &store::SnapComponent, value: NutrientValue) -> Contributi
 /// What 100 g of a food comes to: its energy, and the three nutrients energy
 /// is made of.
 ///
-/// For the amount being set, and for the figure beside each search result.
+/// For the line under the amount being set, which scales it by the grams.
 /// Worked out the way a logged entry's own energy is — resolved by
 /// `resolve_contribution` as though 100 g were being logged, then summed per
 /// nutrient through `contribution_of` and `sum` — so a figure seen before
@@ -3726,9 +3726,9 @@ fn per_100g_of(
 }
 
 /// Each of `items` per 100 g, in order, or `None` for one that cannot be
-/// valued — a food deleted since the list was drawn, a pot that records
-/// nothing coming out of it. A row with no figure is the honest outcome
-/// there, and one such row must not take every figure on the screen with it.
+/// valued — a food deleted since it was picked, a pot that records nothing
+/// coming out of it. No figure is the honest outcome there, and one that
+/// cannot be valued must not take the others' figures with it.
 fn per_100g_each(
     refconn: &rusqlite::Connection,
     uconn: &rusqlite::Connection,
@@ -7837,7 +7837,7 @@ mod tests {
         }
     }
 
-    /// The figure an amount is set by, and the one beside each search result.
+    /// The figure the line under an amount is worked out from.
     mod per_100g_figures {
         use super::*;
 
