@@ -962,8 +962,17 @@ export default function Foods(p: Props) {
       body.style.setProperty("--food-fill", `${Math.max(0, Math.round(fill))}px`);
       // Only when the results outgrow the space: short ones already stand at
       // its foot, and scrolling then would push the meal's title off the top.
+      // To where the last of them sits just above the field, and not to the
+      // end of the page: the page's own padding clears a bottom bar this
+      // screen does not have, and left a band of empty page between the
+      // results and the field.
       if (typed && body.scrollHeight > Math.max(0, fill) + 1) {
-        window.scrollTo({ top: document.documentElement.scrollHeight });
+        const past = body.getBoundingClientRect().bottom - (dock.getBoundingClientRect().top - 16);
+        window.scrollTo({ top: window.scrollY + past });
+      } else if (typed) {
+        // Narrowed to a few, which fit: back to the top, where the title is
+        // and where the space they stand at the foot of begins.
+        window.scrollTo({ top: 0 });
       }
     };
     settle();
