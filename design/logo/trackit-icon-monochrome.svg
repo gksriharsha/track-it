@@ -1,0 +1,8 @@
+<!-- TrackIt's icon: the one-colour layer Android 13 tints for themed icons. "The T in two tiles", chosen in round four of
+     the look picker, October 2026: Archivo's own T at wdth 125, wght 800, split
+     into two tiles a hairline apart, on Android's 108-unit adaptive-icon canvas.
+     Rendered at 1024 px as the app-icon PNGs beside it; see
+     trackit-icon.svg for how the platform icons are made from them. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <g fill="#000000"><path d="M33.012 33.6h41.976a3.4 3.4 0 0 1 3.4 3.4v3.212a3.4 3.4 0 0 1 -3.4 3.4h-41.976a3.4 3.4 0 0 1 -3.4 -3.4v-3.212a3.4 3.4 0 0 1 3.4 -3.4z"/><path d="M48.873 45.912h10.253a1.1 1.1 0 0 1 1.1 1.1v25.188a3.4 3.4 0 0 1 -3.4 3.4h-5.653a3.4 3.4 0 0 1 -3.4 -3.4v-25.188a1.1 1.1 0 0 1 1.1 -1.1z"/></g>
+</svg>

@@ -1,0 +1,16 @@
+<!-- TrackIt's icon: the whole icon, full bleed. "The T in two tiles", chosen in round four of
+     the look picker, October 2026: Archivo's own T at wdth 125, wght 800, split
+     into two tiles a hairline apart, on Android's 108-unit adaptive-icon canvas.
+     The app-icon PNGs beside these are rendered from these drawings at
+     1024 px. `pnpm tauri icon design/logo/icon-manifest.json -o <dir>` makes the
+     desktop icons and Android's adaptive and themed layers from those PNGs.
+     Android's two older launcher icons (ic_launcher.png, ic_launcher_round.png,
+     for Android 7) are not taken from it: the generator scales the T to fill
+     them. They are the middle 72 units of this drawing, as a launcher of the
+     time showed an icon, a rounded square and a circle. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#14907f"/><stop offset="1" stop-color="#085650"/></linearGradient>
+    <radialGradient id="lit" cx=".26" cy=".16" r=".8"><stop offset="0" stop-color="#ffffff" stop-opacity=".15"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient><filter id="drop" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#022b26" flood-opacity=".4"/></filter></defs>
+  <rect width="108" height="108" fill="url(#bg)"/><rect width="108" height="108" fill="url(#lit)"/>
+  <g fill="#ffffff" filter="url(#drop)"><path d="M33.012 33.6h41.976a3.4 3.4 0 0 1 3.4 3.4v3.212a3.4 3.4 0 0 1 -3.4 3.4h-41.976a3.4 3.4 0 0 1 -3.4 -3.4v-3.212a3.4 3.4 0 0 1 3.4 -3.4z"/><path d="M48.873 45.912h10.253a1.1 1.1 0 0 1 1.1 1.1v25.188a3.4 3.4 0 0 1 -3.4 3.4h-5.653a3.4 3.4 0 0 1 -3.4 -3.4v-25.188a1.1 1.1 0 0 1 1.1 -1.1z"/></g>
+</svg>
