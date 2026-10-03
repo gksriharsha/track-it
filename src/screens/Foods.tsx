@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   addLogEntry,
   addSupplementLogEntry,
@@ -35,7 +35,7 @@ import type {
   Recipe,
   Vessel,
 } from "../types";
-import { MEALS, SOURCE_LABEL, describeVolume, parsePick } from "../types";
+import { MEALS, describeVolume, parsePick } from "../types";
 import { fmtAmount, plural } from "../lib/nutrient";
 import WeightField from "../components/WeightField";
 import TagPicker from "../components/TagPicker";
@@ -43,6 +43,12 @@ import { useQuickLog } from "../components/QuickLog";
 import CameraCapture from "../components/CameraCapture";
 import ActivityPane from "./Activity";
 import ScreenHead from "../components/ScreenHead";
+import Glyph from "../components/Glyph";
+import Sheet from "../components/Sheet";
+import { PlusGlyph } from "../components/DayWater";
+import { initials } from "../lib/entryText";
+import { isAndroid } from "../lib/desktop";
+import { useHashSheet } from "../lib/hashSheet";
 import { bare, canStream, readBarcodeFromFile, useCameraRoute } from "../lib/camera";
 import type { Weighed } from "../components/WeightField";
 
@@ -242,7 +248,7 @@ export default function Foods(p: Props) {
     too, but only after the first paint, so an activity would flash the food
     search on its way in.
   */
-  const [tab, setTab] = useState<"available" | "foods" | "recipes" | "supplements" | "water" | "activity">(
+  const [tab, setTab] = useState<"foods" | "water" | "activity">(
     () => {
       const t = parsePick(p.preselect ?? null);
       if (t?.kind === "activity" || t?.kind === "strength") return "activity";
@@ -256,17 +262,8 @@ export default function Foods(p: Props) {
   });
   /** Arrived from the + sheet to start strength like last time. */
   const [likeLast, setLikeLast] = useState(() => parsePick(p.preselect ?? null)?.kind === "strength");
-  /*
-    On a phone the tab row scrolls sideways, and its last tab can be past the
-    edge. Landing on it with it half off-screen hid the one thing saying which
-    tab this was, so the chosen tab is brought into view.
-  */
-  const tabsRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    tabsRef.current
-      ?.querySelector<HTMLElement>('[aria-pressed="true"]')
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [tab]);
+  /* Which sitting the food goes into: the screen's title, and a sheet to change it. */
+  const mealSheet = useHashSheet("sheet", "meal");
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [pickedRecipe, setPickedRecipe] = useState<Recipe | null>(null);
   /** Pots with food still in them, and the one being logged from. */
@@ -345,12 +342,7 @@ export default function Foods(p: Props) {
    */
   const loadCooks = useCallback(() => {
     listOpenCooks()
-      .then((c) => {
-        setCooks(c);
-        // The default tab, but only when there is something in it. Landing on
-        // an empty "Available" would put a dead end in front of the search.
-        setTab((t) => (t === "foods" && c.length > 0 ? "available" : t));
-      })
+      .then(setCooks)
       .catch((e) => setError(String(e)));
   }, []);
 
@@ -367,22 +359,35 @@ export default function Foods(p: Props) {
    * bar over a search field, because a shortcut could not be assembled, would
    * be the app complaining about its own convenience.
    */
+  /*
+    What is usually had at THIS sitting, for the chips under "Usually at
+    dinner" — read again when the meal changes, since breakfast's usual foods
+    are not dinner's.
+  */
   const loadQuick = useCallback(() => {
-    frequentFoods()
+    frequentFoods(4, p.meal)
       .then(setQuick)
       .catch(() => setQuick([]));
-  }, []);
+  }, [p.meal]);
 
   useEffect(() => { loadQuick(); }, [loadQuick]);
 
+  /*
+    Recipes and supplements sit among the person's own things now rather than
+    behind tabs of their own, so they are read with the screen. A failure is
+    swallowed, as the usual foods' is: nothing here was asked for, and an alert
+    over the search because a list could not be read would be noise.
+  */
+  const loadKitchen = useCallback(() => {
+    listRecipes().then(setRecipes).catch(() => setRecipes([]));
+    listSupplements().then(setSupplements).catch(() => setSupplements([]));
+  }, []);
+
+  useEffect(() => { loadKitchen(); }, [loadKitchen]);
+
   useEffect(() => {
-    if (tab === "available") loadCooks();
-    if (tab === "recipes") listRecipes().then(setRecipes).catch((e) => setError(String(e)));
-    if (tab === "supplements") {
-      listSupplements().then(setSupplements).catch((e) => setError(String(e)));
-    }
     if (tab === "water") listBottles().then(setBottles).catch((e) => setError(String(e)));
-  }, [tab, loadCooks]);
+  }, [tab]);
 
   const runSearch = useCallback((q: string) => {
     const mine = ++seq.current;
@@ -409,7 +414,7 @@ export default function Foods(p: Props) {
     setTab("foods");
     setQuery(q);
     setPicked(null); setPickedCustom(null); setPickedRecipe(null);
-    setPickedCook(null); setWeighed(null);
+    setPickedCook(null); setPickedSupplement(null); setWeighed(null);
     runSearch(q);
     searchRef.current?.focus();
   }, [p.seed, runSearch]);
@@ -432,7 +437,7 @@ export default function Foods(p: Props) {
     if (target === null) return;
     let live = true;
     setError(null);
-    setPickedRecipe(null); setPickedCook(null); setWeighed(null);
+    setPickedRecipe(null); setPickedCook(null); setPickedSupplement(null); setWeighed(null);
 
     if (target.kind === "water") {
       // Water is logged from this screen's own water tab. The bottle library is
@@ -512,9 +517,7 @@ export default function Foods(p: Props) {
     // The trip out may equally have been to the custom-food editor, and a pack
     // transcribed there is a pack that can now be logged again.
     loadQuick();
-    if (tab === "supplements") {
-      listSupplements().then(setSupplements).catch((e) => setError(String(e)));
-    }
+    loadKitchen();
     if (tab === "water") listBottles().then(setBottles).catch((e) => setError(String(e)));
     const q = query.trim();
     if (q.length >= 2) runSearch(q);
@@ -530,7 +533,7 @@ export default function Foods(p: Props) {
   }, [query, runSearch]);
 
   async function pick(hit: FoodHit) {
-    setError(null);
+    clearPicks();
     try {
       if (hit.kind === "custom") {
         if (hit.custom_food_id === null) {
@@ -557,60 +560,45 @@ export default function Foods(p: Props) {
     } catch (e) { setError(String(e)); }
   }
 
-  /**
-   * Open a quick-add row.
-   *
-   * The same journey a search hit makes — the same detail fetch, the same
-   * picked panel, the same recalled tags — with one addition: the portion step
-   * opens on the weight this food was last logged at rather than on its
-   * default serving.
-   *
-   * The step itself is not skipped, and that is the design rather than
-   * caution. A row that logged on one tap would be a button that writes to
-   * somebody's history out of a list they never asked to have built; what this
-   * does instead is fill in the part they would otherwise have typed. The
-   * weight lands in an ordinary editable field, under the meal chips and the
-   * tag picker and above an "Add to {meal}" button that still has to be
-   * pressed. There is deliberately no second commit path here at all.
-   *
-   * Going through `setNet` also drops any live scale reading, for the reason
-   * that function gives: a gross weight taken for one plate of one dish must
-   * not follow the user to the next food.
-   */
-  async function pickFrequent(f: FrequentFood) {
+  /** Only one thing is ever picked: each card beside the list commits its own. */
+  function clearPicks() {
     setError(null);
-    try {
-      if (f.source_kind === "custom") {
-        if (f.custom_food_id === null) {
-          setError("That shortcut is missing its food, so it cannot be opened.");
-          return;
-        }
-        const d = await getCustomFoodDetail(f.custom_food_id);
-        setPicked(null);
-        setPickedCustom(d);
-        setShowPanel(false);
-        setNet(String(round(f.last_grams)));
-        await recall({ customFoodId: f.custom_food_id });
-      } else {
-        if (f.fdc_id === null) {
-          setError("That shortcut has no reference entry behind it.");
-          return;
-        }
-        const d = await getFoodDetail(f.fdc_id);
-        setPickedCustom(null);
-        setPicked(d);
-        setNet(String(round(f.last_grams)));
-        await recall({ fdcId: f.fdc_id });
-      }
-    } catch (e) {
-      // The row goes rather than staying tappable. The backend already drops a
-      // food the current reference dataset no longer carries, so reaching this
-      // means something changed underneath the list that was drawn — and a
-      // shortcut that cannot be opened is worse than one that was never
-      // offered, because it can be pressed again and again.
-      setQuick((rows) => rows.filter((r) => r.key !== f.key));
-      setError(String(e));
-    }
+    setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
+    setPickedSupplement(null); setWeighed(null);
+  }
+
+  /*
+    Opening a pot, a recipe or a supplement: what the rows of their old tabs
+    did, unchanged, now that they sit in one list with everything else.
+  */
+  async function openCook(c: Cook) {
+    clearPicks();
+    setPickedCook(c);
+    // Half of what is left, rounded — a helping, not the pot. Nothing here
+    // knows how much you eat, so it is a figure to correct rather than one to
+    // trust.
+    setNet(String(Math.max(1, Math.round(c.remaining_g / 2))));
+    await recall({ cookId: c.id });
+    // A pot never eaten from falls back to what the cook sheet carried over
+    // from the recipe — the user's own statement, not a guess from the name.
+    setOrigin((o) => o ?? c.default_origin);
+    setCuisine((x) => x ?? c.default_cuisine);
+  }
+
+  async function openRecipe(r: Recipe) {
+    clearPicks();
+    setPickedRecipe(r);
+    setNet(String(defaultPortion(r)));
+    await recall({ recipeId: r.id });
+    // A recipe never logged falls back to what was said in the builder.
+    setOrigin((o) => o ?? r.default_origin);
+    setCuisine((c) => c ?? r.default_cuisine);
+  }
+
+  function openSupplement(sup: Supplement) {
+    clearPicks();
+    setPickedSupplement(sup);
+    setDoseUnits(String(sup.default_units ?? sup.serving_units));
   }
 
   /**
@@ -805,23 +793,99 @@ export default function Foods(p: Props) {
 
   const ownHits = hits.filter((h) => h.kind === "custom");
   const refHits = hits.filter((h) => h.kind === "reference");
-  /** The two groups in the order they are drawn — what ↑/↓ walk. */
-  const flatHits = [...ownHits, ...refHits];
+  /*
+    Your own pots, recipes and supplements answer a search too, matched on
+    their names here: they are few, and already read for the list.
+  */
+  const q2 = query.trim().toLowerCase();
+  const typed = q2.length >= 2;
+  const potHits = typed ? cooks.filter((c) => c.name.toLowerCase().includes(q2)) : [];
+  const recipeHits = typed ? recipes.filter((r) => r.name.toLowerCase().includes(q2)) : [];
+  const suppHits = typed ? supplements.filter((x) => supplementLabel(x).toLowerCase().includes(q2)) : [];
+  const yoursCount = potHits.length + recipeHits.length + suppHits.length + ownHits.length;
+  /** Every result in the order drawn — what ↑, ↓ and Enter walk. */
+  const choices: { key: string; open: () => void }[] = [
+    ...potHits.map((c) => ({ key: `pot-${c.id}`, open: () => void openCook(c) })),
+    ...recipeHits.map((r) => ({ key: `rec-${r.id}`, open: () => void openRecipe(r) })),
+    ...suppHits.map((x) => ({ key: `sup-${x.id}`, open: () => openSupplement(x) })),
+    ...ownHits.map((h) => ({ key: `c-${h.custom_food_id}`, open: () => void pick(h) })),
+    ...refHits.map((h) => ({ key: `r-${h.fdc_id}`, open: () => void pick(h) })),
+  ];
 
   function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (flatHits.length === 0) return;
+    if (choices.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveHit((i) => (i + 1) % flatHits.length);
+      setActiveHit((i) => (i + 1) % choices.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveHit((i) => (i - 1 + flatHits.length) % flatHits.length);
+      setActiveHit((i) => (i - 1 + choices.length) % choices.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const h = flatHits[activeHit];
-      if (h) pick(h);
+      choices[activeHit]?.open();
     }
   }
+
+  const anyPicked = picked !== null || pickedCustom !== null || pickedRecipe !== null
+    || pickedCook !== null || pickedSupplement !== null;
+
+  /*
+    Results rise from the field. On a phone the search sits at the foot of the
+    screen, so the space above it is held open and the results stand at the
+    bottom of it: the best of them, your own, nearest your thumb.
+
+    Measured from where the field actually is, because the keyboard moves it.
+    The window is edge to edge and is not resized when the keyboard opens:
+    MainActivity reports the keyboard's height as --sys-ime on the root
+    element instead, and the field is lifted by that (`.food__dock`). Setting
+    it fires no resize, so the root's style is watched. On a wider window the
+    field heads the list and none of this applies.
+  */
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    const dock = dockRef.current;
+    if (!body || !dock) return;
+    const docked = () => getComputedStyle(dock).position === "fixed";
+    const settle = () => {
+      if (!docked()) { body.style.removeProperty("--food-fill"); return; }
+      // From the top of the results, as they stand unscrolled, to just above the field.
+      const fill = dock.getBoundingClientRect().top - (body.getBoundingClientRect().top + window.scrollY) - 16;
+      body.style.setProperty("--food-fill", `${Math.max(0, Math.round(fill))}px`);
+      // Only when the results outgrow the space: short ones already stand at
+      // its foot, and scrolling then would push the meal's title off the top.
+      if (typed && body.scrollHeight > Math.max(0, fill) + 1) {
+        window.scrollTo({ top: document.documentElement.scrollHeight });
+      }
+    };
+    settle();
+    const keyboard = new MutationObserver(settle);
+    keyboard.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+    window.addEventListener("resize", settle);
+    return () => {
+      keyboard.disconnect();
+      window.removeEventListener("resize", settle);
+    };
+  }, [typed, hits, anyPicked, tab]);
+
+  /** A row of the list: what leads it, what it is, and what is on its right. */
+  const row = (key: string, i: number | null, lead: React.ReactNode, title: string,
+    sub: React.ReactNode, right: React.ReactNode, open: () => void) => (
+    <button key={key} className="tile food__row" data-active={i !== null && i === activeHit}
+      onMouseMove={i === null ? undefined : () => setActiveHit(i)} onClick={open}>
+      {lead}
+      <span className="row__main">
+        <span className="row__title">{title}</span>
+        {sub && <span className="row__sub">{sub}</span>}
+      </span>
+      {right}
+    </button>
+  );
+  const potLead = <span className="lead lead--cook" aria-hidden><Glyph name="pot" size={20} /></span>;
+  const recipeLead = <span className="lead lead--bought" aria-hidden><Glyph name="book" size={20} /></span>;
+  const doseLead = <span className="lead lead--dose" aria-hidden><Glyph name="tablet" size={20} /></span>;
+  const chev = <span className="food__chev" aria-hidden><Chevron /></span>;
 
   /*
     An activity, or water to weigh: chosen before arriving — in the + sheet, on
@@ -841,266 +905,21 @@ export default function Foods(p: Props) {
       ) : chosen ? (
         <ScreenHead title={chosen} />
       ) : (
-        /* Left-aligned and scrolling at every width — see `.foodtabs`. */
-        <div className="chips foodtabs" ref={tabsRef}>
-          {/* A tap on the tab already showing does nothing. It is the switch that
-              unmounts the weight field; clearing `weighed` without it would leave the
-              field visibly subtracting vessels while the parent logged the net as an
-              untared number, with no tare recorded and no vessel touched. */}
-          {/* First, and selected by default when there is a pot open: the food
-              already in the kitchen is the likeliest thing being eaten, and it
-              is the only tab whose contents were actually weighed. Hidden
-              entirely when nothing is open rather than shown empty. */}
-          {cooks.length > 0 && (
-            <button className="chip" aria-pressed={tab === "available"}
-              onClick={() => {
-                if (tab === "available") return;
-                setTab("available");
-                setPicked(null); setPickedCustom(null); setPickedRecipe(null); setWeighed(null);
-              }}>Available</button>
-          )}
-          <button className="chip" aria-pressed={tab === "foods"}
-            onClick={() => { if (tab === "foods") return; setTab("foods"); setPickedRecipe(null); setPickedCook(null); setWeighed(null); }}>Foods</button>
-          <button className="chip" aria-pressed={tab === "recipes"}
-            onClick={() => { if (tab === "recipes") return; setTab("recipes"); setPicked(null); setPickedCustom(null); setPickedCook(null); setWeighed(null); }}>Recipes</button>
-          <button className="chip" aria-pressed={tab === "supplements"}
-            onClick={() => {
-              if (tab === "supplements") return;
-              setTab("supplements");
-              setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
-              setWeighed(null);
-            }}>Supplements</button>
-        </div>
+        /* The meal is the title: which sitting this goes into is the one thing
+           to know before anything is logged, and changing it is a tap on it. */
+        <header className="head fhead">
+          <button className="fhead__meal" onClick={mealSheet.show} aria-haspopup="dialog"
+            aria-label={`Logging into ${p.meal}. Change the meal`}>
+            <span className="head__title">{mealName(p.meal)}</span>
+            <span className="fhead__chev" aria-hidden><Chevron down /></span>
+          </button>
+          <p className="fhead__day">{dayLine(p.date)}</p>
+        </header>
       )}
 
-      {/* Above the tab split: a failed save on the recipe side used to have nowhere to appear. */}
       {error && <p className="alert" role="alert">{error}</p>}
 
-      {tab === "available" ? (
-        pickedCook ? (
-          <section className="card">
-            <div className="card__head">
-              <h2 className="picked__title">{pickedCook.name}</h2>
-              <button className="link card__note"
-                onClick={() => { setPickedCook(null); setWeighed(null); }}>change</button>
-            </div>
-            <p className="rangenote">
-              {potLine(pickedCook)}
-              {pickedCook.weighed_yield_g === null && (
-                <>
-                  {" "}This pot was never weighed, so portions are divided by what the recipe
-                  says the dish comes out at — what it usually does, not what this one did.
-                  Weighing it makes every portion since then no better, but every one after it
-                  exact.
-                </>
-              )}
-            </p>
-
-            <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
-            <div className="chips">
-              {MEALS.map((m) => (
-                <button key={m} className="chip" aria-pressed={m === p.meal}
-                  onClick={() => p.onMealChange(m)} style={{ textTransform: "capitalize" }}>{m}</button>
-              ))}
-            </div>
-
-            <div className="group__name" style={{ marginTop: "var(--s5)" }}>How much</div>
-            <div className="chips">
-              {/* Everything left, for the last helping. The only portion this
-                  screen can offer without inventing one — it is the pot's own
-                  measurement minus what has already been logged. */}
-              {pickedCook.remaining_g > 0 && (
-                <button className="chip"
-                  aria-pressed={!weighed && Number(grams) === Math.round(pickedCook.remaining_g)}
-                  onClick={() => setNet(String(Math.round(pickedCook.remaining_g)))}>
-                  All that's left · {Math.round(pickedCook.remaining_g)} g
-                </button>
-              )}
-            </div>
-
-            <WeightField
-              key={wfKey}
-              grams={grams}
-              onChange={(g, w) => { setGrams(g); setWeighed(w); }}
-              vessels={vessels}
-              onManageVessels={p.onManageVessels}
-              onSubmit={commitCook}
-            />
-
-            <TagPicker
-              origin={origin}
-              cuisine={cuisine}
-              onChange={(o, c) => { setOrigin(o); setCuisine(c); setRecalled(false); }}
-              recalledNote={recalled ? "From the last time you ate from this pot — change it if this helping was different." : null}
-            />
-
-            <div className="commit">
-              <button className="btn" style={{ marginLeft: "auto" }} onClick={commitCook} disabled={saving}>
-                {saving ? "Adding…" : `Add to ${p.meal}`}
-              </button>
-            </div>
-          </section>
-        ) : cooks.length === 0 ? (
-          <div className="empty">
-            <h3>Nothing cooked yet</h3>
-            <p>
-              Cook a recipe and the pot lands here with what is left in it, so a helping on
-              Thursday still draws down Monday's dal.
-            </p>
-          </div>
-        ) : (
-          <section className="card">
-            <div className="rows">
-              {cooks.map((c) => (
-                <div className="row" key={c.id} style={{ gridTemplateColumns: "1fr auto auto" }}>
-                  <button className="row__main" style={{ textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                    onClick={async () => {
-                      setPickedCook(c);
-                      // Half of what is left, rounded — a helping, not the pot.
-                      // Nothing here knows how much you eat, so it is a figure
-                      // to correct rather than one to trust.
-                      setNet(String(Math.max(1, Math.round(c.remaining_g / 2))));
-                      await recall({ cookId: c.id });
-                      // A pot never eaten from falls back to what the cook
-                      // sheet carried over from the recipe — the user's own
-                      // statement, not a guess from the dish's name.
-                      setOrigin((o) => o ?? c.default_origin);
-                      setCuisine((x) => x ?? c.default_cuisine);
-                    }}>
-                    <span className="row__title">{c.name}</span>
-                    <span className="row__sub">{potLine(c)}</span>
-                  </button>
-                  <button className="btn btn--quiet vrow__btn" onClick={() => p.onEditCook(c.id)}>
-                    Adjust
-                  </button>
-                  <button className="btn btn--quiet vrow__btn" onClick={() => closePot(c)}>
-                    Finished
-                  </button>
-                </div>
-              ))}
-            </div>
-            <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-              A pot stays here until you say it is finished. What is left is the yield minus what
-              you have logged from it, so deleting an entry puts the food back.
-            </p>
-          </section>
-        )
-      ) : tab === "supplements" ? (
-        pickedSupplement ? (
-          <section className="card">
-            <div className="card__head">
-              <h2 className="picked__title">{supplementLabel(pickedSupplement)}</h2>
-              <button className="link card__note" onClick={() => setPickedSupplement(null)}>change</button>
-            </div>
-            <p className="rangenote">
-              Its panel lists {plural(pickedSupplement.nutrients.length, "nutrient")}, per{" "}
-              {pickedSupplement.serving_label ??
-                `${pickedSupplement.serving_units} ${pickedSupplement.unit_noun}${pickedSupplement.serving_units === 1 ? "" : "s"}`}.
-              {pickedSupplement.panel_complete
-                ? " You marked the panel as listing everything, so what it leaves out counts as none."
-                : " What it leaves out stays unknown rather than counting as none."}
-            </p>
-
-            <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
-            <div className="chips">
-              {MEALS.map((m) => (
-                <button key={m} className="chip" aria-pressed={m === p.meal}
-                  onClick={() => p.onMealChange(m)} style={{ textTransform: "capitalize" }}>{m}</button>
-              ))}
-            </div>
-
-            {/* Counted, never weighed. No weight field and no vessels: a tablet
-                does not go on a scale, and the tare machinery would be
-                meaningless here. */}
-            <div className="group__name" style={{ marginTop: "var(--s5)" }}>
-              How many {pickedSupplement.unit_noun}s
-            </div>
-            <div className="dose">
-              <input
-                className="field tnum dose__n"
-                inputMode="decimal"
-                value={doseUnits}
-                onChange={(e) => setDoseUnits(e.target.value)}
-                aria-label={`How many ${pickedSupplement.unit_noun}s`}
-              />
-              <span className="dose__unit">
-                {pickedSupplement.unit_noun}
-                {Number(doseUnits) === 1 ? "" : "s"}
-              </span>
-              {pickedSupplement.serving_units !== 1 && (
-                <span className="dose__note">
-                  the panel is per {pickedSupplement.serving_units}
-                </span>
-              )}
-            </div>
-
-            <div className="commit">
-              <button className="btn" style={{ marginLeft: "auto" }} onClick={commitSupplement}
-                disabled={saving}>
-                {saving ? "Adding…" : `Add to ${p.meal}`}
-              </button>
-            </div>
-          </section>
-        ) : supplements.length === 0 ? (
-          <div className="empty">
-            <h3>No supplements yet</h3>
-            <p>
-              A multivitamin can carry more of a day's iodine or B12 than everything else you
-              eat put together. Take one off its bottle and those nutrients stop reading as
-              gaps when they are not.
-            </p>
-            {/* Straight to the editor, where the camera is. It used to go to
-                the library, which is a list with its own New button — one more
-                screen between a person holding a bottle and the lens. */}
-            <button className="btn" onClick={p.onCreateSupplement}>Add one from its bottle</button>
-          </div>
-        ) : (
-          <section className="card">
-            {/* The same door as the Foods tab's, in the words this tab uses: a
-                supplement is counted in tablets rather than weighed, and its
-                panel is a Supplement Facts panel. */}
-            <div className="rows" style={{ marginBottom: "var(--s3)" }}>
-              <button className="row packrow" onClick={p.onCreateSupplement}>
-                <span className="row__main">
-                  <span className="row__title">Add one from its bottle</span>
-                  <span className="row__sub">
-                    Photograph the Supplement Facts panel, then check what it read.
-                  </span>
-                </span>
-                <span className="packrow__icon" aria-hidden>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="1.9" strokeLinejoin="round">
-                    <path d="M4 8.5h3l1.4-2h7.2L17 8.5h3a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" />
-                    <circle cx="12" cy="13.5" r="3.2" />
-                  </svg>
-                </span>
-              </button>
-            </div>
-            <div className="rows">
-              {supplements.map((sup) => (
-                <button className="row" key={sup.id} style={{ gridTemplateColumns: "1fr auto" }}
-                  onClick={() => {
-                    setPickedSupplement(sup);
-                    setDoseUnits(String(sup.default_units ?? sup.serving_units));
-                  }}>
-                  <span className="row__main">
-                    <span className="row__title">{supplementLabel(sup)}</span>
-                    <span className="row__sub">
-                      {plural(sup.nutrients.length, "line")} off the panel ·{" "}
-                      {sup.serving_label ??
-                        `${sup.serving_units} ${sup.unit_noun}${sup.serving_units === 1 ? "" : "s"}`}
-                    </span>
-                  </span>
-                  <span className="row__chev">›</span>
-                </button>
-              ))}
-            </div>
-            <div className="card__foot">
-              <button className="link" onClick={p.onManageSupplements}>Manage your supplements</button>
-            </div>
-          </section>
-        )
-      ) : tab === "activity" ? (
+      {tab === "activity" ? (
         /* Its own screen in its own file, drawn here so every way into it — the
            + sheet, Today, a home-screen widget — keeps the address it has always
            had (`foods?pick=activity`). */
@@ -1197,8 +1016,312 @@ export default function Foods(p: Props) {
             </div>
           </section>
         )
-      ) : tab === "recipes" ? (
-        pickedRecipe ? (
+      ) : (
+        /* The list and the card for what is picked: side by side above 1080px
+           and one at a time below it — see `.workbench` in styles.css. */
+        <div className="workbench food" data-picked={anyPicked}>
+          <div className="workbench__list food__list">
+            <div ref={bodyRef} className={`food__body${typed ? " is-results" : ""}`}>
+              {!typed ? (
+                <>
+                  {/* What is already cooked comes first: the food in the
+                      kitchen is the likeliest thing being eaten. */}
+                  {cooks.length > 0 && (
+                    <section className="food__sec" aria-label="On the stove">
+                      <h2 className="food__h">On the stove</h2>
+                      <div className="tiles">
+                        {cooks.map((c) => row(`pot-${c.id}`, null, potLead, c.name, potWhen(c),
+                          <span className="food__left tnum">{potLeft(c)}</span>, () => void openCook(c)))}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* One tap each, at last time's amount, into this meal, with
+                      Undo — the same entry the long way round would write (see
+                      QuickLog.tsx). Its amount is changed from the entry. */}
+                  {quick.length > 0 && (
+                    <section className="food__sec" aria-label={`Usually at ${p.meal}`}>
+                      <h2 className="food__h">Usually at {p.meal}</h2>
+                      <div className="usual__chips">
+                        {quick.map((f) => (
+                          <button
+                            key={f.key}
+                            className="usual__chip"
+                            onClick={() => void qlog.log(f)}
+                            disabled={qlog.pending !== null}
+                            aria-busy={qlog.pending === f.key}
+                            aria-label={`Log ${f.description}, ${f.last_amount_label}, to ${p.meal}`}
+                          >
+                            <PlusGlyph />
+                            <span className="usual__name">{f.description}</span>
+                            <span className="usual__amt tnum">{f.last_amount_label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {(recipes.length > 0 || supplements.length > 0) && (
+                    <section className="food__sec" aria-label="Also yours">
+                      <h2 className="food__h">Also yours</h2>
+                      <div className="tiles">
+                        {recipes.map((r) => row(`rec-${r.id}`, null, recipeLead, r.name, "Your recipe",
+                          chev, () => void openRecipe(r)))}
+                        {supplements.map((x) => row(`sup-${x.id}`, null, doseLead, supplementLabel(x),
+                          doseText(x), chev, () => openSupplement(x)))}
+                      </div>
+                    </section>
+                  )}
+
+                  {cooks.length === 0 && quick.length === 0 && recipes.length === 0 && supplements.length === 0 && (
+                    <div className="empty">
+                      <h3>What did you eat?</h3>
+                      <p>
+                        Search below. Indian names work: <em>urad dal</em>, <em>besan</em>,{" "}
+                        <em>rava</em>. Anything in a pack is better added from its label, with the
+                        camera in the search field.
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : busy && hits.length === 0 && yoursCount === 0 ? (
+                <div className="card">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div className="skel skel--row" key={i} style={{ width: `${92 - i * 9}%` }} />
+                  ))}
+                </div>
+              ) : choices.length === 0 ? (
+                /*
+                  Two different dead ends, and they need different words.
+
+                  After a SCAN, the honest thing to say is the thing the app has
+                  never said out loud: the digits were read on this phone and
+                  looked up nowhere, because there is no product database here and
+                  nothing left the device.
+                */
+                <div className="empty">
+                  {scanCode !== null && query.trim() === scanCode ? (
+                    <>
+                      <h3>No food of yours has that barcode</h3>
+                      <p>
+                        The digits came off the pack fine. TrackIt reads them on this phone and
+                        looks them up nowhere, so nothing was sent anywhere. Add the food from
+                        its pack once and this barcode finds it every time after that.
+                      </p>
+                      <button className="btn" onClick={() => p.onCreateCustomFood(scanCode)}>
+                        Add it from its pack
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <h3>No matches for “{query.trim()}”</h3>
+                      <p>
+                        Try a simpler word, or the ingredient rather than the dish. Anything with
+                        a nutrition panel is better taken from the pack.
+                      </p>
+                      <div className="empty__acts">
+                        <button className="btn" onClick={() => p.onCreateCustomFood()}>
+                          Add it from its pack
+                        </button>
+                        <button className="btn btn--quiet" onClick={p.onCreateSupplement}>
+                          Add a supplement from its bottle
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                /* Yours, then the reference data, in that order in the page.
+                   On a phone they stand in reverse above the field, so your own
+                   are the nearest to it (`.food__results`). */
+                <div className="food__results" id="food-hits">
+                  {yoursCount > 0 && (
+                    <section className="food__sec" aria-label="Yours">
+                      <h2 className="food__h">Yours</h2>
+                      <div className="tiles">
+                        {potHits.map((c, i) => row(`pot-${c.id}`, i, potLead, c.name,
+                          `${potWhen(c)}, ${potLeft(c)}`, chev, () => void openCook(c)))}
+                        {recipeHits.map((r, i) => row(`rec-${r.id}`, potHits.length + i, recipeLead, r.name,
+                          "Your recipe", chev, () => void openRecipe(r)))}
+                        {suppHits.map((x, i) => row(`sup-${x.id}`, potHits.length + recipeHits.length + i,
+                          doseLead, supplementLabel(x), doseText(x), chev, () => openSupplement(x)))}
+                        {ownHits.map((h, i) => row(`c-${h.custom_food_id}`,
+                          potHits.length + recipeHits.length + suppHits.length + i,
+                          <span className="lead lead--own" aria-hidden>{initials(h.description)}</span>,
+                          h.description, h.note ?? h.brand, chev, () => void pick(h)))}
+                      </div>
+                    </section>
+                  )}
+                  {refHits.length > 0 && (
+                    <section className="food__sec" aria-label="From the USDA">
+                      <h2 className="food__h">From the USDA</h2>
+                      <div className="tiles">
+                        {refHits.map((h, i) => row(`r-${h.fdc_id}`, yoursCount + i,
+                          <span className="lead lead--ref" aria-hidden>{initials(h.description)}</span>,
+                          h.description, h.note, chev, () => void pick(h)))}
+                      </div>
+                    </section>
+                  )}
+                  <p className="food__foot">
+                    Not the thing in your hand?{" "}
+                    <button className="link" onClick={() => p.onCreateCustomFood()}>Add it from its pack</button>
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* The field where the thumb is. Pinned to the foot of a phone's
+                screen, and so above the keyboard when it is up; at the top of
+                the list on a wider window, where the keyboard is a real one.
+                The barcode and the pack camera are two icons in it: things
+                done now and then, not two cards with a paragraph each. */}
+            <div ref={dockRef} className="food__dock">
+              {scanNote !== null && (
+                <p className="food__scan">
+                  {scanNote}{" "}
+                  <button className="link" onClick={startBarcode}>Try again</button>
+                </p>
+              )}
+              <div className="food__field">
+                <svg className="food__glass" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden>
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="M16 16l4.5 4.5" />
+                </svg>
+                <input
+                  ref={searchRef}
+                  className="food__input"
+                  placeholder="Search foods"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onSearchKey}
+                  /* A keyboard sprung on arrival would cover what is to hand,
+                     which is the point of the screen on a phone. */
+                  autoFocus={!isAndroid()}
+                  enterKeyHint="search"
+                  aria-label="Search foods"
+                  role="combobox"
+                  aria-expanded={choices.length > 0}
+                  aria-controls="food-hits"
+                />
+                {query !== "" && (
+                  <button className="food__icon" aria-label="Clear the search"
+                    onClick={() => { setQuery(""); searchRef.current?.focus(); }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="2" strokeLinecap="round" aria-hidden>
+                      <path d="M7 7l10 10M17 7L7 17" />
+                    </svg>
+                  </button>
+                )}
+                {/* Always offered, camera or not — see `startBarcode`. */}
+                <button className="food__icon" onClick={startBarcode} ref={barBtn} disabled={scanBusy}
+                  aria-label={scanBusy ? "Reading the barcode" : "Find it by its barcode"}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="1.9" strokeLinecap="round" aria-hidden>
+                    <path d="M3.5 7.5V5.6A1.6 1.6 0 0 1 5.1 4H7" />
+                    <path d="M17 4h1.9A1.6 1.6 0 0 1 20.5 5.6v1.9" />
+                    <path d="M20.5 16.5v1.9a1.6 1.6 0 0 1-1.6 1.6H17" />
+                    <path d="M7 20H5.1a1.6 1.6 0 0 1-1.6-1.6v-1.9" />
+                    <path d="M7.5 8.5v7M10.5 8.5v7M13.5 8.5v7M16.5 8.5v7" />
+                  </svg>
+                </button>
+                <button className="food__icon" onClick={() => p.onCreateCustomFood()}
+                  aria-label="Add a food from its pack">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="1.9" strokeLinejoin="round" aria-hidden>
+                    <path d="M4 8.5h3l1.4-2h7.2L17 8.5h3a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" />
+                    <circle cx="12" cy="13.5" r="3.2" />
+                  </svg>
+                </button>
+              </div>
+              {/* The way in with no lens: a photo of the pack already on the
+                  phone. Rendered always, because it is also what
+                  `startBarcode` falls back to when the permission is refused. */}
+              <input
+                ref={barFile}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void readBarcodeFile(f);
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="workbench__detail">
+            {pickedCook ? (
+          <section className="card">
+            <div className="card__head">
+              <h2 className="picked__title">{pickedCook.name}</h2>
+              <button className="link card__note"
+                onClick={() => { setPickedCook(null); setWeighed(null); }}>change</button>
+            </div>
+            <p className="rangenote">
+              {potLine(pickedCook)}
+              {pickedCook.weighed_yield_g === null && (
+                <>
+                  {" "}This pot was never weighed, so portions are divided by what the recipe
+                  says the dish comes out at — what it usually does, not what this one did.
+                  Weighing it makes every portion since then no better, but every one after it
+                  exact.
+                </>
+              )}
+            </p>
+
+            <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
+            <div className="chips">
+              {MEALS.map((m) => (
+                <button key={m} className="chip" aria-pressed={m === p.meal}
+                  onClick={() => p.onMealChange(m)} style={{ textTransform: "capitalize" }}>{m}</button>
+              ))}
+            </div>
+
+            <div className="group__name" style={{ marginTop: "var(--s5)" }}>How much</div>
+            <div className="chips">
+              {/* Everything left, for the last helping. The only portion this
+                  screen can offer without inventing one — it is the pot's own
+                  measurement minus what has already been logged. */}
+              {pickedCook.remaining_g > 0 && (
+                <button className="chip"
+                  aria-pressed={!weighed && Number(grams) === Math.round(pickedCook.remaining_g)}
+                  onClick={() => setNet(String(Math.round(pickedCook.remaining_g)))}>
+                  All that's left · {Math.round(pickedCook.remaining_g)} g
+                </button>
+              )}
+            </div>
+
+            <WeightField
+              key={wfKey}
+              grams={grams}
+              onChange={(g, w) => { setGrams(g); setWeighed(w); }}
+              vessels={vessels}
+              onManageVessels={p.onManageVessels}
+              onSubmit={commitCook}
+            />
+
+            <TagPicker
+              origin={origin}
+              cuisine={cuisine}
+              onChange={(o, c) => { setOrigin(o); setCuisine(c); setRecalled(false); }}
+              recalledNote={recalled ? "From the last time you ate from this pot — change it if this helping was different." : null}
+            />
+
+            <div className="commit">
+              <button className="btn" style={{ marginLeft: "auto" }} onClick={commitCook} disabled={saving}>
+                {saving ? "Adding…" : `Add to ${p.meal}`}
+              </button>
+            </div>
+
+            <div className="card__foot">
+              <button className="link" onClick={() => p.onEditCook(pickedCook.id)}>Adjust this pot</button>
+              {" "}
+              <button className="link" onClick={() => closePot(pickedCook)}>Finished with it</button>
+            </div>
+          </section>
+            ) : pickedRecipe ? (
           <section className="card">
             <div className="card__head">
               <h2 className="picked__title">{pickedRecipe.name}</h2>
@@ -1256,369 +1379,63 @@ export default function Foods(p: Props) {
               </button>
             </div>
           </section>
-        ) : recipes.length === 0 ? (
-          <div className="empty">
-            <h3>No recipes saved yet</h3>
-            <p>Build one on the Recipes screen and it becomes loggable here in one tap.</p>
-          </div>
-        ) : (
-          <section className="card">
-            <div className="rows">
-              {recipes.map((r) => (
-                <button className="row" key={r.id} style={{ gridTemplateColumns: "1fr auto" }}
-                  onClick={async () => {
-                    setPickedRecipe(r);
-                    setNet(String(defaultPortion(r)));
-                    await recall({ recipeId: r.id });
-                    // A recipe the user has never logged falls back to what they
-                    // said in the builder — their own statement, not a guess.
-                    setOrigin((o) => o ?? r.default_origin);
-                    setCuisine((c) => c ?? r.default_cuisine);
-                  }}>
-                  <span className="row__main">
-                    <span className="row__title">{r.name}</span>
-                    <span className="row__sub">
-                      {plural(r.ingredients.length, "ingredient")} · comes out at{" "}
-                      {Math.round(r.yield_g).toLocaleString()} g
-                    </span>
-                  </span>
-                  <span className="row__chev">›</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        )
-      ) : (
-      <>
-      {/* Master and detail, side by side above 1080px and one at a time
-          below it — see `.workbench` in styles.css. The list keeps its scroll
-          and its query while a food is picked beside it, which is what makes a
-          mispick a glance rather than a trip back through a search. */}
-      <div className="workbench" data-picked={picked !== null || pickedCustom !== null}>
-        <div className="workbench__list">
-        <div className="search-hero">
-          <input
-            ref={searchRef}
-            className="field"
-            /* Short enough to survive a 390pt screen. The old one ran to
-               "…13,694 more — try “urad dal”, “ghee”, “broccoli”" and a phone
-               showed the first four words and an em dash pointing at nothing.
-               The examples it was spending that length on are in the empty
-               state below, where they have room to be read. */
-            placeholder="Search foods"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onSearchKey}
-            autoFocus
-            aria-label="Search foods"
-            role="combobox"
-            aria-expanded={flatHits.length > 0}
-            aria-controls="food-hits"
-          />
-          {/* The keyboard hint, and nothing else.
-
-              A "Your own foods" text link used to sit at the right-hand end of
-              this row: a bare green word floating under a search field, with no
-              edge, no icon and nothing above or below to attach it to. It read
-              as a fragment of a sentence rather than as a way somewhere, and it
-              put a route into a library in the middle of a search box. The
-              library is reached from More, where the rest of the kitchen is,
-              and from the empty state below — which is where a person who
-              searched and found the wrong thing actually is. */}
-          {flatHits.length > 0 && (
-            <div className="search-hero__hint">
-              <span className="hits__hint">
-                <kbd className="kbd">↑</kbd><kbd className="kbd">↓</kbd> to move,{" "}
-                <kbd className="kbd">↵</kbd> to pick
-              </span>
-            </div>
-          )}
-        </div>
-
-        {query.trim().length < 2 ? (
-        <>
-        {/* A shortcut, and it has to read as one. There is no count on a row,
-            no rank number, no "your favourites" and no heading that praises
-            the person for having habits — a tally beside a food name is a
-            leaderboard of your own eating, which is a streak wearing different
-            clothes. The ordering's basis is stated ONCE, in the quiet note
-            beside the heading, and never per row. What each row prints instead
-            is the one fact that actually helps you choose: what you weighed
-            out last time. That is a fact about the food.
-
-            Only while the search is empty. Once two characters are typed the
-            results are the answer, and a fixed list pinned above them would
-            push real matches below the fold. Two rows long is a perfectly good
-            list and gets no apology; nothing pads it, and with nothing in the
-            window this branch renders exactly what it rendered before the
-            section existed. */}
-        {/*
-          The door, and it is on screen before anything is typed.
-
-          Everything the camera can do in this app used to live inside the food
-          editor, and the only ways in were a text link that appeared after a
-          search returned results, a library two levels down the menu, and a
-          desktop keyboard shortcut. Somebody holding a packet had to type a
-          query they did not want, scroll past its results, and recognise
-          "label" as meaning camera. So the scanners were not missing — they
-          were unreachable, which to the person holding the packet is the same
-          thing.
-
-          Above "Had it before" deliberately: a repeat food is the commoner
-          action, but someone who has just picked up a pack is not going to
-          scroll to look for a lens.
-        */}
-        <section className="card">
-          <div className="card__head">
-            <h2>From the pack in your hand</h2>
-            {/* Says where the reading happens, which is the one fact that
-                stops this looking like every other barcode button. */}
-            <span className="card__note">read on this phone</span>
-          </div>
-          <div className="rows">
-            {/* Always offered, camera or not — see `startBarcode`. */}
-            <button className="row packrow" onClick={startBarcode} ref={barBtn} disabled={scanBusy}>
-              <span className="row__main">
-                <span className="row__title">
-                  {scanBusy ? "Reading…" : "Find it by its barcode"}
-                </span>
-                <span className="row__sub">
-                  Finds a food you added from a pack. Nothing is looked up online.
-                </span>
-              </span>
-              <span className="packrow__icon" aria-hidden>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.9" strokeLinecap="round">
-                  <path d="M3.5 7.5V5.6A1.6 1.6 0 0 1 5.1 4H7" />
-                  <path d="M17 4h1.9A1.6 1.6 0 0 1 20.5 5.6v1.9" />
-                  <path d="M20.5 16.5v1.9a1.6 1.6 0 0 1-1.6 1.6H17" />
-                  <path d="M7 20H5.1a1.6 1.6 0 0 1-1.6-1.6v-1.9" />
-                  <path d="M7.5 8.5v7M10.5 8.5v7M13.5 8.5v7M16.5 8.5v7" />
-                </svg>
-              </span>
-            </button>
-
-            <button className="row packrow" onClick={() => p.onCreateCustomFood()}>
-              <span className="row__main">
-                <span className="row__title">Add a food from its pack</span>
-                <span className="row__sub">
-                  Photograph the nutrition panel and the ingredient list, then check what it read.
-                </span>
-              </span>
-              <span className="packrow__icon" aria-hidden>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.9" strokeLinejoin="round">
-                  <path d="M4 8.5h3l1.4-2h7.2L17 8.5h3a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" />
-                  <circle cx="12" cy="13.5" r="3.2" />
-                </svg>
-              </span>
-            </button>
-          </div>
-
-          {scanNote !== null && (
-            <div className="card__foot">
-              <span className="packrow__note">{scanNote}</span>{" "}
-              <button className="link" onClick={startBarcode}>Try again</button>
-            </div>
-          )}
-
-          {/* The way in with no lens: a photo of the pack already on the phone.
-              Rendered always, because it is also what `startBarcode` falls back
-              to when the permission is refused rather than merely absent. */}
-          <input
-            ref={barFile}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            hidden
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) void readBarcodeFile(f);
-            }}
-          />
-        </section>
-
-        {quick.length > 0 && (
+            ) : pickedSupplement ? (
           <section className="card">
             <div className="card__head">
-              <h2>Had it before</h2>
+              <h2 className="picked__title">{supplementLabel(pickedSupplement)}</h2>
+              <button className="link card__note" onClick={() => setPickedSupplement(null)}>change</button>
             </div>
-            <ul className="hits" style={{ marginTop: "var(--s2)" }}>
-              {quick.map((f) => (
-                <li key={f.key}>
-                  {/*
-                    Two controls, because there are two things a person means
-                    by tapping a food they have had before: log it exactly as
-                    last time, or start from last time and change the weight.
-                    The row opens the amount, which is what it has always done;
-                    the button at its end writes it.
+            <p className="rangenote">
+              Its panel lists {plural(pickedSupplement.nutrients.length, "nutrient")}, per{" "}
+              {pickedSupplement.serving_label ??
+                `${pickedSupplement.serving_units} ${pickedSupplement.unit_noun}${pickedSupplement.serving_units === 1 ? "" : "s"}`}.
+              {pickedSupplement.panel_complete
+                ? " You marked the panel as listing everything, so what it leaves out counts as none."
+                : " What it leaves out stays unknown rather than counting as none."}
+            </p>
 
-                    The weight is printed on the button that writes it, so
-                    nothing gets logged that the finger had not already read —
-                    and an Undo follows it for eight seconds. See QuickLog.tsx.
-                  */}
-                  <div className="row hit quickrow">
-                    <button className="quickrow__open" onClick={() => pickFrequent(f)}>
-                      <span className="row__title">{f.description}</span>
-                      <span className="row__sub">
-                        {f.brand ? `${f.brand} · ` : ""}{f.last_amount_label} last time
-                      </span>
-                    </button>
-                    <button
-                      className="quickrow__log"
-                      onClick={() => qlog.log(f)}
-                      disabled={qlog.pending !== null}
-                      aria-busy={qlog.pending === f.key}
-                      aria-label={`Log ${f.description}, ${f.last_amount_label}, to ${p.meal}`}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        strokeWidth="2.6" strokeLinecap="round" aria-hidden>
-                        <path d="M12 5v14M5 12h14" />
-                      </svg>
-                      <span className="tnum">{f.last_amount_label}</span>
-                    </button>
-                  </div>
-                </li>
+            <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
+            <div className="chips">
+              {MEALS.map((m) => (
+                <button key={m} className="chip" aria-pressed={m === p.meal}
+                  onClick={() => p.onMealChange(m)} style={{ textTransform: "capitalize" }}>{m}</button>
               ))}
-            </ul>
-            {/* The ordering's basis is stated once, here, and never per row —
-                a tally beside a food name is a leaderboard of your own eating.
-                It used to sit beside the heading, where it wrapped the two
-                words of the title onto two lines on a 390pt screen. */}
-            <div className="card__foot">
-              The foods you have had on most days these past three months. The green button
-              logs one straight into {p.meal} at that weight and you can undo it; tap the name
-              instead to change the amount first.
+            </div>
+
+            {/* Counted, never weighed. No weight field and no vessels: a tablet
+                does not go on a scale, and the tare machinery would be
+                meaningless here. */}
+            <div className="group__name" style={{ marginTop: "var(--s5)" }}>
+              How many {pickedSupplement.unit_noun}s
+            </div>
+            <div className="dose">
+              <input
+                className="field tnum dose__n"
+                inputMode="decimal"
+                value={doseUnits}
+                onChange={(e) => setDoseUnits(e.target.value)}
+                aria-label={`How many ${pickedSupplement.unit_noun}s`}
+              />
+              <span className="dose__unit">
+                {pickedSupplement.unit_noun}
+                {Number(doseUnits) === 1 ? "" : "s"}
+              </span>
+              {pickedSupplement.serving_units !== 1 && (
+                <span className="dose__note">
+                  the panel is per {pickedSupplement.serving_units}
+                </span>
+              )}
+            </div>
+
+            <div className="commit">
+              <button className="btn" style={{ marginLeft: "auto" }} onClick={commitSupplement}
+                disabled={saving}>
+                {saving ? "Adding…" : `Add to ${p.meal}`}
+              </button>
             </div>
           </section>
-        )}
-        <div className="empty">
-          <h3>What did you eat?</h3>
-          <p>
-            Indian names work — <em>urad dal</em>, <em>besan</em>, <em>rava</em>, <em>haldi</em> —
-            even where USDA files the food under a different name.
-          </p>
-          <p>
-            Anything with a pack on it is better transcribed from the label than matched to a
-            generic entry. Your own foods come first in these results.
-          </p>
-        </div>
-        </>
-      ) : busy && hits.length === 0 ? (
-        <div className="card">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div className="skel skel--row" key={i} style={{ width: `${92 - i * 9}%` }} />
-          ))}
-        </div>
-      ) : hits.length === 0 ? (
-        /*
-          Two different dead ends, and they need different words.
-
-          Arriving here after a SCAN is the common one now, and the honest thing
-          to say is the thing the app has never said out loud: the digits were
-          read on this phone and looked up nowhere, because there is no product
-          database here and nothing left the device. Someone who expected a
-          supermarket app to name their cereal needs to be told that once, at
-          the moment it did not happen — not left to conclude the scanner is
-          broken.
-        */
-        <div className="empty">
-          {scanCode !== null && query.trim() === scanCode ? (
-            <>
-              <h3>No food of yours has that barcode</h3>
-              <p>
-                The digits came off the pack fine. TrackIt reads them on this phone and looks
-                them up nowhere — there is no product database on here, and nothing was sent
-                anywhere.
-              </p>
-              <p>
-                Add the food from its pack once and this barcode finds it every time after that.
-              </p>
-              <button className="btn" onClick={() => p.onCreateCustomFood(scanCode)}>
-                Add it from its pack
-              </button>
-            </>
-          ) : (
-            <>
-              <h3>No matches for “{query.trim()}”</h3>
-              <p>Try a simpler word, or the ingredient rather than the dish.</p>
-              <p>
-                If it is something with a nutrition panel on the back, take it from the pack
-                instead — what the pack says beats any generic entry for the thing you are
-                actually eating.
-              </p>
-              <button className="btn" onClick={() => p.onCreateCustomFood()}>
-                Add it from its pack
-              </button>
-            </>
-          )}
-        </div>
-      ) : (
-        <section className="card">
-          {ownHits.length > 0 && (
-            <>
-              <div className="card__head">
-                <h2>Your foods</h2>
-                <span className="card__note">what the pack says</span>
-              </div>
-              <ul className="hits" id="food-hits" style={{ marginTop: "var(--s2)" }}>
-                {ownHits.map((h, i) => (
-                  <li key={`c-${h.custom_food_id}`}>
-                    <button
-                      className="row hit"
-                      data-active={i === activeHit}
-                      onMouseMove={() => setActiveHit(i)}
-                      onClick={() => pick(h)}
-                    >
-                      <span className="row__main">
-                        <span className="row__title">{h.description}</span>
-                        {h.brand && <span className="row__sub">{h.brand}</span>}
-                        {h.note && <span className="hit__note">{h.note}</span>}
-                      </span>
-                      <span className="hit__src">Yours</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {refHits.length > 0 && (
-            <div style={{ marginTop: ownHits.length > 0 ? "var(--s5)" : 0 }}>
-              <div className="card__head">
-                <h2>Reference data</h2>
-                <span className="card__note">USDA, per 100 g</span>
-              </div>
-              <ul className="hits" style={{ marginTop: "var(--s2)" }}>
-                {refHits.map((h, i) => (
-                  <li key={`r-${h.fdc_id}`}>
-                    <button
-                      className="row hit"
-                      data-active={ownHits.length + i === activeHit}
-                      onMouseMove={() => setActiveHit(ownHits.length + i)}
-                      onClick={() => pick(h)}
-                    >
-                      <span className="row__main">
-                        <span className="row__title">{h.description}</span>
-                        {h.note && <span className="hit__note">{h.note}</span>}
-                      </span>
-                      <span className="hit__src">{SOURCE_LABEL[h.data_type] ?? h.data_type}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="card__foot">
-            Not the thing in your hand?{" "}
-            <button className="link" onClick={() => p.onCreateCustomFood()}>Add it from its pack</button>
-          </div>
-        </section>
-        )}
-        </div>
-
-        <div className="workbench__detail">
+            ) : (
+              <>
           {pickedCustom ? (
             <CustomPicked
           detail={pickedCustom}
@@ -1722,10 +1539,31 @@ export default function Foods(p: Props) {
               </p>
             </div>
           )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
-      </>
       )}
+
+      {/* Which meal the food goes into. A sheet rather than four chips under
+          the title, since it is set by the clock and changed now and then. */}
+      <Sheet open={mealSheet.open} onClose={mealSheet.hide} title="Which meal?">
+        <div className="tiles mealpick">
+          {MEALS.map((m) => (
+            <button key={m} className="tile mealpick__row" aria-pressed={m === p.meal}
+              onClick={() => { p.onMealChange(m); mealSheet.hide(); }}>
+              <span className="lead lead--ref" aria-hidden><Glyph name={m} size={20} /></span>
+              <span className="row__title">{mealName(m)}</span>
+              {m === p.meal && (
+                <svg className="mealpick__tick" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M5 12.5l4.5 4.5L19 7.5" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+      </Sheet>
 
       {/* The lens. Open only while the hash says so, so the Android back
           gesture closes it rather than navigating this screen away underneath
@@ -1972,6 +1810,53 @@ function portionLabel(pt: Portion): string {
   if (named === undefined) return `${round(pt.gram_weight)} g`;
   const qty = pt.amount === 1 ? "" : `${trim(pt.amount)} `;
   return `${qty}${named.trim()} · ${round(pt.gram_weight)} g`;
+}
+
+/** A sitting's name as a title: "Dinner". */
+function mealName(m: Meal): string {
+  return m.charAt(0).toUpperCase() + m.slice(1);
+}
+
+/** The day being logged into, as Today writes it under its title. */
+function dayLine(iso: string): string {
+  const dt = new Date(`${iso}T00:00:00`);
+  const thisYear = iso.slice(0, 4) === new Date().toISOString().slice(0, 4);
+  return dt.toLocaleDateString(undefined, {
+    weekday: "long", day: "numeric", month: "long",
+    ...(thisYear ? {} : { year: "numeric" as const }),
+  });
+}
+
+/** When a pot was cooked: "Cooked today", "Cooked Sun, Sep 27". */
+function potWhen(c: Cook): string {
+  const d = humanDate(c.cooked_on);
+  return `Cooked ${d === "Today" || d === "Yesterday" ? d.toLowerCase() : d}`;
+}
+
+/**
+ * What a pot has left, roughly: the yield is one measurement of a pot that has
+ * been stirred and served since — and for a pot never weighed, the recipe's
+ * expectation — so the figure is said as about.
+ */
+function potLeft(c: Cook): string {
+  return c.remaining_g > 0 ? `about ${Math.round(c.remaining_g).toLocaleString()} g left` : "none left";
+}
+
+/** A supplement's usual dose: "1 tablet", "2 capsules". */
+function doseText(sup: Supplement): string {
+  const n = sup.default_units ?? sup.serving_units;
+  return `${n} ${sup.unit_noun}${n === 1 ? "" : "s"}`;
+}
+
+/** The chevron the list's rows end on, and the title's, pointing down. */
+function Chevron({ down = false }: { down?: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden
+      style={down ? { transform: "rotate(90deg)" } : undefined}>
+      <path d="M10 7l5 5-5 5" />
+    </svg>
+  );
 }
 
 /** What a supplement is called in the log — brand first unless the name has it. */
