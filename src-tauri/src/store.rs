@@ -270,6 +270,10 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
   -- something else. Leaving a line out is recorded on the cook, never here:
   -- a recipe that omits its own ingredient is just a different recipe.
   optional    INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0,1)),
+  -- Added by feel rather than weighed: salt, oil, ketchup. `raw_g` is then the
+  -- amount the person wrote, and what goes into a pot is that times the
+  -- correction their kitchen containers give for the food. See D28.
+  to_taste    INTEGER NOT NULL DEFAULT 0 CHECK (to_taste IN (0,1)),
   -- One or the other, or neither. A line naming both would have two answers
   -- for what it is made of, and nothing downstream could choose between them.
   CHECK (fdc_id IS NULL OR custom_food_id IS NULL)
@@ -389,6 +393,12 @@ CREATE TABLE IF NOT EXISTS cook_ingredients (
   -- substitute is what was eaten, the original is what the dish was meant to
   -- be, and collapsing them would lose the reason the numbers differ.
   substituted_for TEXT,
+  -- Added by feel. `planned_g` is then the written amount and `raw_g` is it
+  -- times `taste_factor`, the container correction when the pot was saved --
+  -- frozen with it, so a container finished next week does not re-value a pot
+  -- already in the fridge. See D28.
+  to_taste    INTEGER NOT NULL DEFAULT 0 CHECK (to_taste IN (0,1)),
+  taste_factor REAL CHECK (taste_factor IS NULL OR taste_factor >= 0),
   CHECK (fdc_id IS NULL OR custom_food_id IS NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_ci_cook ON cook_ingredients(cook_id, position);
@@ -1199,6 +1209,9 @@ pub struct RecipeIngredient {
     /// restored builder draft, most likely — still deserializes, as required.
     #[serde(default)]
     pub optional: bool,
+    /// Added by feel; `raw_g` is the written amount. See the table comment.
+    #[serde(default)]
+    pub to_taste: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1227,6 +1240,15 @@ pub struct CookIngredient {
     /// The line this replaced, when it was a substitution.
     #[serde(default)]
     pub substituted_for: Option<String>,
+    /// Added by feel: `planned_g` is the written amount, `raw_g` that times
+    /// `taste_factor`. See the table comment.
+    #[serde(default)]
+    pub to_taste: bool,
+    /// The container correction this line was valued at. `None` on a line
+    /// the screen has not had saved yet; saving fills it in from the
+    /// containers as they stand, and keeps it on every later save.
+    #[serde(default)]
+    pub taste_factor: Option<f64>,
 }
 
 /// One pot, actually made. See the `cooks` table comment for why it exists.
@@ -1369,7 +1391,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-pub(crate) const SCHEMA_VERSION: i64 = 21;
+pub(crate) const SCHEMA_VERSION: i64 = 22;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -1704,6 +1726,11 @@ fn prepare(mut conn: Connection) -> Result<Connection, String> {
     // exists in an older shape — that is what `migrate` is for.
     conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
     migrate(&mut conn)?;
+    // After `migrate`, because these reference tables an old database may
+    // only now have reached the shape of. All new tables, so creating them is
+    // the whole of their migration.
+    conn.execute_batch(crate::containers::SCHEMA)
+        .map_err(|e| e.to_string())?;
     // Belt and braces against a sync run that somehow left the flag raised.
     // Rolling back the apply transaction is what is supposed to clear it; this
     // costs one UPDATE at launch and closes the case where it did not, which
@@ -3181,6 +3208,29 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    // v21 -> v22: an ingredient line may be added by feel. See D28.
+    //
+    // Plain ADD COLUMN, because every new column has a constant default and
+    // none tightens what existing rows may hold. Guarded on the columns rather
+    // than the number, like every arm above. Last, because the earlier arms
+    // rebuild both tables from their own older shapes.
+    if !columns(conn, "recipe_ingredients")?.iter().any(|c| c == "to_taste") {
+        conn.execute_batch(
+            "ALTER TABLE recipe_ingredients ADD COLUMN to_taste INTEGER NOT NULL DEFAULT 0
+               CHECK (to_taste IN (0,1));",
+        )
+        .map_err(|e| format!("migrating recipe_ingredients to v22: {e}"))?;
+    }
+    if !columns(conn, "cook_ingredients")?.iter().any(|c| c == "to_taste") {
+        conn.execute_batch(
+            "ALTER TABLE cook_ingredients ADD COLUMN to_taste INTEGER NOT NULL DEFAULT 0
+               CHECK (to_taste IN (0,1));
+             ALTER TABLE cook_ingredients ADD COLUMN taste_factor REAL
+               CHECK (taste_factor IS NULL OR taste_factor >= 0);",
+        )
+        .map_err(|e| format!("migrating cook_ingredients to v22: {e}"))?;
+    }
+
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
     // column this indexes does not exist yet and the whole batch would fail.
@@ -3883,8 +3933,9 @@ pub fn save_recipe(
         let iid = new_id(&tx)?;
         tx.execute(
             "INSERT INTO recipe_ingredients
-               (id,recipe_id,position,fdc_id,custom_food_id,description,raw_g,optional)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+               (id,recipe_id,position,fdc_id,custom_food_id,description,raw_g,optional,
+                to_taste)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             rusqlite::params![
                 iid,
                 id,
@@ -3893,7 +3944,8 @@ pub fn save_recipe(
                 ing.custom_food_id,
                 ing.description,
                 ing.raw_g,
-                ing.optional as i64
+                ing.optional as i64,
+                ing.to_taste as i64
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -3949,7 +4001,8 @@ fn get_recipe_inner(conn: &Connection, id: &str, include_deleted: bool) -> Resul
 
     let mut istmt = conn
         .prepare(
-            "SELECT id, position, fdc_id, custom_food_id, description, raw_g, optional
+            "SELECT id, position, fdc_id, custom_food_id, description, raw_g, optional,
+                    to_taste
              FROM recipe_ingredients WHERE recipe_id = ?1 ORDER BY position",
         )
         .map_err(|e| e.to_string())?;
@@ -3963,6 +4016,7 @@ fn get_recipe_inner(conn: &Connection, id: &str, include_deleted: bool) -> Resul
                 description: r.get(4)?,
                 raw_g: r.get(5)?,
                 optional: r.get::<_, i64>(6)? != 0,
+                to_taste: r.get::<_, i64>(7)? != 0,
             })
         })
         .map_err(|e| e.to_string())?
@@ -4219,11 +4273,32 @@ pub fn save_cook(
 
     for (i, ing) in input.ingredients.iter().enumerate() {
         let iid = new_id(&tx)?;
+        // A to-taste line is valued here and nowhere else, so the screen
+        // cannot write an amount the containers disagree with. A line that
+        // already carries a factor keeps it: re-saving a pot to add an onion
+        // must not re-value the salt that went in on Tuesday.
+        let (raw_g, taste_factor) = if ing.to_taste && ing.raw_g == 0.0 {
+            // Left out at the stove: zero is a decision about this pot, and
+            // valuing the written amount would put the line back in.
+            (0.0, None)
+        } else if ing.to_taste {
+            let factor = match ing.taste_factor {
+                Some(f) if f.is_finite() && f >= 0.0 => f,
+                Some(_) => return Err(format!("“{}” carries a correction that is not a number", ing.description)),
+                None => {
+                    crate::containers::factor_for_line(&tx, ing.fdc_id, ing.custom_food_id.as_deref())?
+                        .factor
+                }
+            };
+            (ing.planned_g * factor, Some(factor))
+        } else {
+            (ing.raw_g, None)
+        };
         tx.execute(
             "INSERT INTO cook_ingredients
                (id,cook_id,position,fdc_id,custom_food_id,description,planned_g,raw_g,
-                substituted_for)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                substituted_for,to_taste,taste_factor)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
             rusqlite::params![
                 iid,
                 id,
@@ -4232,8 +4307,10 @@ pub fn save_cook(
                 ing.custom_food_id,
                 ing.description,
                 ing.planned_g,
-                ing.raw_g,
-                opt_trim(ing.substituted_for.as_ref())
+                raw_g,
+                opt_trim(ing.substituted_for.as_ref()),
+                ing.to_taste as i64,
+                taste_factor
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -4296,7 +4373,7 @@ fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<
     let mut istmt = conn
         .prepare(
             "SELECT id, position, fdc_id, custom_food_id, description, planned_g, raw_g,
-                    substituted_for
+                    substituted_for, to_taste, taste_factor
              FROM cook_ingredients WHERE cook_id = ?1 ORDER BY position",
         )
         .map_err(|e| e.to_string())?;
@@ -4311,6 +4388,8 @@ fn get_cook_inner(conn: &Connection, id: &str, include_deleted: bool) -> Result<
                 planned_g: r.get(5)?,
                 raw_g: r.get(6)?,
                 substituted_for: r.get(7)?,
+                to_taste: r.get::<_, i64>(8)? != 0,
+                taste_factor: r.get(9)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -6706,7 +6785,7 @@ pub struct Snapshot {
 /// Write one entry's frozen contribution. The caller supplies the connection so
 /// this can join a transaction that also inserts the entry itself — a row with
 /// no snapshot would be read as a day with a hole in it.
-fn write_snapshot(conn: &Connection, entry_id: &str, snap: &Snapshot) -> Result<(), String> {
+pub(crate) fn write_snapshot(conn: &Connection, entry_id: &str, snap: &Snapshot) -> Result<(), String> {
     conn.execute(
         "INSERT OR REPLACE INTO entry_snapshots
            (entry_id, frozen_at, basis, corrected_at,
@@ -8566,6 +8645,7 @@ mod tests {
             description: desc.into(),
             raw_g: raw,
             optional: false,
+            to_taste: false,
         }
     }
 
@@ -8918,6 +8998,8 @@ mod tests {
                     planned_g: 300.0,
                     raw_g: 300.0,
                     substituted_for: None,
+                    to_taste: false,
+                    taste_factor: None,
                 }],
             },
         )
@@ -8954,6 +9036,7 @@ mod tests {
                     custom_food_id: Some(tofu.clone()),
                     description: "Costco extra-firm tofu".into(),
                     raw_g: 400.0, optional: false,
+                    to_taste: false,
                 },
                 ing("Onions, raw", Some(170000), 120.0),
             ],
@@ -8985,6 +9068,7 @@ mod tests {
             id: String::new(), position: 0, fdc_id: Some(170000),
             custom_food_id: Some(own.clone()),
             description: "Tofu".into(), raw_g: 400.0, optional: false,
+            to_taste: false,
         };
         let err = save_recipe(
             &mut c, "Confused", 600.0, None, None, &[both.clone()], &[], &Tags::default(),
@@ -9005,6 +9089,8 @@ mod tests {
                     custom_food_id: Some(own),
                     description: "Tofu".into(), planned_g: 400.0, raw_g: 400.0,
                     substituted_for: None,
+                    to_taste: false,
+                    taste_factor: None,
                 }],
             },
         )
@@ -9381,6 +9467,8 @@ mod tests {
                     planned_g: 900.0,
                     raw_g: 300.0,
                     substituted_for: None,
+                    to_taste: false,
+                    taste_factor: None,
                 }],
             },
         )
@@ -11225,6 +11313,8 @@ mod tests {
                     planned_g: weighed_g,
                     raw_g: weighed_g,
                     substituted_for: None,
+                    to_taste: false,
+                    taste_factor: None,
                 }],
             },
         )
@@ -12266,6 +12356,8 @@ mod tests {
                     planned_g: 900.0,
                     raw_g: 300.0,
                     substituted_for: None,
+                    to_taste: false,
+                    taste_factor: None,
                 }],
             },
         )
@@ -12870,6 +12962,7 @@ mod tests {
                 custom_food_id: Some(tofu.clone()),
                 description: "Costco extra-firm tofu".into(),
                 raw_g: 400.0, optional: false,
+                to_taste: false,
             }],
             &[], &Tags::default(),
         )
@@ -13108,6 +13201,8 @@ mod tests {
                     planned_g: 600.0,
                     raw_g: 200.0,
                     substituted_for: None,
+                    to_taste: false,
+                    taste_factor: None,
                 }],
             },
         )
@@ -13610,6 +13705,8 @@ mod tests {
                     planned_g: 900.0,
                     raw_g: 300.0,
                     substituted_for: None,
+                    to_taste: false,
+                    taste_factor: None,
                 }],
             },
         )

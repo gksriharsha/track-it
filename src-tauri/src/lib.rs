@@ -1,6 +1,8 @@
 mod activity;
 mod awake;
 mod backup;
+mod container_commands;
+mod containers;
 mod db;
 mod export;
 mod keystore;
@@ -1039,19 +1041,34 @@ fn draft_cook(
         ingredients: recipe
             .ingredients
             .iter()
-            .map(|i| store::CookIngredient {
-                id: String::new(),
-                position: i.position,
-                fdc_id: i.fdc_id,
-                description: i.description.clone(),
-                custom_food_id: i.custom_food_id.clone(),
+            .map(|i| {
                 // Raw, like everything else about an ingredient: it is the
                 // amount that will be weighed out and tipped in.
-                planned_g: i.raw_g * scale,
-                raw_g: i.raw_g * scale,
-                substituted_for: None,
+                let planned_g = i.raw_g * scale;
+                // A to-taste line shows what it will be valued at, but leaves
+                // its factor unset: saving reads the containers again, so a
+                // draft left open overnight cannot carry yesterday's figure.
+                let raw_g = if i.to_taste {
+                    planned_g
+                        * containers::factor_for_line(&conn, i.fdc_id, i.custom_food_id.as_deref())?
+                            .factor
+                } else {
+                    planned_g
+                };
+                Ok(store::CookIngredient {
+                    id: String::new(),
+                    position: i.position,
+                    fdc_id: i.fdc_id,
+                    description: i.description.clone(),
+                    custom_food_id: i.custom_food_id.clone(),
+                    planned_g,
+                    raw_g,
+                    substituted_for: None,
+                    to_taste: i.to_taste,
+                    taste_factor: None,
+                })
             })
-            .collect(),
+            .collect::<Result<Vec<_>, String>>()?,
         logged_g: 0.0,
         yield_g: 0.0,
         remaining_g: 0.0,
@@ -1440,7 +1457,7 @@ const MEALS: [&str; 4] = ["breakfast", "lunch", "dinner", "snack"];
 /// the frontend's own normalisation. No date library is pulled in for this:
 /// the range check is a handful of comparisons once the three fields are
 /// known to be numeric and grouped correctly.
-fn valid_iso_date(s: &str) -> bool {
+pub(crate) fn valid_iso_date(s: &str) -> bool {
     let b = s.as_bytes();
     if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
         return false;
@@ -3260,7 +3277,16 @@ fn resolve_contribution(
             let fraction = grams / recipe.yield_g;
             let mut components = Vec::new();
             for ing in &recipe.ingredients {
-                let portion = ing.raw_g * fraction;
+                // By feel: the written amount times what the containers say
+                // about it today. Frozen into this entry like everything else.
+                let raw_g = if ing.to_taste {
+                    ing.raw_g
+                        * containers::factor_for_line(uconn, ing.fdc_id, ing.custom_food_id.as_deref())?
+                            .factor
+                } else {
+                    ing.raw_g
+                };
+                let portion = raw_g * fraction;
                 // An ingredient scaled to nothing would violate the component
                 // table's positivity CHECK. Dropping it loses no nutrition and
                 // keeps a zero-gram ingredient from failing the whole entry.
@@ -5083,6 +5109,18 @@ pub fn run() {
             log_whole_bottle,
             log_bottle_share,
             per_100g,
+            container_commands::list_containers,
+            container_commands::get_container,
+            container_commands::pantry,
+            container_commands::suggest_density,
+            container_commands::preview_container_event,
+            container_commands::save_container,
+            container_commands::delete_container,
+            container_commands::add_container_event,
+            container_commands::delete_container_event,
+            container_commands::taste_factors,
+            container_commands::container_usage,
+            container_commands::log_container_use,
             frequent_foods,
             list_custom_foods,
             get_custom_food,
@@ -6423,6 +6461,7 @@ mod tests {
                     id: String::new(), position: 0, fdc_id: None,
                     custom_food_id: Some(own), description: "Milk chocolate bar".into(),
                     raw_g: 43.0, optional: false,
+                    to_taste: false,
                 }],
                 &[], &store::Tags::default(),
             )
@@ -6455,6 +6494,7 @@ mod tests {
                     id: String::new(), position: 0, fdc_id: None,
                     custom_food_id: Some(own), description: "Milk chocolate bar".into(),
                     raw_g: 43.0, optional: false,
+                    to_taste: false,
                 }],
                 &[], &store::Tags::default(),
             )
@@ -6599,6 +6639,7 @@ mod tests {
                     description: "kidney beans".into(),
                     raw_g: 400.0,
                     optional: false,
+                    to_taste: false,
                 }],
                 &[],
                 &no_tags(),
@@ -6671,6 +6712,8 @@ mod tests {
                     planned_g: 400.0,
                     raw_g: 400.0,
                     substituted_for: None,
+                    to_taste: false,
+                    taste_factor: None,
                 }],
             }
         }
@@ -6754,6 +6797,8 @@ mod tests {
                 planned_g: 20.0,
                 raw_g: 20.0,
                 substituted_for: None,
+                to_taste: false,
+                taste_factor: None,
             });
             input.ingredients.push(store::CookIngredient {
                 id: String::new(),
@@ -6765,6 +6810,8 @@ mod tests {
                 // Left out. Zero here is a measurement, not a missing value.
                 raw_g: 0.0,
                 substituted_for: None,
+                to_taste: false,
+                taste_factor: None,
             });
             let cid = store::save_cook(&mut uc, None, &input).unwrap();
             add_frozen(
@@ -7366,6 +7413,7 @@ mod tests {
                     description: "home-made mango pickle".into(),
                     raw_g: 500.0,
                     optional: false,
+                    to_taste: false,
                 }],
                 &[],
                 &no_tags(),
@@ -7592,11 +7640,13 @@ mod tests {
                         id: String::new(), position: 0, fdc_id: Some(328637),
                         custom_food_id: None, description: "Cheddar".into(),
                         raw_g: 50.0, optional: false,
+                        to_taste: false,
                     },
                     store::RecipeIngredient {
                         id: String::new(), position: 1, fdc_id: None,
                         custom_food_id: None, description: "Drumstick pods".into(),
                         raw_g: 50.0, optional: false,
+                        to_taste: false,
                     },
                 ],
                 &[], &store::Tags::default(),
@@ -7973,6 +8023,7 @@ mod tests {
                 description: description.into(),
                 raw_g: 50.0,
                 optional: false,
+                to_taste: false,
             };
             store::save_recipe(
                 uc, "Sambar", 100.0, None, None,

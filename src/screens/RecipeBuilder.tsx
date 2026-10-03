@@ -19,6 +19,12 @@ interface Draft {
   source: string;
   /** Whether the dish survives without this line. See `RecipeIngredient`. */
   optional: boolean;
+  /**
+   * Added by feel: salt, oil, ghee. The weight is then what you would write,
+   * and each pot gets it times what your pantry shows. Absent on a draft
+   * saved before this existed, which reads as false.
+   */
+  toTaste?: boolean;
 }
 
 /**
@@ -202,6 +208,10 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, optional: !r.optional } : r)));
   }
 
+  function toggleTaste(key: string) {
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, toTaste: !r.toTaste } : r)));
+  }
+
   function addServingOption() {
     const g = Number(soGrams);
     if (!soLabel.trim() || !Number.isFinite(g) || g <= 0) return;
@@ -226,6 +236,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     const ingredients: RecipeIngredient[] = rows.map((r, i) => ({
       id: "", position: i, fdc_id: r.fdcId, custom_food_id: r.ownId,
       description: r.description, raw_g: Number(r.raw), optional: r.optional,
+      to_taste: r.toTaste === true,
     }));
 
     setSaving(true);
@@ -379,6 +390,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
                     color: r.fdcId === null && r.ownId === null ? "var(--over)" : undefined }}>
                     {r.source}
                     {r.optional && " · optional"}
+                    {r.toTaste && " · to taste"}
                   </span>
                 </span>
                 {/* One weight, and it is the one that can be measured: what
@@ -392,18 +404,34 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
                 {/* Optional says the dish is still the dish without this line.
                     It moves no weight here — it is what the cook sheet reads
                     to offer "leave this out" at the stove. */}
-                <button
-                  className="chip ing-opt"
-                  aria-pressed={r.optional}
-                  onClick={() => toggleOptional(r.key)}
-                  title={
-                    r.optional
-                      ? `${r.description} can be left out`
-                      : `Mark ${r.description} as one you can skip`
-                  }
-                >
-                  optional
-                </button>
+                <span className="ing-flags">
+                  <button
+                    className="chip ing-opt"
+                    aria-pressed={r.optional}
+                    onClick={() => toggleOptional(r.key)}
+                    title={
+                      r.optional
+                        ? `${r.description} can be left out`
+                        : `Mark ${r.description} as one you can skip`
+                    }
+                  >
+                    optional
+                  </button>
+                  {/* By feel: the weight beside it is what you'd write, and a
+                      pot gets that times what the pantry has shown. */}
+                  <button
+                    className="chip ing-opt"
+                    aria-pressed={r.toTaste === true}
+                    onClick={() => toggleTaste(r.key)}
+                    title={
+                      r.toTaste
+                        ? `${r.description} goes in by feel`
+                        : `Mark ${r.description} as added by feel`
+                    }
+                  >
+                    to taste
+                  </button>
+                </span>
                 <button className="iconbtn ing-x" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}
                   aria-label={`Remove ${r.description}`}>×</button>
               </div>

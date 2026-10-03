@@ -229,6 +229,178 @@ export interface Bottle {
   last_used_at: string | null;
 }
 
+/* ── kitchen containers ───────────────────────────────────────────────── */
+
+/** A food, as a container and an ingredient line both name it. Exactly one is set. */
+export interface FoodRef {
+  fdc_id: number | null;
+  custom_food_id: string | null;
+}
+
+export type ContainerEventKind = "poured_in" | "reading" | "emptied";
+
+/** How a container is read day to day: on a scale in grams, or by the marks on its side in ml. */
+export type ReadBy = "scale" | "marks";
+
+/** The units a person can type for a container. The backend stores g or ml. */
+export type ContainerUnit = "g" | "kg" | "ml" | "l" | "cup";
+
+/**
+ * Something that happened to a container, as stored. `unit` is `g` or `ml`:
+ * a reading in g is on the scale with the container included; in ml it is
+ * off the marks, the food alone. A pour is the pack's own amount. Amount and
+ * unit are both null only for emptied-to-the-last-drop.
+ */
+export interface ContainerEvent {
+  id: string;
+  kind: ContainerEventKind;
+  happened_on: string;
+  happened_at: string;
+  amount: number | null;
+  unit: "g" | "ml" | null;
+  /** On a reading taken after an accident: the span ending here is discarded. */
+  spilled: boolean;
+  note: string | null;
+}
+
+/**
+ * Why a span between readings does or does not count toward the correction.
+ * `awaiting_tare` and `awaiting_density` become `counted` by themselves once
+ * the container's empty weight, or its food's weight per ml, is entered;
+ * `inconsistent` is a reading of more than everything known to be in it.
+ */
+export type StretchStatus =
+  | "counted"
+  | "spilled"
+  | "awaiting_tare"
+  | "awaiting_density"
+  | "inconsistent"
+  | "open";
+
+export interface ContainerStretch {
+  from_on: string;
+  /** Null while the span is still open. */
+  to_on: string | null;
+  status: StretchStatus;
+  /** Grams that left the container, when the arithmetic could be done. */
+  used_g: number | null;
+  /** The same in ml, exactly between two readings of the marks, else through the weight per ml. */
+  used_ml: number | null;
+  /** Grams thrown out with it when emptied, if known. */
+  discarded_g: number | null;
+  days: number | null;
+}
+
+/** A food's weight per ml and where the figure came from. */
+export interface Density {
+  g_per_ml: number;
+  source: "label" | "reference" | "weighed";
+  /** The source in words: "USDA: 1 tbsp is 13.6 g". */
+  note: string;
+}
+
+/** One physical container in the kitchen: the oil dispenser, the salt jar. */
+export interface Container {
+  id: string;
+  name: string;
+  food: FoodRef;
+  description: string;
+  read_by: ReadBy;
+  /** Weighed empty, once its owner gets round to it. Optional by design. */
+  empty_g: number | null;
+  capacity_ml: number | null;
+  /** The owner's measuring cup; 240 ml unless they said otherwise. */
+  cup_ml: number;
+  density: Density | null;
+  events: ContainerEvent[];
+  stretches: ContainerStretch[];
+  /** Used up and not refilled since. */
+  finished: boolean;
+}
+
+/** What the add and edit screen sends. */
+export interface ContainerInput {
+  name: string;
+  food: FoodRef;
+  description: string;
+  read_by: ReadBy;
+  empty_g: number | null;
+  capacity_ml: number | null;
+  cup_ml: number | null;
+}
+
+/**
+ * How far written to-taste amounts run from what the containers say.
+ * `factor` is exactly 1 — the written amount — while `stretches` is 0.
+ */
+export interface TasteFactor {
+  factor: number;
+  stretches: number;
+  /** Grams used by feel over those spans, after measured uses came off. */
+  by_feel_g: number;
+  /** What the to-taste lines in those spans were written as. */
+  written_g: number;
+}
+
+export interface FoodTasteFactor {
+  food: FoodRef;
+  description: string;
+  factor: TasteFactor;
+  /** The median of what this person writes for the food by feel, if anything. */
+  typical_written_g: number | null;
+}
+
+/**
+ * A food's kitchen use over a period beside what cooks and plates recorded,
+ * both at kitchen level (the pot, not a portion). For aggregate views only.
+ * `days` is 0 when no counted span falls in the period, and every rate is null.
+ */
+export interface FoodUsage {
+  food: FoodRef;
+  description: string;
+  days: number;
+  used_per_day_g: number | null;
+  used_per_day_ml: number | null;
+  recorded_per_day_g: number | null;
+}
+
+/** A container's last reading, or the pack poured in when there is none yet. */
+export interface LastFigure {
+  kind: "reading" | "poured_in";
+  amount: number;
+  unit: "g" | "ml";
+  on: string;
+}
+
+/** Why nothing about a container or a food counts yet. */
+export type PantryWaiting = "tare" | "density" | "reading" | "to_taste";
+
+export interface ContainerSummary {
+  id: string;
+  name: string;
+  read_by: ReadBy;
+  cup_ml: number;
+  last: LastFigure | null;
+  waiting: "tare" | "density" | null;
+}
+
+/** One food in the pantry: what its containers have shown, then the containers. */
+export interface PantryFood {
+  food: FoodRef;
+  description: string;
+  factor: TasteFactor;
+  typical_written_g: number | null;
+  usage: FoodUsage;
+  waiting: PantryWaiting | null;
+  containers: ContainerSummary[];
+}
+
+export interface Pantry {
+  foods: PantryFood[];
+  /** Used up and not refilled, kept so their history can be opened. */
+  finished: ContainerSummary[];
+}
+
 /** A volume of water, and where the conversion from mass came from. */
 export type Volume =
   | { kind: "measured"; ml: number }
@@ -734,6 +906,13 @@ export interface RecipeIngredient {
    * omits its own ingredient is a different recipe.
    */
   optional: boolean;
+  /**
+   * Added by feel: salt, oil, ketchup. `raw_g` is then the amount the person
+   * wrote, and a pot gets that times the correction their kitchen containers
+   * give for the food (`TasteFactor`). Missing on drafts saved before this
+   * existed, which reads as false.
+   */
+  to_taste?: boolean;
 }
 
 /**
@@ -805,6 +984,15 @@ export interface CookIngredient {
   raw_g: number;
   /** The line this replaced, when it was a substitution. */
   substituted_for: string | null;
+  /**
+   * Added by feel. `planned_g` is the written amount and `raw_g` is it times
+   * `taste_factor`. The backend values the line when the pot is saved: send
+   * `taste_factor: null` on a new line and it is filled in from the
+   * containers; send it back unchanged on a re-save and the line keeps the
+   * amount it was valued at.
+   */
+  to_taste?: boolean;
+  taste_factor?: number | null;
 }
 
 /**

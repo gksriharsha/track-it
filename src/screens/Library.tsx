@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listBottles, listCustomFoods, listRecipes, listSupplements, listVessels } from "../api";
+import { listBottles, listContainers, listCustomFoods, listRecipes, listSupplements, listVessels } from "../api";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   onOpenSupplements: () => void;
   onOpenVessels: () => void;
   onOpenBottles: () => void;
+  onOpenPantry: () => void;
 }
 
 interface Counts {
@@ -16,6 +17,7 @@ interface Counts {
   supplements: number;
   vessels: number;
   bottles: number;
+  containers: number;
 }
 
 /**
@@ -39,12 +41,13 @@ export default function Library(p: Props) {
 
   const load = useCallback(async () => {
     try {
-      const [recipes, customFoods, supplements, vessels, bottles] = await Promise.all([
+      const [recipes, customFoods, supplements, vessels, bottles, containers] = await Promise.all([
         listRecipes(),
         listCustomFoods(),
         listSupplements(),
         listVessels(),
         listBottles(),
+        listContainers(),
       ]);
       setCounts({
         recipes: recipes.length,
@@ -52,6 +55,7 @@ export default function Library(p: Props) {
         supplements: supplements.length,
         vessels: vessels.length,
         bottles: bottles.length,
+        containers: containers.filter((c) => !c.finished).length,
       });
       setError(null);
     } catch (e) {
@@ -89,6 +93,17 @@ export default function Library(p: Props) {
             </span>
             <span className="nval">
               <span className="nval__amt tnum">{counts?.customFoods ?? "…"}</span>
+              <span className="row__chev" aria-hidden>›</span>
+            </span>
+          </button>
+
+          <button className="row" style={{ gridTemplateColumns: "1fr auto" }} onClick={p.onOpenPantry}>
+            <span className="row__main">
+              <span className="row__title">Pantry</span>
+              <span className="row__sub">Salt, oil and the rest, read by the jar</span>
+            </span>
+            <span className="nval">
+              <span className="nval__amt tnum">{counts?.containers ?? "…"}</span>
               <span className="row__chev" aria-hidden>›</span>
             </span>
           </button>

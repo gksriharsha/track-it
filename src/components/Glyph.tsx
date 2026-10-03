@@ -26,6 +26,8 @@ const PATHS = {
   book: "M5 5.5h4.8A2.2 2.2 0 0 1 12 7.7V19a2 2 0 0 0-2-2H5zM19 5.5h-4.8A2.2 2.2 0 0 0 12 7.7V19a2 2 0 0 1 2-2h5z",
   /* Something done before, done again: a session repeated in one tap. */
   repeat: "M16.5 3.5l3 3-3 3M4.5 11.5v-1a4 4 0 0 1 4-4h11M7.5 20.5l-3-3 3-3M19.5 12.5v1a4 4 0 0 1-4 4h-11",
+  /* A jar with its lid: the pantry, and a container in it. */
+  jar: "M8 3.8h8v2.8H8zM8.6 6.6C7 7.6 6 9 6 11v7.2A1.8 1.8 0 0 0 7.8 20h8.4a1.8 1.8 0 0 0 1.8-1.8V11c0-2-1-3.4-2.6-4.4",
   /* The keypad's delete: a key pointing back at what it takes away. */
   del: "M9.2 5.5h10.3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9.2L3.5 12zM12.5 9.5l5 5M17.5 9.5l-5 5",
 } as const;

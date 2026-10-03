@@ -1446,3 +1446,66 @@ line spilled over the next row. With the keyboard up, one and a half rows were v
 - A lift with no drawing, which is now only one the user named, keeps the tile, with a barbell in
   it, so every name starts in the same place.
 - "How long" appears only once the session has a set, beside Done.
+
+## D28 — Salt, oil, ketchup and the like are added by feel, and the containers they live in correct the feel
+
+**Context.** Nobody weighs the salt in a dal or the oil in a tadka, so a recipe line for them is a
+guess written down once. The containers they come out of tell the truth over a few weeks: what went
+in is printed on the pack, and the container can go on a scale whenever its owner thinks of it.
+
+**Decision.** Any food can be kept in a **container** (`containers`), a physical jar or can with a
+history (`container_events`): *poured in* (a pack's label net weight), *weighed* (a raw scale
+reading, container included, optionally marked *spilled*), *emptied* (optionally with a last
+reading of what was thrown out). A recipe or cook line for any food may be **to taste**: its
+written amount is multiplied by a **factor** for that food, and is otherwise exactly what was
+written.
+
+- **A factor, not a rate.** The factor is what the containers say was used by feel, divided by what
+  the to-taste lines over the same spans were written as. The written amount already knows that dal
+  takes more salt than kheer and a double batch twice as much; the containers add only how far the
+  writer's hand runs from their pen. With nothing counted the factor is exactly 1, so no default is
+  ever invented.
+- **Spans between readings.** Each reading closes a span. A spill throws away its own span and no
+  other. Measured uses in a span (a weighed line, a measured plate) come off its total before the
+  rest is set against the to-taste lines.
+- **The container's empty weight is optional.** Between two readings of one container it cancels:
+  `(earlier reading + grams poured in) − later reading`. Spans that need it (label to first reading,
+  emptied without a reading) wait as `awaiting_tare`, and every reading is stored raw, so entering
+  the weight later completes them.
+- **Kitchen level throughout.** Uses are counted per pot (every live cook, including a peer's,
+  since cooks are shared) and per plate use logged through a container. Your share of a pot is your
+  portion of it, so there is no per-person or household-size setting. A recipe logged straight,
+  without a cook, is not counted: it portions a batch nobody recorded making.
+- **Frozen.** A cook line stores the factor it was valued at (`taste_factor`) and keeps it through
+  every re-save; a plate use stores its written amount and factor (`container_uses`); entries are
+  frozen as always (D9). A container finished next week changes future pots only.
+- **Aggregate only.** `container_usage` reports, per food, grams a day that left the containers
+  beside grams a day the cooks and plates recorded, over the days a counted span covers. It is for
+  Statistics; nothing here is a verdict on a day. No rate is given until a full day is covered:
+  found on the emulator, where a pack poured in and read minutes later came out as 676,174 ml a day.
+
+- **Grams, ml and cups.** A container is read on a scale (grams, the container included) or by the
+  marks on its side (ml, the food alone), and any one reading may use the other. Every level is
+  held as `a + b × g_per_ml + c × tare_g`, so a span's use needs only the unknowns that survive
+  the subtraction: two scale readings need neither, two readings of the marks need neither to say
+  millilitres. The weight per ml is resolved when the container is saved, from the pack when its
+  label states ml, else the reference food's household measures (a tablespoon first), else a
+  cupful the owner weighed, and it is stored with its source in words. A cup is 240 ml, the
+  labelling cup, unless the owner says theirs is 250.
+- **The screens were chosen from rendered options** (the "TrackIt pantry picker"): the pantry by
+  food with its 90-day figures first, a reading in the scale's window with g, ml and cup beside it,
+  a container's history as one row per stretch, and adding a container on one screen.
+
+**Consequences.**
+
+- **Schema v19.** `to_taste` on `recipe_ingredients` and `cook_ingredients`, `taste_factor` on
+  `cook_ingredients`, by plain `ADD COLUMN`; three new tables created after `migrate`. Recipes and
+  cooks carry the new columns to peers through the generic aggregate feed; an older peer ignores
+  them and reads every line as measured.
+- **Containers are not shared yet.** They are kitchen-level and belong in the household feed, but
+  `row_version` names its tables in a CHECK and widening it is a rebuild worth its own change.
+- Two containers of one food open at once split a use evenly between them rather than count it
+  twice. The factor remembers 365 days, because habits drift.
+- If the family takes from a container and nothing records it, that use is set against the logged
+  to-taste uses and overstates them. Accepted: it errs toward more sodium and sugar rather than
+  less, and the usage comparison makes the gap visible.

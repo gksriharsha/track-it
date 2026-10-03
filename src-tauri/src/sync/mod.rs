@@ -1221,6 +1221,7 @@ mod tests {
                     description: "kidney beans".into(),
                     raw_g: 300.0,
                     optional: false,
+                    to_taste: false,
                 }],
                 &[],
                 &store::Tags::default(),
@@ -1248,6 +1249,8 @@ mod tests {
                         planned_g: 900.0,
                         raw_g: 300.0,
                         substituted_for: None,
+                        to_taste: false,
+                        taste_factor: None,
                     }],
                 },
             )?;
