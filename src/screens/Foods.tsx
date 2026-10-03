@@ -17,7 +17,9 @@ import {
   logWater,
   recallTags,
   searchFoods,
+  per100g,
 } from "../api";
+import type { WeighedSource } from "../api";
 import type {
   Origin,
   Supplement,
@@ -30,15 +32,19 @@ import type {
   FrequentFood,
   Meal,
   NutrientValue,
+  Per100g,
   Portion,
   Cook,
   Recipe,
   Vessel,
 } from "../types";
 import { MEALS, describeVolume, parsePick } from "../types";
-import { fmtAmount, plural } from "../lib/nutrient";
-import WeightField from "../components/WeightField";
-import TagPicker from "../components/TagPicker";
+import { fmtAmount } from "../lib/nutrient";
+import { rowFigure } from "../lib/energy";
+import { digitsOf, weighing } from "../lib/amount";
+import type { Readout } from "../lib/amount";
+import Amount, { AmountTitle, Dose } from "../components/Amount";
+import type { Serving } from "../components/Amount";
 import { useQuickLog } from "../components/QuickLog";
 import CameraCapture from "../components/CameraCapture";
 import ActivityPane from "./Activity";
@@ -47,7 +53,7 @@ import Glyph from "../components/Glyph";
 import Sheet from "../components/Sheet";
 import { PlusGlyph } from "../components/DayWater";
 import { initials } from "../lib/entryText";
-import { isAndroid } from "../lib/desktop";
+import { isAndroid, useMedia } from "../lib/desktop";
 import { useHashSheet } from "../lib/hashSheet";
 import { bare, canStream, readBarcodeFromFile, useCameraRoute } from "../lib/camera";
 import type { Weighed } from "../components/WeightField";
@@ -82,13 +88,18 @@ interface Props {
    */
   preselect?: string | null;
   onMealChange: (m: Meal) => void;
-  onLogged: () => void;
+  /**
+   * Something was logged, and the day it went into is shown. `fromSheet` when
+   * it was logged from the amount sheet, whose place in history the day then
+   * takes: Back from it comes here, not to a sheet over nothing.
+   */
+  onLogged: (fromSheet?: boolean) => void;
   /**
    * The day changed while this screen stayed up — a one-tap log, or the Undo
    * of one. Re-reads it in place, without the trip to Today `onLogged` takes.
    */
   onChanged: () => void;
-  /** Through to the vessel library, from inside the weight field. */
+  /** Through to the vessel library, from the bowl line under the amount. */
   onManageVessels: () => void;
   /** Re-open the cook sheet on a pot, to correct what went into it. */
   onEditCook: (cookId: string) => void;
@@ -240,7 +251,6 @@ export default function Foods(p: Props) {
   /** The user's own food, picked. Never set at the same time as `picked`. */
   const [pickedCustom, setPickedCustom] = useState<CustomFoodDetail | null>(null);
   const [showPanel, setShowPanel] = useState(false);
-  const [grams, setGrams] = useState("100");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   /*
@@ -264,15 +274,40 @@ export default function Foods(p: Props) {
   const [likeLast, setLikeLast] = useState(() => parsePick(p.preselect ?? null)?.kind === "strength");
   /* Which sitting the food goes into: the screen's title, and a sheet to change it. */
   const mealSheet = useHashSheet("sheet", "meal");
+  /*
+    Where the amount is set: beside the list where the window is wide enough
+    for both (the workbench), and otherwise in a sheet over it, held open by
+    the hash so Back closes it. The keypad is drawn where there is no keyboard.
+  */
+  const amountSheet = useHashSheet("sheet", "amount");
+  const wide = useMedia("(min-width: 1080px)");
+  const keys = !useMedia("(hover: hover) and (pointer: fine)");
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [pickedRecipe, setPickedRecipe] = useState<Recipe | null>(null);
   /** Pots with food still in them, and the one being logged from. */
   const [cooks, setCooks] = useState<Cook[]>([]);
   const [pickedCook, setPickedCook] = useState<Cook | null>(null);
-  /** Non-null only while the weight came off a scale with vessels on it. */
-  const [weighed, setWeighed] = useState<Weighed | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
-  const [wfKey, setWfKey] = useState(0);
+  /**
+   * How much: the scale's window and the vessels ticked under the food (see
+   * `components/Amount.tsx`). Held here rather than in the panel, because a
+   * trip to the vessel library unmounts the sheet the panel is drawn in, and
+   * a reading typed before it must still be there after.
+   */
+  const [readout, setReadout] = useState<Readout>({ digits: "100", from: "guess" });
+  const [ticked, setTicked] = useState<string[]>([]);
+  /*
+    What is logged, from those two, every render: the food's own grams, and
+    the scale reading behind them when vessels came off it. The backend takes
+    the reading and the vessels' ids and subtracts from its own library, so the
+    log cannot disagree with it.
+  */
+  const now = weighing(readout, ticked, vessels);
+  const grams = now.net === null ? "" : String(now.net);
+  const weighed: Weighed | null =
+    now.vesselIds.length > 0 && now.reading !== null && now.net !== null
+      ? { grossG: now.reading, vesselIds: now.vesselIds }
+      : null;
   const seq = useRef(0);
 
   /**
@@ -414,7 +449,7 @@ export default function Foods(p: Props) {
     setTab("foods");
     setQuery(q);
     setPicked(null); setPickedCustom(null); setPickedRecipe(null);
-    setPickedCook(null); setPickedSupplement(null); setWeighed(null);
+    setPickedCook(null); setPickedSupplement(null); setTicked([]);
     runSearch(q);
     searchRef.current?.focus();
   }, [p.seed, runSearch]);
@@ -437,7 +472,7 @@ export default function Foods(p: Props) {
     if (target === null) return;
     let live = true;
     setError(null);
-    setPickedRecipe(null); setPickedCook(null); setPickedSupplement(null); setWeighed(null);
+    setPickedRecipe(null); setPickedCook(null); setPickedSupplement(null); setTicked([]);
 
     if (target.kind === "water") {
       // Water is logged from this screen's own water tab. The bottle library is
@@ -466,6 +501,7 @@ export default function Foods(p: Props) {
           setPickedCustom(d);
           setShowPanel(false);
           setNet(String(round(d.food.serving_g)));
+          openAmount();
           await recall({ customFoodId: target.id as string });
         } else {
           const fdc = Number(target.id);
@@ -474,6 +510,7 @@ export default function Foods(p: Props) {
           setPickedCustom(null);
           setPicked(d);
           setNet(d.portions[0] ? String(round(d.portions[0].gram_weight)) : "100");
+          openAmount();
           await recall({ fdcId: fdc });
         }
       } catch {
@@ -545,6 +582,7 @@ export default function Foods(p: Props) {
         setPickedCustom(d);
         setShowPanel(false);
         setNet(String(round(d.food.serving_g)));
+        openAmount();
         await recall({ customFoodId: hit.custom_food_id });
       } else {
         if (hit.fdc_id === null) {
@@ -555,6 +593,7 @@ export default function Foods(p: Props) {
         setPickedCustom(null);
         setPicked(d);
         setNet(d.portions[0] ? String(round(d.portions[0].gram_weight)) : "100");
+        openAmount();
         await recall({ fdcId: hit.fdc_id });
       }
     } catch (e) { setError(String(e)); }
@@ -564,7 +603,7 @@ export default function Foods(p: Props) {
   function clearPicks() {
     setError(null);
     setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
-    setPickedSupplement(null); setWeighed(null);
+    setPickedSupplement(null); setTicked([]);
   }
 
   /*
@@ -578,6 +617,7 @@ export default function Foods(p: Props) {
     // knows how much you eat, so it is a figure to correct rather than one to
     // trust.
     setNet(String(Math.max(1, Math.round(c.remaining_g / 2))));
+    openAmount();
     await recall({ cookId: c.id });
     // A pot never eaten from falls back to what the cook sheet carried over
     // from the recipe — the user's own statement, not a guess from the name.
@@ -589,6 +629,7 @@ export default function Foods(p: Props) {
     clearPicks();
     setPickedRecipe(r);
     setNet(String(defaultPortion(r)));
+    openAmount();
     await recall({ recipeId: r.id });
     // A recipe never logged falls back to what was said in the builder.
     setOrigin((o) => o ?? r.default_origin);
@@ -599,22 +640,23 @@ export default function Foods(p: Props) {
     clearPicks();
     setPickedSupplement(sup);
     setDoseUnits(String(sup.default_units ?? sup.serving_units));
+    openAmount();
   }
 
   /**
-   * Set the net weight from outside the weight field — a serving chip, or the
-   * default portion of a newly picked food. That drops any scale reading: the
-   * gross weight was taken for one plate of one dish and must not follow the
-   * user to the next, and the chip's number is now the one being logged.
-   *
-   * Remounting the field (via `wfKey`) is what keeps it honest — it returns to
-   * direct mode showing this number, rather than sitting in scale mode
-   * displaying a derived net that is not what would be saved.
+   * Open the window on a newly picked food's starting figure: the app's own
+   * guess, drawn faint, to be typed over. That drops any scale reading — it
+   * was taken for one plate of one dish and must not follow the user to the
+   * next.
    */
   function setNet(g: string) {
-    setGrams(g);
-    setWeighed(null);
-    setWfKey((k) => k + 1);
+    setReadout({ digits: digitsOf(Number(g)), from: "guess" });
+    setTicked([]);
+  }
+
+  /** On a phone, the amount rises over the list. */
+  function openAmount() {
+    if (!wide) amountSheet.show();
   }
 
   /**
@@ -653,11 +695,11 @@ export default function Foods(p: Props) {
         await addLogEntry(p.date, p.meal, { cookId: pickedCook.id }, pickedCook.name, g,
           { origin, cuisine });
       }
-      setPickedCook(null); setWeighed(null);
+      setPickedCook(null); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
       // Re-read before the parent refreshes: what is left has just changed.
       loadCooks();
-      p.onLogged();
+      p.onLogged(amountSheet.open);
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
 
@@ -665,7 +707,10 @@ export default function Foods(p: Props) {
     if (!window.confirm(`Finished with ${c.name}? Days that ate from it keep their entries.`)) return;
     try {
       await finishCook(c.id, true);
-      if (pickedCook?.id === c.id) setPickedCook(null);
+      if (pickedCook?.id === c.id) {
+        setPickedCook(null);
+        amountSheet.hide();
+      }
       loadCooks();
     } catch (e) { setError(String(e)); }
   }
@@ -683,9 +728,9 @@ export default function Foods(p: Props) {
         await addLogEntry(p.date, p.meal, { recipeId: pickedRecipe.id }, pickedRecipe.name, g,
           { origin, cuisine });
       }
-      setPickedRecipe(null); setQuery(""); setWeighed(null);
+      setPickedRecipe(null); setQuery(""); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
-      p.onLogged();
+      p.onLogged(amountSheet.open);
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
 
@@ -703,13 +748,13 @@ export default function Foods(p: Props) {
       } else {
         await addLogEntry(p.date, p.meal, { customFoodId: food.id }, name, g, { origin, cuisine });
       }
-      setPickedCustom(null); setQuery(""); setHits([]); setWeighed(null);
+      setPickedCustom(null); setQuery(""); setHits([]); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
       // The screen stays mounted after a log, and the list it is about to show
       // again has just changed underneath it — this very entry may be what
       // puts the food into the window in the first place.
       loadQuick();
-      p.onLogged();
+      p.onLogged(amountSheet.open);
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
 
@@ -730,7 +775,7 @@ export default function Foods(p: Props) {
         u,
       );
       setPickedSupplement(null);
-      p.onLogged();
+      p.onLogged(amountSheet.open);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -780,10 +825,10 @@ export default function Foods(p: Props) {
         await addLogEntry(p.date, p.meal, { fdcId: picked.fdc_id }, picked.description, g,
           { origin, cuisine });
       }
-      setPicked(null); setQuery(""); setHits([]); setWeighed(null);
+      setPicked(null); setQuery(""); setHits([]); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
       loadQuick();
-      p.onLogged();
+      p.onLogged(amountSheet.open);
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
 
@@ -828,6 +873,68 @@ export default function Foods(p: Props) {
 
   const anyPicked = picked !== null || pickedCustom !== null || pickedRecipe !== null
     || pickedCook !== null || pickedSupplement !== null;
+
+  /*
+    The sheet shut by Back, its scrim or its ×: the food is put down, as the
+    old card's "change" did. Not while another screen is in front — a trip to
+    the vessel library takes the sheet's param off the hash too, and the
+    reading must be there on the way back.
+  */
+  useEffect(() => {
+    if (wide || !p.active || amountSheet.open) return;
+    if (anyPicked) clearPicks();
+    // Keyed on the sheet alone: a food being picked has not opened it yet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amountSheet.open]);
+
+  /*
+    Adjusting a pot is a trip to the cook sheet and back, and what is left in
+    it, and so the figures it is valued by, may have changed: the picked pot
+    follows the list as it is read again.
+  */
+  useEffect(() => {
+    setPickedCook((c) => (c === null ? c : cooks.find((x) => x.id === c.id) ?? c));
+  }, [cooks]);
+
+  /**
+   * Each food's energy per 100 g, by `valueKey`: undefined until read, null
+   * for one that cannot be valued. For the column beside the results and the
+   * line under the amount. Pots and recipes are read again whenever they are,
+   * since adjusting either moves its figure, and so are your own foods, which
+   * can be edited; a reference food's never moves and is read once.
+   */
+  const [per100, setPer100] = useState<Record<string, Per100g | null>>({});
+  const per100Now = useRef(per100);
+  per100Now.current = per100;
+  const value = useCallback((srcs: WeighedSource[]) => {
+    if (srcs.length === 0) return;
+    per100g(srcs)
+      .then((got) => setPer100((m) => {
+        const next = { ...m };
+        srcs.forEach((s, i) => { next[valueKey(s)] = got[i] ?? null; });
+        return next;
+      }))
+      // A figure beside a result was not asked for: a failure leaves it blank.
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => { value(cooks.map((c) => ({ cookId: c.id }))); }, [cooks, value]);
+  useEffect(() => { value(recipes.map((r) => ({ recipeId: r.id }))); }, [recipes, value]);
+  useEffect(() => {
+    value(hits.flatMap((h): WeighedSource[] => {
+      if (h.kind === "custom") return h.custom_food_id === null ? [] : [{ customFoodId: h.custom_food_id }];
+      return h.fdc_id === null || `food:${h.fdc_id}` in per100Now.current ? [] : [{ fdcId: h.fdc_id }];
+    }));
+  }, [hits, value]);
+  const pickedSrc: WeighedSource | null = pickedCook ? { cookId: pickedCook.id }
+    : pickedRecipe ? { recipeId: pickedRecipe.id }
+    : pickedCustom ? { customFoodId: pickedCustom.food.id }
+    : picked ? { fdcId: picked.fdc_id } : null;
+  const pickedKey = pickedSrc === null ? null : valueKey(pickedSrc);
+  useEffect(() => {
+    // Picked from a widget, or before its row's figure arrived.
+    if (pickedSrc !== null && pickedKey !== null && !(pickedKey in per100Now.current)) value([pickedSrc]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedKey]);
 
   /*
     Results rise from the field. On a phone the search sits at the foot of the
@@ -886,6 +993,116 @@ export default function Foods(p: Props) {
   const recipeLead = <span className="lead lead--bought" aria-hidden><Glyph name="book" size={20} /></span>;
   const doseLead = <span className="lead lead--dose" aria-hidden><Glyph name="tablet" size={20} /></span>;
   const chev = <span className="food__chev" aria-hidden><Chevron /></span>;
+  /** A result's energy per 100 g, under the unit its section heads with; blank until read. */
+  const k100 = (key: string) => {
+    const v = per100[key];
+    return <span className="food__k tnum">{v ? rowFigure(v.energy) : ""}</span>;
+  };
+
+  /* ── how much ─────────────────────────────────────────────────────────
+     One panel for whatever is picked: by weight in the scale's window, or,
+     for a supplement, by count. What differs between the kinds is only what
+     leads it, what it starts on and what is said at its foot. */
+  const recalledNote = recalled ? "From the last time you logged this — change it if today was different." : null;
+  const weigh = (lead: React.ReactNode, name: string, sub: React.ReactNode, servings: Serving[],
+    onCommit: () => void, foot: React.ReactNode, note: string | null = recalledNote) => ({
+    title: <AmountTitle lead={lead} name={name} sub={sub} />,
+    body: (
+      <Amount key={pickedKey ?? "none"} lead={lead} name={name} sub={sub} head={wide}
+        onClose={wide ? clearPicks : undefined}
+        readout={readout} setReadout={setReadout} ticked={ticked} setTicked={setTicked}
+        servings={servings} per100={pickedKey === null ? undefined : per100[pickedKey]}
+        vessels={vessels} onManageVessels={p.onManageVessels}
+        meal={p.meal} saving={saving} onCommit={onCommit}
+        origin={origin} cuisine={cuisine}
+        onTags={(o, c) => { setOrigin(o); setCuisine(c); setRecalled(false); }}
+        recalledNote={note} foot={foot} keypad={keys} autoFocus={wide && !keys} />
+    ),
+  });
+  let panel: { title: React.ReactNode; body: React.ReactNode } | null = null;
+  if (pickedCook) {
+    const c = pickedCook;
+    panel = weigh(potLead, c.name, `${potWhen(c)}, ${potLeft(c)}`,
+      // Everything left, for the last helping: the one amount this can offer
+      // without inventing one — the pot's own measurement less what is logged.
+      c.remaining_g > 0
+        ? [{ label: `All that's left · ${Math.round(c.remaining_g)} g`, grams: Math.round(c.remaining_g) }]
+        : [],
+      commitCook,
+      <>
+        {c.weighed_yield_g === null && (
+          <p className="amount__note">
+            Not weighed after cooking, so a helping is valued by what the recipe says the dish
+            comes out at.
+          </p>
+        )}
+        <div className="amount__links">
+          <button className="link" onClick={() => p.onEditCook(c.id)}>Adjust this pot</button>
+          <button className="link" onClick={() => void closePot(c)}>Finished with it</button>
+        </div>
+      </>,
+      recalled ? "From the last time you ate from this pot — change it if this helping was different." : null);
+  } else if (pickedRecipe) {
+    const r = pickedRecipe;
+    // Only the portions the user named: a derived "1 serving" was a weight
+    // nobody had measured dressed up as one they had.
+    panel = weigh(recipeLead, r.name, `Your recipe, ${Math.round(r.yield_g).toLocaleString()} g as written`,
+      r.serving_options.map((so) => ({ label: `${so.label} · ${Math.round(so.grams)} g`, grams: Math.round(so.grams) })),
+      commitRecipe,
+      <p className="amount__note">
+        Valued as the recipe is written. A pot cooked from it and weighed is valued as it came out.
+      </p>);
+  } else if (pickedCustom) {
+    const { food, nutrients, base_description, from_label, from_base, unknown } = pickedCustom;
+    const name = foodLabel(food);
+    // The pack's own serving, in the pack's own words: what every figure it
+    // printed is per.
+    panel = weigh(<span className="lead lead--own" aria-hidden>{initials(name)}</span>, name, "Your food",
+      [{ label: `${food.serving_label ?? "1 serving"} · ${round(food.serving_g)} g`, grams: round(food.serving_g) }],
+      commitCustom,
+      <>
+        <p className="amount__note">
+          {from_label} of {nutrients.length} values came off the pack
+          {base_description ? `, ${from_base} are from “${base_description}”,` : ""} and {unknown} are
+          unmeasured.
+        </p>
+        <button className="link" onClick={() => setShowPanel((s) => !s)} aria-expanded={showPanel}>
+          {showPanel ? "Hide the values" : `All ${nutrients.length} values, per 100 g`}
+        </button>
+        {showPanel && (
+          <div className="rows amount__panel">
+            {nutrients.map((n) => <PanelRow key={n.id} n={n} base={base_description} />)}
+          </div>
+        )}
+      </>);
+  } else if (picked) {
+    panel = weigh(<span className="lead lead--ref" aria-hidden>{initials(picked.description)}</span>,
+      picked.description, "From the USDA",
+      picked.portions.slice(0, 8).map((pt) => ({ label: portionLabel(pt), grams: round(pt.gram_weight) })),
+      commit,
+      unmeasured > 0 ? (
+        <p className="amount__note">
+          {unmeasured} of {picked.nutrients.length} nutrients have no measured value for this food,
+          and count as unmeasured rather than as zero.
+        </p>
+      ) : null);
+  } else if (pickedSupplement) {
+    const s = pickedSupplement;
+    const title = <AmountTitle lead={doseLead} name={supplementLabel(s)} sub="Your supplement" />;
+    panel = {
+      title,
+      body: (
+        <Dose units={doseUnits} onUnits={setDoseUnits} noun={s.unit_noun} perUnits={s.serving_units}
+          meal={p.meal} saving={saving} onCommit={commitSupplement}
+          head={wide ? (
+            <header className="amount__bar">
+              {title}
+              <button type="button" className="sheet__close" aria-label="Close" onClick={clearPicks}>×</button>
+            </header>
+          ) : undefined} />
+      ),
+    };
+  }
 
   /*
     An activity, or water to weigh: chosen before arriving — in the + sheet, on
@@ -1019,7 +1236,7 @@ export default function Foods(p: Props) {
       ) : (
         /* The list and the card for what is picked: side by side above 1080px
            and one at a time below it — see `.workbench` in styles.css. */
-        <div className="workbench food" data-picked={anyPicked}>
+        <div className="workbench food" data-picked={wide && anyPicked}>
           <div className="workbench__list food__list">
             <div ref={bodyRef} className={`food__body${typed ? " is-results" : ""}`}>
               {!typed ? (
@@ -1137,28 +1354,34 @@ export default function Foods(p: Props) {
                 <div className="food__results" id="food-hits">
                   {yoursCount > 0 && (
                     <section className="food__sec" aria-label="Yours">
-                      <h2 className="food__h">Yours</h2>
+                      <h2 className="food__h">
+                        Yours
+                        {/* A supplement is counted, and has no figure per 100 g. */}
+                        {yoursCount > suppHits.length && <span className="food__unit">kcal per 100 g</span>}
+                      </h2>
                       <div className="tiles">
                         {potHits.map((c, i) => row(`pot-${c.id}`, i, potLead, c.name,
-                          `${potWhen(c)}, ${potLeft(c)}`, chev, () => void openCook(c)))}
+                          `${potWhen(c)}, ${potLeft(c)}`, k100(`cook:${c.id}`), () => void openCook(c)))}
                         {recipeHits.map((r, i) => row(`rec-${r.id}`, potHits.length + i, recipeLead, r.name,
-                          "Your recipe", chev, () => void openRecipe(r)))}
+                          "Your recipe", k100(`recipe:${r.id}`), () => void openRecipe(r)))}
                         {suppHits.map((x, i) => row(`sup-${x.id}`, potHits.length + recipeHits.length + i,
-                          doseLead, supplementLabel(x), doseText(x), chev, () => openSupplement(x)))}
+                          doseLead, supplementLabel(x), doseText(x), <span />, () => openSupplement(x)))}
                         {ownHits.map((h, i) => row(`c-${h.custom_food_id}`,
                           potHits.length + recipeHits.length + suppHits.length + i,
                           <span className="lead lead--own" aria-hidden>{initials(h.description)}</span>,
-                          h.description, h.note ?? h.brand, chev, () => void pick(h)))}
+                          h.description, h.note ?? h.brand, k100(`custom:${h.custom_food_id}`), () => void pick(h)))}
                       </div>
                     </section>
                   )}
                   {refHits.length > 0 && (
                     <section className="food__sec" aria-label="From the USDA">
-                      <h2 className="food__h">From the USDA</h2>
+                      <h2 className="food__h">
+                        From the USDA <span className="food__unit">kcal per 100 g</span>
+                      </h2>
                       <div className="tiles">
                         {refHits.map((h, i) => row(`r-${h.fdc_id}`, yoursCount + i,
                           <span className="lead lead--ref" aria-hidden>{initials(h.description)}</span>,
-                          h.description, h.note, chev, () => void pick(h)))}
+                          h.description, h.note, k100(`food:${h.fdc_id}`), () => void pick(h)))}
                       </div>
                     </section>
                   )}
@@ -1252,295 +1475,14 @@ export default function Foods(p: Props) {
           </div>
 
           <div className="workbench__detail">
-            {pickedCook ? (
-          <section className="card">
-            <div className="card__head">
-              <h2 className="picked__title">{pickedCook.name}</h2>
-              <button className="link card__note"
-                onClick={() => { setPickedCook(null); setWeighed(null); }}>change</button>
-            </div>
-            <p className="rangenote">
-              {potLine(pickedCook)}
-              {pickedCook.weighed_yield_g === null && (
-                <>
-                  {" "}This pot was never weighed, so portions are divided by what the recipe
-                  says the dish comes out at — what it usually does, not what this one did.
-                  Weighing it makes every portion since then no better, but every one after it
-                  exact.
-                </>
-              )}
-            </p>
-
-            <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
-            <div className="chips">
-              {MEALS.map((m) => (
-                <button key={m} className="chip" aria-pressed={m === p.meal}
-                  onClick={() => p.onMealChange(m)} style={{ textTransform: "capitalize" }}>{m}</button>
-              ))}
-            </div>
-
-            <div className="group__name" style={{ marginTop: "var(--s5)" }}>How much</div>
-            <div className="chips">
-              {/* Everything left, for the last helping. The only portion this
-                  screen can offer without inventing one — it is the pot's own
-                  measurement minus what has already been logged. */}
-              {pickedCook.remaining_g > 0 && (
-                <button className="chip"
-                  aria-pressed={!weighed && Number(grams) === Math.round(pickedCook.remaining_g)}
-                  onClick={() => setNet(String(Math.round(pickedCook.remaining_g)))}>
-                  All that's left · {Math.round(pickedCook.remaining_g)} g
-                </button>
-              )}
-            </div>
-
-            <WeightField
-              key={wfKey}
-              grams={grams}
-              onChange={(g, w) => { setGrams(g); setWeighed(w); }}
-              vessels={vessels}
-              onManageVessels={p.onManageVessels}
-              onSubmit={commitCook}
-            />
-
-            <TagPicker
-              origin={origin}
-              cuisine={cuisine}
-              onChange={(o, c) => { setOrigin(o); setCuisine(c); setRecalled(false); }}
-              recalledNote={recalled ? "From the last time you ate from this pot — change it if this helping was different." : null}
-            />
-
-            <div className="commit">
-              <button className="btn" style={{ marginLeft: "auto" }} onClick={commitCook} disabled={saving}>
-                {saving ? "Adding…" : `Add to ${p.meal}`}
-              </button>
-            </div>
-
-            <div className="card__foot">
-              <button className="link" onClick={() => p.onEditCook(pickedCook.id)}>Adjust this pot</button>
-              {" "}
-              <button className="link" onClick={() => closePot(pickedCook)}>Finished with it</button>
-            </div>
-          </section>
-            ) : pickedRecipe ? (
-          <section className="card">
-            <div className="card__head">
-              <h2 className="picked__title">{pickedRecipe.name}</h2>
-              <button className="link card__note" onClick={() => { setPickedRecipe(null); setWeighed(null); }}>change</button>
-            </div>
-            <p className="rangenote">
-              Comes out at {Math.round(pickedRecipe.yield_g).toLocaleString()} g, from{" "}
-              {plural(pickedRecipe.ingredients.length, "ingredient")}. Logging here portions
-              that written batch — if today's pot was a different size, cook it instead so the
-              weights are the ones that went in.
-            </p>
-
-            <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
-            <div className="chips">
-              {MEALS.map((m) => (
-                <button key={m} className="chip" aria-pressed={m === p.meal}
-                  onClick={() => p.onMealChange(m)} style={{ textTransform: "capitalize" }}>{m}</button>
-              ))}
-            </div>
-
-            <div className="group__name" style={{ marginTop: "var(--s5)" }}>How much</div>
-            {/* Only the portions the user named. There was once a derived
-                "1 serving" chip here, at yield ÷ servings — it went with the
-                servings count, because it was a weight nobody had measured
-                dressed up as one they had. */}
-            <div className="chips">
-              {pickedRecipe.serving_options.map((so) => (
-                <button key={so.id || so.label} className="chip"
-                  aria-pressed={!weighed && Number(grams) === Math.round(so.grams)}
-                  onClick={() => setNet(String(Math.round(so.grams)))}>
-                  {so.label} · {Math.round(so.grams)} g
-                </button>
-              ))}
-            </div>
-
-            <WeightField
-              key={wfKey}
-              grams={grams}
-              onChange={(g, w) => { setGrams(g); setWeighed(w); }}
-              vessels={vessels}
-              onManageVessels={p.onManageVessels}
-              onSubmit={commitRecipe}
-            />
-
-            <TagPicker
-              origin={origin}
-              cuisine={cuisine}
-              onChange={(o, c) => { setOrigin(o); setCuisine(c); setRecalled(false); }}
-              recalledNote={recalled ? "From the last time you logged this — change it if today was different." : null}
-            />
-
-            <div className="commit">
-              <button className="btn" style={{ marginLeft: "auto" }} onClick={commitRecipe} disabled={saving}>
-                {saving ? "Adding…" : `Add to ${p.meal}`}
-              </button>
-            </div>
-          </section>
-            ) : pickedSupplement ? (
-          <section className="card">
-            <div className="card__head">
-              <h2 className="picked__title">{supplementLabel(pickedSupplement)}</h2>
-              <button className="link card__note" onClick={() => setPickedSupplement(null)}>change</button>
-            </div>
-            <p className="rangenote">
-              Its panel lists {plural(pickedSupplement.nutrients.length, "nutrient")}, per{" "}
-              {pickedSupplement.serving_label ??
-                `${pickedSupplement.serving_units} ${pickedSupplement.unit_noun}${pickedSupplement.serving_units === 1 ? "" : "s"}`}.
-              {pickedSupplement.panel_complete
-                ? " You marked the panel as listing everything, so what it leaves out counts as none."
-                : " What it leaves out stays unknown rather than counting as none."}
-            </p>
-
-            <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
-            <div className="chips">
-              {MEALS.map((m) => (
-                <button key={m} className="chip" aria-pressed={m === p.meal}
-                  onClick={() => p.onMealChange(m)} style={{ textTransform: "capitalize" }}>{m}</button>
-              ))}
-            </div>
-
-            {/* Counted, never weighed. No weight field and no vessels: a tablet
-                does not go on a scale, and the tare machinery would be
-                meaningless here. */}
-            <div className="group__name" style={{ marginTop: "var(--s5)" }}>
-              How many {pickedSupplement.unit_noun}s
-            </div>
-            <div className="dose">
-              <input
-                className="field tnum dose__n"
-                inputMode="decimal"
-                value={doseUnits}
-                onChange={(e) => setDoseUnits(e.target.value)}
-                aria-label={`How many ${pickedSupplement.unit_noun}s`}
-              />
-              <span className="dose__unit">
-                {pickedSupplement.unit_noun}
-                {Number(doseUnits) === 1 ? "" : "s"}
-              </span>
-              {pickedSupplement.serving_units !== 1 && (
-                <span className="dose__note">
-                  the panel is per {pickedSupplement.serving_units}
-                </span>
-              )}
-            </div>
-
-            <div className="commit">
-              <button className="btn" style={{ marginLeft: "auto" }} onClick={commitSupplement}
-                disabled={saving}>
-                {saving ? "Adding…" : `Add to ${p.meal}`}
-              </button>
-            </div>
-          </section>
-            ) : (
-              <>
-          {pickedCustom ? (
-            <CustomPicked
-          detail={pickedCustom}
-          meal={p.meal}
-          grams={grams}
-          weighed={weighed}
-          saving={saving}
-          vessels={vessels}
-          wfKey={wfKey}
-          showPanel={showPanel}
-          onTogglePanel={() => setShowPanel((s) => !s)}
-          onMealChange={p.onMealChange}
-          onNet={setNet}
-          onWeight={(g, w) => { setGrams(g); setWeighed(w); }}
-          onManageVessels={p.onManageVessels}
-          onChangeFood={() => { setPickedCustom(null); setWeighed(null); }}
-          onCommit={commitCustom}
-          origin={origin}
-          cuisine={cuisine}
-          onTags={(o, cu) => { setOrigin(o); setCuisine(cu); setRecalled(false); }}
-          recalledNote={recalled ? "From the last time you logged this — change it if today was different." : null}
-        />
-      ) : picked ? (
-        <section className="card">
-          <div className="card__head">
-            <h2 className="picked__title">{picked.description}</h2>
-            <button className="link card__note" onClick={() => { setPicked(null); setWeighed(null); }}>change</button>
-          </div>
-
-          <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
-          <div className="chips">
-            {MEALS.map((m) => (
-              <button
-                key={m}
-                className="chip"
-                aria-pressed={m === p.meal}
-                onClick={() => p.onMealChange(m)}
-                style={{ textTransform: "capitalize" }}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-
-          {picked.portions.length > 0 && (
-            <>
-              <div className="group__name" style={{ marginTop: "var(--s5)" }}>Serving</div>
-              <div className="chips">
-                {picked.portions.slice(0, 8).map((pt, i) => (
-                  <button
-                    key={i}
-                    className="chip"
-                    aria-pressed={!weighed && Number(grams) === round(pt.gram_weight)}
-                    onClick={() => setNet(String(round(pt.gram_weight)))}
-                  >
-                    {portionLabel(pt)}
-                  </button>
-                ))}
+            {wide && (panel ? <section className="card amount-card">{panel.body}</section> : (
+              /* A blank half-window reads as a rendering fault; this says
+                 what the pane is for. */
+              <div className="rest">
+                <h3>Nothing picked yet</h3>
+                <p>Choose something on the left to set how much of it you had.</p>
               </div>
-            </>
-          )}
-
-          <WeightField
-            key={wfKey}
-            grams={grams}
-            onChange={(g, w) => { setGrams(g); setWeighed(w); }}
-            vessels={vessels}
-            onManageVessels={p.onManageVessels}
-            onSubmit={commit}
-          />
-
-          <TagPicker
-            origin={origin}
-            cuisine={cuisine}
-            onChange={(o, c) => { setOrigin(o); setCuisine(c); setRecalled(false); }}
-            recalledNote={recalled ? "From the last time you logged this — change it if today was different." : null}
-          />
-
-          <div className="commit">
-            <button className="btn" style={{ marginLeft: "auto" }} onClick={commit} disabled={saving}>
-              {saving ? "Adding…" : `Add to ${p.meal}`}
-            </button>
-          </div>
-
-          {unmeasured > 0 && (
-            <div className="card__foot">
-              {unmeasured} of {picked.nutrients.length} nutrients have no measured value for this
-              food. They will count as unmeasured for the day rather than as zero.
-            </div>
-          )}
-        </section>
-          ) : (
-            /* Desktop only (`.rest` is display:none below 1080px, where the
-               list occupies the whole screen on its own). A blank half-window
-               reads as a rendering fault; this says what the pane is for. */
-            <div className="rest">
-              <h3>Nothing picked yet</h3>
-              <p>
-                Choose something on the left and its serving sizes, weight and
-                what it is measured for appear here.
-              </p>
-            </div>
-          )}
-              </>
-            )}
+            ))}
           </div>
         </div>
       )}
@@ -1565,6 +1507,17 @@ export default function Foods(p: Props) {
         </div>
       </Sheet>
 
+      {/* How much, over the list, wherever the panel does not fit beside it. */}
+      {!wide && (
+        <Sheet open={amountSheet.open && panel !== null} onClose={amountSheet.hide}
+          title={panel?.title ?? null} className="amount-sheet"
+          /* With a keyboard, the window takes it: the grams are typed there. */
+          initialFocus={keys ? undefined
+            : () => document.querySelector<HTMLElement>(".amount-sheet .readout__input")}>
+          {panel?.body}
+        </Sheet>
+      )}
+
       {/* The lens. Open only while the hash says so, so the Android back
           gesture closes it rather than navigating this screen away underneath
           it — see `useCameraRoute`. */}
@@ -1584,120 +1537,6 @@ export default function Foods(p: Props) {
           that failed is said here. */}
       {qlog.error && <p className="alert" role="alert">{qlog.error}</p>}
     </div>
-  );
-}
-
-interface CustomPickedProps {
-  detail: CustomFoodDetail;
-  meal: Meal;
-  grams: string;
-  weighed: Weighed | null;
-  saving: boolean;
-  vessels: Vessel[];
-  wfKey: number;
-  showPanel: boolean;
-  onTogglePanel: () => void;
-  onMealChange: (m: Meal) => void;
-  onNet: (g: string) => void;
-  onWeight: (g: string, w: Weighed | null) => void;
-  onManageVessels: () => void;
-  onChangeFood: () => void;
-  onCommit: () => void;
-  origin: Origin | null;
-  cuisine: string | null;
-  onTags: (o: Origin | null, c: string | null) => void;
-  recalledNote: string | null;
-}
-
-/**
- * One of the user's own foods, ready to log.
- *
- * The counts are stated before the weight field rather than after the fact: a
- * pack prints about fifteen numbers and this panel has forty-seven lines, so
- * most of what is about to be logged came from somewhere other than the pack,
- * and which somewhere is the difference between a borrowed figure and a gap.
- */
-function CustomPicked(c: CustomPickedProps) {
-  const { food, nutrients, base_description, from_label, from_base, unknown } = c.detail;
-  const servingChip = food.serving_label ?? "1 serving";
-
-  return (
-    <section className="card">
-      <div className="card__head">
-        <h2 className="picked__title">{foodLabel(food)}</h2>
-        <button className="link card__note" onClick={c.onChangeFood}>change</button>
-      </div>
-
-      <p className="rangenote">
-        {from_label} of {nutrients.length} values came off the pack.{" "}
-        {base_description
-          ? `${from_base} are borrowed from “${base_description}”, the generic entry this replaces, and ${unknown} are unmeasured.`
-          : `The other ${unknown} are unmeasured — nothing here fills them in, and they count as gaps rather than as zero.`}
-      </p>
-
-      <div className="group__name" style={{ marginTop: "var(--s4)" }}>Meal</div>
-      <div className="chips">
-        {MEALS.map((m) => (
-          <button key={m} className="chip" aria-pressed={m === c.meal}
-            onClick={() => c.onMealChange(m)} style={{ textTransform: "capitalize" }}>{m}</button>
-        ))}
-      </div>
-
-      {/* The pack's own serving, in the pack's own words. Its gram weight is what
-          every transcribed figure on this food is per. */}
-      <div className="group__name" style={{ marginTop: "var(--s5)" }}>Serving</div>
-      <div className="chips">
-        <button className="chip"
-          aria-pressed={!c.weighed && Number(c.grams) === round(food.serving_g)}
-          onClick={() => c.onNet(String(round(food.serving_g)))}>
-          {servingChip} · {round(food.serving_g)} g
-        </button>
-      </div>
-
-      <WeightField
-        key={c.wfKey}
-        grams={c.grams}
-        onChange={c.onWeight}
-        vessels={c.vessels}
-        onManageVessels={c.onManageVessels}
-        onSubmit={c.onCommit}
-      />
-
-      <TagPicker
-        origin={c.origin}
-        cuisine={c.cuisine}
-        onChange={c.onTags}
-        recalledNote={c.recalledNote}
-      />
-
-      <div className="commit">
-        <button className="btn" style={{ marginLeft: "auto" }} onClick={c.onCommit} disabled={c.saving}>
-          {c.saving ? "Adding…" : `Add to ${c.meal}`}
-        </button>
-      </div>
-
-      {/* Below the commit rather than above it: forty-seven lines between the
-          weight and the button would push the button off a phone screen. */}
-      <div className="card__foot">
-        <button className="link" onClick={c.onTogglePanel} aria-expanded={c.showPanel}>
-          {c.showPanel ? "Hide all values" : `Show all ${nutrients.length} values`}
-        </button>
-      </div>
-
-      {c.showPanel && (
-        <div style={{ marginTop: "var(--s3)" }}>
-          <p className="rangenote">
-            Per 100 g, which is the basis everything else in the app is on. The pack's own
-            figures are per {round(food.serving_g)} g and were scaled to match.
-          </p>
-          <div className="rows" style={{ marginTop: "var(--s3)" }}>
-            {nutrients.map((n) => (
-              <PanelRow key={n.id} n={n} base={base_description} />
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -1779,21 +1618,6 @@ function defaultPortion(r: Recipe): number {
 }
 
 /**
- * What a pot has left, and where its yield came from.
- *
- * The provenance travels with the number, because "weighed" and "from the
- * ingredients" are different kinds of claim and every portion taken out of this
- * pot inherits whichever one it was.
- */
-function potLine(c: Cook): string {
-  const when = humanDate(c.cooked_on).toLowerCase();
-  const basis = c.weighed_yield_g === null ? "the recipe expects" : "weighed";
-  const left = `${Math.round(c.remaining_g).toLocaleString()} g left`;
-  const of = `of ${Math.round(c.yield_g).toLocaleString()} g ${basis}`;
-  return `${left} ${of} · cooked ${when}`;
-}
-
-/**
  * What a serving chip says.
  *
  * `unit` is whatever the source dataset carries there, and FNDDS carries
@@ -1807,9 +1631,18 @@ function portionLabel(pt: Portion): string {
   const named = [pt.description, pt.unit].find(
     (v): v is string => typeof v === "string" && /\p{L}/u.test(v),
   );
-  if (named === undefined) return `${round(pt.gram_weight)} g`;
+  // A portion of so many grams is said once: "100 g", not "100 g · 100 g".
+  if (named === undefined || /^g(rams?)?$/i.test(named.trim())) return `${round(pt.gram_weight)} g`;
   const qty = pt.amount === 1 ? "" : `${trim(pt.amount)} `;
   return `${qty}${named.trim()} · ${round(pt.gram_weight)} g`;
+}
+
+/** The key a food's figure per 100 g is kept under. */
+function valueKey(s: WeighedSource): string {
+  if ("fdcId" in s) return `food:${s.fdcId}`;
+  if ("customFoodId" in s) return `custom:${s.customFoodId}`;
+  if ("recipeId" in s) return `recipe:${s.recipeId}`;
+  return `cook:${s.cookId}`;
 }
 
 /** A sitting's name as a title: "Dinner". */

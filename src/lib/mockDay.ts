@@ -31,6 +31,7 @@ import type {
   MealEnergy,
   NutrientValue,
   Origin,
+  Per100g,
   SnapshotBasis,
   Volume,
 } from "../types";
@@ -374,13 +375,52 @@ function logBottle(a: Record<string, unknown>, share: number | null): string {
 
 /** Energy per 100 g of the foods offered one tap, roughly as the reference has them. */
 const KCAL_100G: Record<number, number> = { 168874: 365, 172421: 352, 171287: 61, 171705: 876, 170554: 23 };
+
+/** What a write or a valuation names: one of a food, your own food, a recipe or a pot. */
+interface Weighable {
+  fdcId?: unknown;
+  customFoodId?: unknown;
+  recipeId?: unknown;
+  cookId?: unknown;
+}
+
+/**
+ * What `grams` of something comes to in energy in the browser fixture, as the
+ * parts an entry is summed from. The foods offered one tap at roughly the
+ * reference's figure and the rest of the catalogue at one of its own; your
+ * own foods measured; and a pot or a recipe with 30% of it unmeasured, as
+ * a dish with drumstick pods in it is. `per_100g` values by it and the add
+ * below logs by it, so what an amount previews is the entry Today then draws.
+ */
+function partsOf(src: Weighable, grams: number, description: string): Part[] {
+  const k = grams / 100;
+  if (src.fdcId != null) {
+    const fdc = Number(src.fdcId);
+    return [measured(description, fdc, grams, (KCAL_100G[fdc] ?? 60 + (fdc % 37) * 9) * k)];
+  }
+  if (src.customFoodId != null) return [measured(description, null, grams, 410 * k)];
+  const per = src.cookId === "c-sambar" ? 67 : src.cookId === "c-dal-tadka" ? 132 : 148;
+  return [measured(description, null, grams * 0.7, per * k), unmeasured("Drumstick pods", grams * 0.3)];
+}
+
+/** `per_100g`: energy as above, and the three it is made of in a dal's proportions. */
+function per100Of(src: Weighable): Per100g | null {
+  if (src.fdcId == null && src.customFoodId == null && src.recipeId == null && src.cookId == null) return null;
+  const energy = sum(partsOf(src, 100, ""));
+  const share = (f: number): DailyTotal => ({
+    ...energy, lower: energy.lower * f, upper: energy.upper === null ? null : energy.upper * f,
+  });
+  return { energy, protein: share(0.06), carbs: share(0.13), fat: share(0.03) };
+}
+
 let addSeq = 0;
 
 export const DAY_TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
+  per_100g: (a) => ((a.items as Weighable[] | undefined) ?? []).map(per100Of),
   // Onto the day for the life of the tab, so a one-tap repeat shows on Today
-  // and its Undo has a row to take away. A dose is drawn with no energy, a
-  // weighed plate at its gross (the vessels live in mock.ts), and anything off
-  // the list above at 150 kcal per 100 g.
+  // and its Undo has a row to take away. A dose is drawn with no energy, and
+  // everything else by `partsOf`. A weighed plate arrives here already net:
+  // the vessels live in mock.ts, which takes them off first.
   add_log_entry: (a) => {
     addSeq += 1;
     const n = (k: string) => (a[k] == null ? null : Number(a[k]));
@@ -393,10 +433,9 @@ export const DAY_TABLE: Record<string, (a: Record<string, unknown>) => unknown> 
       grams: n("grams") ?? n("grossG"), units: n("units"),
       origin: (a.origin as Origin) ?? null, cuisine: (a.cuisine as string) ?? null,
     };
-    const kcal = (e.grams ?? 0) * (KCAL_100G[e.fdc_id ?? 0] ?? 150) / 100;
     LOG.push(logged(e, e.units !== null
       ? [{ description: e.description, fdc_id: null, grams: null, lower: 0, upper: 0, covered: true, has_data: true }]
-      : [measured(e.description, e.fdc_id, e.grams ?? 0, kcal)]));
+      : partsOf(a, e.grams ?? 0, e.description)));
     return e.id;
   },
   // Off the day, and recoverable for ten minutes — the real remove is a soft

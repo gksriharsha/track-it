@@ -716,9 +716,12 @@ function Shell() {
   dateNow.current = date;
   const refreshShown = useCallback(() => refresh(dateNow.current), [refresh]);
 
-  const onLogged = useCallback(async () => {
+  const onLogged = useCallback(async (fromSheet?: boolean) => {
     await refresh(date);
-    go("today");
+    // Logged from a sheet — the amount, over Add food — the day takes the
+    // sheet's place in history, so one Back returns to the screen it was over
+    // rather than to the sheet with nothing left in it.
+    go("today", { replace: fromSheet === true });
   }, [date, refresh, go]);
 
   /**

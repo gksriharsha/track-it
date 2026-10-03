@@ -147,6 +147,12 @@
   --water-wash: #e1edf6;
   --on-water: #ffffff;
 
+  /* The scale's window on the amount step (`.readout`): a well sunk into the
+     sheet, its figures in dots. The one instrument in the app, so the one
+     place an inset shadow is drawn. */
+  --well: #dde5e3;
+  --well-shade: inset 0 3px 8px rgba(15, 22, 21, 0.1);
+
   /* The colour of the area a control sits in: teal for food, which is most
      of the app, and plum wherever an activity is being logged or read
      (`.activity`, `.activity-card`, the lift sheet, Trends' activity block —
@@ -270,6 +276,9 @@
     --water-wash: #15283a;
     /* 8.2:1 on the lightened blue. */
     --on-water: #0b1d2b;
+    /* Darker than the sheet, as an unlit display is: the dots read lit on it. */
+    --well: #0a100f;
+    --well-shade: inset 0 3px 8px rgba(0, 0, 0, 0.45);
     --focus: #5ccdc0;
     --lift: none;
     --lift-hi: none;
@@ -3757,4 +3766,155 @@ b, strong, th { font-weight: 600; }
   /* The workbench sets its list to block when something is picked; this one
      is a column, so the field stays at its head. */
   .workbench.food[data-picked="true"] > .food__list { display: flex; }
+}
+
+/* The results' one figure, energy per 100 g, in the right-hand column. Its
+   unit is said once, at the head of the section, and not on every row. */
+.food__h { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.food__unit {
+  padding-right: 14px; color: var(--ink-3);
+  font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 400;
+}
+.food__k { min-width: 3ch; text-align: right; white-space: nowrap; font-weight: 500; }
+
+/* ── how much: the scale readout (Amount.tsx) ────────────────────
+   As the user picked it, "Scale readout": the amount in a scale's display
+   window with the bowl's weight taken off, and the keys under it. The window
+   is the app's one instrument — a well in the sheet, its figures in dots —
+   and it is drawn here and nowhere else. Everything round it stays plain.
+   ───────────────────────────────────────────────────────────── */
+.amount { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+
+/* The food it is for. In the sheet's own title bar, or over the window
+   where the panel stands beside the list. */
+.amount__head { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.amount__title { display: flex; flex-direction: column; min-width: 0; }
+/* Two lines before it is cut: a reference food's name is long, and its end
+   is often what tells it apart — "…boiled, without salt". */
+.amount__name {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600;
+}
+.amount__sub {
+  color: var(--ink-3); letter-spacing: 0;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 400;
+}
+.amount__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s1); }
+.amount-sheet .sheet__title { flex: 1; min-width: 0; }
+
+.readout { display: flex; flex-direction: column; gap: var(--s1); }
+.readout__win {
+  position: relative;
+  display: flex; align-items: flex-end; justify-content: flex-end; gap: var(--s2);
+  height: 96px; padding: 0 var(--s5) 13px;
+  border-radius: var(--r-sm); background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--line), var(--well-shade);
+}
+.readout.is-focused .readout__win { box-shadow: inset 0 0 0 2px var(--focus), var(--well-shade); }
+/* Shrinks to fit rather than running out of the window: a five-figure
+   reading with its point on the narrowest phone. */
+.dots { display: block; flex: 0 1 auto; min-width: 0; max-width: calc(100% - 44px); height: 70px; width: auto; }
+.dots__on { fill: var(--ink); }
+.dots__off { fill: var(--ink); opacity: 0.06; }
+/* The app's own starting figure, not a reading: faint until typed over. */
+.dots.is-faint .dots__on { fill: var(--ink-3); opacity: 0.75; }
+.readout__u { flex: none; color: var(--ink-2); font-size: var(--t-title); line-height: 1; font-weight: 600; }
+.readout__caret {
+  flex: none; width: 3px; height: 70px; margin-left: calc(var(--s1) * -1);
+  border-radius: 2px; background: var(--focus);
+  animation: readout-caret 1.1s steps(1) infinite;
+}
+@keyframes readout-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .readout__caret { animation: none; } }
+/* The keyboard's way in, laid over the window and drawn by it. 16px so a
+   phone browser does not zoom on it. */
+.readout__input {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0;
+  border: 0; opacity: 0; background: transparent; color: transparent; caret-color: transparent;
+  font-size: 16px; cursor: text;
+}
+.readout__input:focus { outline: none; }
+
+/* What came off the reading, and the way to say what did. */
+.readout__tare {
+  display: flex; align-items: center; gap: var(--s2); align-self: flex-start;
+  min-height: 40px; margin-left: calc(var(--s2) * -1); padding: 0 var(--s2);
+  border-radius: var(--r-sm); color: var(--ink-2); text-align: left;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
+}
+.readout__tare .glyph { flex: none; color: var(--area-ink); }
+@media (hover: hover) { .readout__tare:hover { background: var(--sunken); color: var(--ink); } }
+.amount__vessels { align-items: center; }
+.amount__vessels .chip, .amount__vessels .link { flex: none; white-space: nowrap; }
+.amount__vessels .tnum { color: var(--ink-3); }
+.chip[aria-pressed="true"] .tnum { color: inherit; }
+
+.amount__result {
+  display: flex; justify-content: center; align-items: baseline; gap: var(--s3);
+  min-height: 24px; margin: 0;
+  color: var(--ink-2); font-size: var(--t-body); line-height: var(--t-body-lh);
+}
+.amount__result b { color: var(--ink); font-weight: 600; }
+
+.amount__servings { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.amount__servings .chip { flex: none; white-space: nowrap; }
+
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
+.keypad__key {
+  display: grid; place-items: center; height: 52px;
+  border-radius: var(--r-md); background: var(--sunken); color: var(--ink);
+  font-size: var(--t-title); line-height: 1; font-weight: 500;
+  transition: background-color 90ms ease-out;
+}
+.keypad__key:active { background: var(--area-wash); color: var(--area-ink); }
+
+/* Where it came from and its cuisine, said in one line and opened to change.
+   The page's grey, as the meal sheet's rows have it: a white cell on a white
+   sheet has no edge. */
+.amount__tags { display: flex; flex-direction: column; gap: var(--s3); }
+.amount__tagline {
+  display: flex; align-items: center; gap: var(--s2);
+  min-height: 44px; padding: 0 var(--s2) 0 var(--s3);
+  border-radius: var(--r-md); background: var(--bg); color: var(--ink);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); text-align: left;
+}
+.amount__tagline .is-blank, .amount__as { color: var(--ink-3); }
+.amount__chev { display: grid; margin-left: auto; color: var(--ink-3); }
+@media (hover: hover) { .amount__tagline:hover { background: var(--sunken); } }
+
+.amount__log { width: 100%; min-height: 52px; }
+
+.amount__foot { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }
+.amount__note { margin: 0; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.amount__note--c { text-align: center; }
+.amount__links { display: flex; flex-wrap: wrap; gap: var(--s4); }
+.amount__panel { align-self: stretch; }
+
+/* A supplement: counted, a tap a unit. */
+.dosepick { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); padding: var(--s4) 0; }
+.dosepick__step {
+  display: grid; place-items: center; flex: none; width: 56px; height: 56px;
+  border-radius: var(--r-pill); background: var(--sunken); color: var(--ink);
+  font-size: var(--t-title); line-height: 1;
+}
+.dosepick__step:disabled { opacity: 0.4; cursor: default; }
+.dosepick__n { display: flex; align-items: baseline; gap: var(--s2); font-size: var(--t-fig); line-height: var(--t-fig-lh); font-weight: 600; }
+.dosepick__u { color: var(--ink-2); font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 500; }
+
+/* Read by a screen reader and not drawn: the food's weight as the bowl
+   comes off, which the window shows in dots. */
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+@media (max-width: 720px) {
+  /* Tall enough for the window, the keys and the button together. */
+  .amount-sheet .sheet__box { max-height: 94vh; }
+  /* Servings, and the vessels to take off, each in one line that scrolls
+     sideways to the sheet's edges: three rows of bowls would push the button
+     off a phone's screen. */
+  .amount-sheet .amount__servings, .amount-sheet .amount__vessels {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    margin: 0 calc(var(--s4) * -1); padding: 2px var(--s4);
+  }
+  .amount-sheet .amount__servings::-webkit-scrollbar,
+  .amount-sheet .amount__vessels::-webkit-scrollbar { display: none; }
 }
