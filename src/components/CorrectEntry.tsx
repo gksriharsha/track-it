@@ -24,6 +24,7 @@ import type {
   NutrientMeta,
   NutrientValue,
 } from "../types";
+import { provenanceText } from "../lib/entryText";
 
 /** The recorded value in words, so the user can see what they are replacing. */
 function said(v: NutrientValue | undefined, magnitude: string): string {
@@ -50,18 +51,6 @@ function round(n: number): string {
   return n >= 100 ? n.toFixed(0) : n >= 1 ? n.toFixed(1) : n.toFixed(3);
 }
 
-/** The plain-language history of these numbers. */
-function provenance(s: EntrySnapshotView): string {
-  const when = (iso: string) => iso.slice(0, 10);
-  if (s.basis === "corrected") {
-    return `You corrected this on ${when(s.corrected_at ?? s.frozen_at)}. It was first recorded on ${when(s.frozen_at)}.`;
-  }
-  if (s.basis === "backfilled") {
-    return `Filled in on ${when(s.frozen_at)}, after this entry was logged. What it was worth at the time was never recorded, so these are the best figures available rather than the original ones.`;
-  }
-  return `Recorded on ${when(s.frozen_at)}, when you logged it. Changing the food since then has not moved these.`;
-}
-
 const KINDS: { id: CorrectableKind; label: string }[] = [
   { id: "measured", label: "a number" },
   { id: "label_zero", label: "the pack says 0" },
@@ -73,9 +62,17 @@ const KINDS: { id: CorrectableKind; label: string }[] = [
 export default function CorrectEntry({
   entryId,
   onChanged,
+  showProvenance = true,
 }: {
   entryId: string;
   onChanged: () => void;
+  /**
+   * Whether to open on the history of these numbers. False where the screen
+   * around the form already says it — the entry's sheet prints a corrected
+   * or filled-in entry's history on its surface, whether or not the form is
+   * open, and the same sentence twice in one sheet is a sentence nobody reads.
+   */
+  showProvenance?: boolean;
 }) {
   const [snap, setSnap] = useState<EntrySnapshotView | null>(null);
   const [nutrients, setNutrients] = useState<NutrientMeta[]>([]);
@@ -133,7 +130,7 @@ export default function CorrectEntry({
 
   return (
     <div className="correct">
-      <p className="breakdown__note">{provenance(snap)}</p>
+      {showProvenance && <p className="breakdown__note">{provenanceText(snap)}</p>}
 
       <div className="correct__block">
         <label className="correct__label" htmlFor={`amt-${entryId}`}>

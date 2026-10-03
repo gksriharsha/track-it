@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node src/lib/exportSheet.test.ts && node src/lib/exerciseArt.test.ts && node src/lib/activityEnergy.test.ts",
+    "test": "node src/lib/exportSheet.test.ts && node src/lib/exerciseArt.test.ts && node src/lib/activityEnergy.test.ts && node src/lib/energy.test.ts && node src/lib/bottleShare.test.ts",
     "android:apk": "tauri android build --apk --target aarch64 --split-per-abi --ci",
     "preview": "vite preview",
     "tauri": "tauri"

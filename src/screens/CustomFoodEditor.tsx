@@ -653,7 +653,7 @@ export default function CustomFoodEditor(p: Props) {
         </div>
 
         {barcodeNote && (
-          <div style={SUGGESTED} role="status">
+          <div className="t-sm" style={SUGGESTED} role="status">
             <span style={SAY}>{barcodeNote}</span>
             {CAN_STREAM && (
               <button
@@ -671,7 +671,7 @@ export default function CustomFoodEditor(p: Props) {
         )}
 
         {barcodeShot?.payload && (
-          <div style={SUGGESTED} role="status">
+          <div className="t-sm" style={SUGGESTED} role="status">
             <span style={SAY}>
               {!barcodeShot.trusted ? (
                 <>
@@ -869,7 +869,7 @@ export default function CustomFoodEditor(p: Props) {
             press the button — a misread serving multiplies every figure on the
             panel by the wrong factor, so this is the last number to guess at. */}
         {servingHint && !servingG.trim() && (
-          <div style={SUGGESTED}>
+          <div className="t-sm" style={SUGGESTED}>
             <span style={{ minWidth: 0, flex: 1 }}>
               {servingHint.g !== null ? (
                 <>
@@ -959,7 +959,7 @@ export default function CustomFoodEditor(p: Props) {
             two are shown together because only the user can tell which of them
             says what the pack says. Nothing here reaches the box on its own. */}
         {ingText && (
-          <div style={SUGGESTED} role="group" aria-label="Read from the ingredient list photo">
+          <div className="t-sm" style={SUGGESTED} role="group" aria-label="Read from the ingredient list photo">
             <div style={{ flex: "1 1 260px", minWidth: 0 }}>
               <p style={{ margin: 0 }}>
                 {ingSame ? (
@@ -1021,7 +1021,6 @@ export default function CustomFoodEditor(p: Props) {
     <div className="screen" style={showStrip ? { paddingBottom: "var(--s8)" } : undefined}>
       <ScreenHead
         title={p.id ? "Edit food" : "New food"}
-        sub="what the pack says, in your own record"
         action={
           <>
             <button className="btn btn--quiet" onClick={cancel}>Cancel</button>
@@ -1033,7 +1032,7 @@ export default function CustomFoodEditor(p: Props) {
       />
 
       {wasRestored && (
-        <p className="rangenote" style={{ marginTop: "calc(var(--s5) * -1)" }}>
+        <p className="rangenote" style={{ marginTop: "calc(var(--s4) * -1)" }}>
           Picked up where you left off — this draft was still unsaved.
         </p>
       )}
@@ -1185,7 +1184,8 @@ const SUGGESTED: CSSProperties = {
   borderRadius: "var(--r-md)",
   background: "var(--sunken)",
   color: "var(--ink-2)",
-  fontSize: 13,
+  // The size comes from `.t-sm` on each element that uses this, so a box of
+  // suggestions is set on the type scale rather than at a 13px of its own.
 };
 
 /**
@@ -1229,7 +1229,7 @@ type IngNote =
 
 function IngLine({ note, onDismiss }: { note: IngNote; onDismiss: () => void }) {
   return (
-    <div style={SUGGESTED} role="status">
+    <div className="t-sm" style={SUGGESTED} role="status">
       <span style={{ minWidth: 0, flex: 1 }}>
         {note.kind === "none" && (
           note.lines > 0 ? (
@@ -1296,7 +1296,7 @@ function noteOf(s: Scan): ScanNote {
 
 function ScanLine({ note, onDismiss }: { note: ScanNote; onDismiss: () => void }) {
   return (
-    <div style={SUGGESTED} role="status">
+    <div className="t-sm" style={SUGGESTED} role="status">
       <span style={{ minWidth: 0, flex: 1 }}>
         {note.kind === "read" && (
           note.read === note.total ? (

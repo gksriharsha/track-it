@@ -103,15 +103,21 @@ export const getFoodDetail = (fdcId: number) =>
  * reference foods and their own transcribed packs, never a pot, a supplement or
  * water.
  *
- * A shortcut into the portion step and not a summary of anything. The caller
- * must land the user on the amount panel and let them press Add; nothing here
- * logs, and the list carries no figure that may be drawn on a row.
+ * A shortcut and not a summary of anything. Nothing here logs: a caller either
+ * lands the user on the amount panel, or — Add's "Had it before" and an empty
+ * sitting's "Usually" on Today — logs it at the weight printed on the control,
+ * through `useQuickLog`, with the app's Undo bar after. The list carries no
+ * figure that may be drawn on a row.
  *
  * The three months is fixed in the backend rather than passed from here, so
  * that the sentence the screen prints beside the list cannot become a lie.
+ *
+ * `meal` narrows it to one sitting: only what was logged to that meal counts,
+ * and each row opens on the last amount had AT that meal. Left out, it is the
+ * whole list, as the home-screen widget reads it.
  */
-export const frequentFoods = (limit = 6) =>
-  invoke<FrequentFood[]>("frequent_foods", { limit });
+export const frequentFoods = (limit = 6, meal?: Meal) =>
+  invoke<FrequentFood[]>("frequent_foods", { limit, meal: meal ?? null });
 
 export const getDay = (loggedOn: string) =>
   invoke<DayView>("get_day", { loggedOn });
@@ -198,6 +204,17 @@ export const addWeighedLogEntry = (
 
 export const deleteLogEntry = (id: string) =>
   invoke<void>("delete_log_entry", { id });
+
+/**
+ * Undo a remove: the same entry comes back, with its id, its place in the day
+ * and the nutrition frozen when it was first logged. Not a second log of the
+ * food — that would value it against today's data.
+ *
+ * Refused for an entry that was never removed, and for one removed more than
+ * ten minutes ago; the refusal is a sentence fit to show.
+ */
+export const restoreLogEntry = (id: string) =>
+  invoke<void>("restore_log_entry", { id });
 
 /**
  * Which days the record holds something on, from `since` forward.
@@ -554,6 +571,24 @@ export const deleteBottle = (id: string) => invoke<void>("delete_bottle", { id }
  */
 export const logWater = (loggedOn: string, bottleId: string, currentG: number) =>
   invoke<string>("log_water", { loggedOn, bottleId, currentG });
+
+/**
+ * Log a whole bottle drunk, without weighing it: what the bottle holds, full
+ * less empty, noted on the entry as `WHOLE_BOTTLE_NOTE` and with no scale
+ * reading stored. Only for a bottle weighed empty (`empty_g` set) — the
+ * backend refuses the rest, since then what one holds is not known.
+ */
+export const logWholeBottle = (loggedOn: string, bottleId: string) =>
+  invoke<string>("log_whole_bottle", { loggedOn, bottleId });
+
+/**
+ * Log part of a bottle, judged by eye: `share` of what it holds, more than
+ * none and at most all of it. Noted as `PART_BOTTLE_NOTE` (a share of one as
+ * a whole bottle), with no scale reading stored, and refused, as a whole one
+ * is, for a bottle never weighed empty.
+ */
+export const logBottleShare = (loggedOn: string, bottleId: string, share: number) =>
+  invoke<string>("log_bottle_share", { loggedOn, bottleId, share });
 
 /* ── spreadsheet import ───────────────────────────────────────────────── */
 

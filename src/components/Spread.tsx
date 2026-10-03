@@ -142,8 +142,11 @@ function sentence(s: string): string {
  * Quartiles by the median-of-halves method, which is stable on the small
  * samples a few weeks of logging produce. Returns null below the point where a
  * band would be describing noise rather than a habit.
+ *
+ * Exported for Today, whose figure quotes the same middle day this strip
+ * draws, so the two screens can never give two answers for one month.
  */
-function summarise(values: number[]) {
+export function summarise(values: number[]) {
   if (values.length < ENOUGH_FOR_SPREAD) return null;
   const v = [...values].sort((a, b) => a - b);
   const mid = (xs: number[]) => {

@@ -1,51 +1,168 @@
-@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap');
+/* ─────────────────────────────────────────────────────────────
+   Archivo, carried in the app rather than fetched.
+
+   The one typeface, chosen by the user from rendered options
+   (October 2026) in place of the system sans plus Newsreader. A
+   packaging grotesque, which suits a log of what came out of
+   packets and pots, with tabular figures and a width axis: an
+   aggregate is set wider, never in a second face (see `.fig`).
+
+   Both axes are kept, wght 100–900 and wdth 62–125. The files are
+   cut from the project's full variable font rather than taken from
+   Google's served subsets, because those leave out "≥" — the mark
+   on every partly measured figure in the app, which would otherwise
+   fall back to another face mid-number. Two subsets, latin (with
+   the arrows and the maths signs) and latin-ext, so a page of plain
+   English loads one file. SIL Open Font License; the licence is
+   beside the files as OFL.txt, and each file carries its copyright
+   in its own name table.
+
+   Carried rather than fetched for the reason Newsreader was: the
+   app says nothing leaves the device, and a kitchen with no signal
+   must not lose the typeface. swap, not block: a figure in the
+   fallback for a frame is better than no figure.
+   ───────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url("./assets/fonts/archivo-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20B8, U+20BA-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url("./assets/fonts/archivo-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+20B9, U+2122, U+2190-2193, U+2212, U+2215, U+2248, U+2260, U+2264-2265, U+FEFF, U+FFFD;
+}
 
 /* ─────────────────────────────────────────────────────────────
-   Tokens. Nothing below this block hard-codes a colour, radius
-   or spacing value.
+   Tokens. Nothing below this block hard-codes a colour, radius,
+   spacing value or type size.
    ───────────────────────────────────────────────────────────── */
 :root {
-  /* Warm neutral ground. Saturation stays under 0.02 so the one
-     accent and the one alarm colour are the only things that pop. */
-  --bg: #fbfaf8;
+  /* Type: five text steps and two figure steps, and nothing else.
+
+     There were 23 font sizes in this file and no tokens at all, so every
+     rule picked its own — 13px here, 13.5px there, 14px beside both — and
+     the eye read the difference as noise rather than as hierarchy. Each
+     step now earns its place:
+
+       cap    12/16   row captions, notes under a figure, the bar's labels
+       sm     13.5/19 secondary text, chips, links, group headings
+       body   15/21   everything read as text
+       head   17/23   a section's or a sheet's heading (600)
+       title  24/30   a screen's title (600); Today's own, larger, see `.daybar`
+       fig    36/40   a period's figure, set wide
+       fig-sm 26/30   a smaller period figure, set wide
+
+     The two figure steps are also the size of the few large single figures
+     that are not a period's — the net weight on the scale, a count on the
+     Household ledger, a pairing code — and those take the size at the
+     normal width. The width is `.fig`'s, not the token's.
+
+     The leading is written as a ratio and not in px, so that it scales
+     with whatever size an element ends up at: a px line-height inherits as
+     px, and a 24px heading inside a 13.5px block would inherit 19px and
+     overlap itself on its second line. Each ratio is the px pair above. */
+  --t-cap: 12px;     --t-cap-lh: 1.3334;
+  --t-sm: 13.5px;    --t-sm-lh: 1.4075;
+  --t-body: 15px;    --t-body-lh: 1.4;
+  --t-head: 17px;    --t-head-lh: 1.353;
+  --t-title: 24px;   --t-title-lh: 1.25;
+  --t-fig: 36px;     --t-fig-lh: 1.1112;
+  --t-fig-sm: 26px;  --t-fig-sm-lh: 1.1539;
+
+  /* The ground: a cool grey with a little of the teal in it, under white
+     cells (`--surface`). The user chose this "departure board" look from
+     rendered options in October 2026: the page is the table, each record a
+     white cell on it, every figure lined up in one column. It replaced a warm
+     off-white page with hairline-ruled rows, which read as a printed
+     document rather than an app. */
+  --bg: #e9efee;
   --surface: #ffffff;
-  --sunken: #f4f2ee;
-  --line: #e8e4dd;
-  --ink: #1c1a17;
-  --ink-2: #57524a;
-  --ink-3: #8a8378;
+  --sunken: #e1e8e7;
+  --line: #dde4e3;
+  --ink: #0f1615;
+  --ink-2: #45514f;
+  /* The muted text, and the text most of the honesty is written in — "—",
+     "partly measured", a reference's name. Measured: 4.9:1 on --bg, 5.7:1 on
+     --surface and 4.6:1 on --sunken, so a caveat clears AA wherever it sits. */
+  --ink-3: #5c6967;
 
   /* Two functional colours, and only two.
-     accent = on track / primary action.   over = a limit exceeded.
+     accent = food, and the primary action.   over = a limit exceeded.
      Under-target is deliberately NEUTRAL: at 3pm it is information,
-     not an error, and four red rows teach you to ignore red. */
-  --accent: #4a7c59;
-  --accent-ink: #3c6449;
-  --accent-wash: #edf3ee;
+     not an error, and four red rows teach you to ignore red.
+     Teal for food, chosen with plum for activity from four rendered pairs
+     (it was sage and heather). 5.5:1 on --surface, 4.7:1 on --bg. */
+  --accent: #0f766e;
+  --accent-ink: #0b5c56;
+  --accent-wash: #dfeeec;
   /* What sits ON the accent fill. White here, and deliberately NOT white in
-     dark mode: the dark palette lightens the accent to #85b393 to stop it
-     glaring, and white on that is 2.4:1 — under the 3:1 a control's glyph
-     needs to be legible at all. */
+     dark mode: the dark palette lightens the accent to #5ccdc0 to stop it
+     glaring, and white on that is under the 3:1 a control's glyph needs. */
   --on-accent: #ffffff;
-  --over: #b4553a;
-  --over-wash: #f8ede9;
+  /* The accent on the Undo bar, which is drawn in --ink: the theme turned
+     over, so its action takes the OTHER theme's accent. 9.6:1 on the bar
+     here, and 4.6:1 in dark. */
+  --on-ink-accent: #5ccdc0;
+  --over: #b23b22;
+  --over-wash: #f9e9e4;
 
-  /* Activity (D26): the one cool hue in a warm palette, so a walk and a meal
-     read apart at a glance on the same screen. Heather rather than blue, which
-     every tracking app spends on water. The same saturation and value as the
-     sage, so the two sit together. It names an area and grades nothing in it:
-     effort is never coloured by level. */
-  --act: #675086;
-  --act-ink: #564370;
-  --act-wash: #f2eef6;
+  /* Activity (D26): its own hue, so a walk and a meal read apart at a glance
+     on the same screen. Plum, beside the teal: warm against cool, and never
+     the blue every tracking app spends on water. It names an area and grades
+     nothing in it: effort is never coloured by level. 7.0:1 on --surface. */
+  --act: #8a3a7e;
+  --act-ink: #6e2c64;
+  --act-wash: #f4e7f1;
   --on-act: #ffffff;
-  /* The heather mixed into its own wash, precomputed rather than color-mix(),
+  /* The plum mixed into its own wash, precomputed rather than color-mix(),
      which Android WebView before 111 does not read at all. */
-  --act-line: #a697b8;
-  --act-rule: #d9d2e2;
-  --act-press: #e4dee9;
+  --act-line: #c397ba;
+  --act-rule: #e6cfe0;
+  --act-press: #ecdbe7;
+  /* The muted text inside an activity area: the page's --ink-3 is a cool grey
+     that sits badly on the plum wash, so the area has its own, 5.7:1 on the
+     wash and 5.1:1 on a pressed row. */
+  --act-ink-3: #625862;
 
-  --focus: #4a7c59;
+  /* The two lighter tones of the food colour that carbohydrate and fat take
+     in the bar under the day's energy, beside protein's full teal. Shares of
+     one whole, so one hue in three steps rather than three hues. */
+  --share-2: #6fb2ab;
+  --share-3: #b4d8d4;
+
+  /* Water: neither food nor activity, so neither of their colours. A plain
+     blue, for the water row's tile and its +, and for the controls in its
+     sheet (`.water-area`). White on it is 5.4:1. */
+  --water: #2d6f9e;
+  --water-ink: #1f5a85;
+  --water-wash: #e1edf6;
+  --on-water: #ffffff;
+
+  /* The colour of the area a control sits in: teal for food, which is most
+     of the app, and plum wherever an activity is being logged or read
+     (`.activity`, `.activity-card`, the lift sheet, Trends' activity block —
+     see "Activity (D26)" below). The primary button, a selected chip and a
+     text action all draw from these four, so a screen's colour is set once
+     on its container rather than re-stated rule by rule with selectors like
+     `.activity .btn:not(.btn--quiet):not(.btn--danger)`.
+
+     var() here resolves on :root, so the dark-mode values of --accent below
+     flow through without being repeated. */
+  --area: var(--accent);
+  --area-ink: var(--accent-ink);
+  --area-wash: var(--accent-wash);
+  --on-area: var(--on-accent);
+
+  --focus: #0f766e;
 
   /* 4px base scale */
   --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
@@ -55,11 +172,16 @@
   --r-md: 12px;
   --r-lg: 16px;
   --r-pill: 999px;
+  /* The inner corners of a run of tiles — a meal's foods, 2px apart. The
+     run's own ends take --r-md, so the meal reads as one group. */
+  --r-in: 4px;
 
-  /* One elevation treatment: a tight ambient shadow plus a soft
-     directional one. Cards use this OR a border, never both. */
-  --lift: 0 1px 2px rgba(28, 26, 23, 0.05), 0 6px 20px -8px rgba(28, 26, 23, 0.10);
-  --lift-hi: 0 1px 2px rgba(28, 26, 23, 0.06), 0 12px 32px -10px rgba(28, 26, 23, 0.16);
+  /* Cells sit flat on the grey: a white cell on a cooler ground needs no
+     shadow to read as an object, and a shadow under every cell is what made
+     the old cards look like a template. The one elevation left is for what
+     floats over the page — a sheet, a menu, the Undo bar. */
+  --lift: none;
+  --lift-hi: 0 1px 2px rgba(15, 22, 21, 0.06), 0 12px 32px -10px rgba(15, 22, 21, 0.18);
 
   --measure: 62ch;
   --shell: 940px;
@@ -76,6 +198,21 @@
      48px is the floor Material and the WCAG target-size rule agree on. */
   --bar-h: 58px;
   --tap: 48px;
+  /* One height for every button and one floor for every list row, on a
+     phone. There were 20 different min-heights here, 44px written out 22
+     times beside a --tap of 48px; nine classes existed only to give one
+     button a floor, and one selector list existed only to take those floors
+     away again on a desktop. The desktop values are set once, under
+     `pointer: fine`. */
+  --btn-h: var(--tap);
+  --row-h: 52px;
+  /* How far a list row reaches past the column its text sits in, on each
+     side: the room its hover wash and focus ring need, and the inset of the
+     hairline between two rows, which starts where the text starts. 16px is
+     the phone's gutter, so on the page ground a row's wash runs to the edge
+     of the screen and its divider stops 16px short of it — the platform's
+     own list. */
+  --row-pad: var(--s4);
 
   /* How much of the window the system is covering, from whichever of the two
      sources can actually answer.
@@ -100,28 +237,40 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #15140f;
-    --surface: #1e1c18;
-    --sunken: #262420;
-    --line: #322f29;
-    --ink: #f2efe9;
-    --ink-2: #b5aea2;
-    --ink-3: #7e7669;
-    /* Desaturated for dark: the same hues at full chroma glare. */
-    --accent: #85b393;
-    --accent-ink: #9cc5a8;
-    --accent-wash: #222e26;
-    --on-accent: #15140f;
-    --over: #d98a6f;
-    --over-wash: #302019;
-    --act: #b4a2cd;
-    --act-ink: #c9bade;
-    --act-wash: #25212c;
-    --on-act: #15140f;
-    --act-line: #74688a;
-    --act-rule: #3f3849;
-    --act-press: #332e3c;
-    --focus: #85b393;
+    --bg: #0b1110;
+    --surface: #141c1b;
+    --sunken: #1c2524;
+    --line: #24302e;
+    --ink: #e6eeed;
+    --ink-2: #a3b1af;
+    /* Measured, not eyeballed: 6.4:1 on --bg, 5.8:1 on --surface and 5.2:1 on
+       --sunken, so a caption clears 4.5:1 on a cell and in a sheet as well as
+       on the page. Still well under --ink-2, so the two greys stay two. */
+    --ink-3: #8a9896;
+    /* Lightened for dark: the same hues at full depth sink into the ground. */
+    --accent: #5ccdc0;
+    --accent-ink: #84dbd1;
+    --accent-wash: #15302d;
+    --on-accent: #052e2a;
+    --on-ink-accent: #0f766e;
+    --over: #ff9a80;
+    --over-wash: #3a1f19;
+    --act: #e59fd8;
+    --act-ink: #efbbe6;
+    --act-wash: #2e1a2b;
+    --on-act: #2b0f27;
+    --act-line: #8a5b82;
+    --act-rule: #452a40;
+    --act-press: #3a2236;
+    --act-ink-3: #a3949f;
+    --share-2: #3a8d85;
+    --share-3: #245450;
+    --water: #8ab9dc;
+    --water-ink: #a9cde8;
+    --water-wash: #15283a;
+    /* 8.2:1 on the lightened blue. */
+    --on-water: #0b1d2b;
+    --focus: #5ccdc0;
     --lift: none;
     --lift-hi: none;
   }
@@ -134,23 +283,59 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  font-family: "Archivo", ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  font-size: var(--t-body);
+  line-height: var(--t-body-lh);
+  /* Every digit in the app the same width, so a column of figures lines up
+     and a number that changes — a weight being typed, a total after a log —
+     does not shuffle the words beside it. Set once, here, rather than on the
+     64 places a number happens to appear. */
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 
-button, input, select { font: inherit; color: inherit; }
+/* textarea too: a browser gives it a monospace font of its own, and until now
+   only the day note's own rule (`.day-note__field`) undid that. */
+button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: none; padding: 0; }
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
+/* Three weights in the app — 400, 500, 600 — and the browser's own bold is
+   700, so a <strong> in a sentence would otherwise be the one heavier thing
+   on the screen. */
+b, strong, th { font-weight: 600; }
 
-/* One distinctive choice: numerals are set in a serif. Metrics are what
-   you scan, and the serif gives them presence the UI type doesn't have. */
-.num {
-  font-family: Newsreader, Georgia, "Times New Roman", serif;
+/* The type steps as classes, for the few places a size is set in markup
+   rather than by a component's own rule. */
+.t-cap { font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.t-sm { font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.t-body { font-size: var(--t-body); line-height: var(--t-body-lh); }
+.t-head { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600; }
+.t-title { font-size: var(--t-title); line-height: var(--t-title-lh); font-weight: 600; }
+
+/* A number, in the text face, with every digit the same width.
+
+   This class once set every numeral in the app in the period figures' face —
+   a vessel's empty weight, a barcode inside a sentence, the date in the
+   desktop stepper. Spent everywhere, the distinction said nothing: it is
+   meant to mark the figure worth dwelling on, which is a period's, and a
+   single day or a single object is not that. So `.num` is only what its name
+   says, and the distinction lives on `.fig`. */
+.num, .tnum { font-variant-numeric: tabular-nums; }
+
+/* A period's figure. The same Archivo as everything else, set WIDE: width,
+   not a second typeface, marks the aggregate as the figure worth dwelling on,
+   and a single day's numbers stay at the normal width (it was a Newsreader
+   serif until October 2026). The Trends classes are listed here rather than
+   given `.fig` in markup so that this file stays the one place that decides
+   which figures are aggregates. */
+.fig, .stats__n, .stats__amt {
+  font-family: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  font-stretch: 118%;
+  font-weight: 560;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
 }
-.tnum { font-variant-numeric: tabular-nums; }
 
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-sm); }
 
@@ -168,21 +353,24 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
    element instead of the viewport. The blur was decoration; the bug was not. */
 .brand { display: flex; align-items: center; gap: var(--s2); }
 .logo { color: var(--accent); }
-/* The wordmark reuses Newsreader — the app's one distinctive typographic
-   choice — rather than introducing a second sans. */
+/* The wordmark: the app's one typeface at its widest, the setting the period
+   figures use, rather than a second face. */
 .brand__word {
-  font-family: Newsreader, Georgia, "Times New Roman", serif;
-  font-size: 19px; font-weight: 500; letter-spacing: -0.025em;
+  font-stretch: 125%;
+  font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 700; letter-spacing: -0.02em;
 }
 
 .main { flex: 1; width: 100%; max-width: var(--shell); margin: 0 auto; padding: var(--s6) var(--s5) var(--s8); }
-.screen { display: flex; flex-direction: column; gap: var(--s6); }
+/* 24px between a screen's sections, where it was 32. At 32 a phone screen
+   of six sections spent a fifth of its height on gaps, and the space read
+   as the sections being unrelated rather than as one page. */
+.screen { display: flex; flex-direction: column; gap: var(--s5); }
 /* Only `.daybar` uses this now — Today's mobile date stepper, which is a
    ‹ date › control rather than a title block. Every other screen's header is
    `.head`; see ScreenHead.tsx. */
 .screen__head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
-.screen__head h1 { font-size: 22px; }
-.screen__sub { color: var(--ink-3); font-size: 14px; }
+.screen__head h1 { font-size: var(--t-title); line-height: var(--t-title-lh); }
+.screen__sub { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
 /* ─────────────────────────────────────────────────────────────
    The day, and the week around it.
@@ -196,10 +384,13 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
    mistaken for a way out of the screen.
    ───────────────────────────────────────────────────────────── */
 .daybar { display: flex; flex-direction: column; gap: var(--s3); }
-.daybar__row { display: flex; align-items: baseline; gap: var(--s3); }
-.daybar__row h1 { font-size: 22px; }
-.daybar__today { flex: none; }
-.daybar__count { margin-left: auto; flex: none; }
+.daybar__row { display: flex; align-items: flex-start; gap: var(--s3); }
+.daybar__title { flex: 1; min-width: 0; }
+/* Today's title is the one larger than --t-title in the app: the screen opened
+   most, named as the day is spoken, with the date under it. */
+.daybar__row h1 { font-size: 32px; line-height: 1.12; font-weight: 700; letter-spacing: -0.025em; }
+.daybar__date { margin: 2px 0 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.daybar__today { flex: none; margin-top: var(--s1); }
 
 /* Twelve weeks of days, seven at a time.
 
@@ -223,7 +414,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
    once they are not this week's. Follows the SCROLL and not the
    selection, because the two are different questions the moment
    the strip can move. */
-.week__caption { font-size: 11px; font-weight: 550; color: var(--ink-3); }
+.week__caption { font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 500; color: var(--ink-3); }
 
 .week {
   display: flex;
@@ -259,27 +450,26 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
   display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s1);
 }
 .week__day {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: var(--s2) 0 7px; border-radius: var(--r-md);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: var(--s1) 0; border-radius: var(--r-md);
   color: var(--ink-2);
-  border: 1px solid transparent;
-  transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
 }
-.week__day:disabled { opacity: 0.32; cursor: default; }
-.week__wd { font-size: 11px; font-weight: 550; color: var(--ink-3); }
-.week__n { font-size: 15px; font-weight: 550; line-height: 1.1; }
-/* A mark that a day exists in the record — never how well it went. The dot has
-   one state and one colour, so there is nothing here to fill or to beat. */
-.week__dot { width: 4px; height: 4px; border-radius: var(--r-pill); background: transparent; }
-.week__dot.is-on { background: var(--ink-3); }
-.week__day[aria-current="date"] {
-  background: var(--accent-wash); border-color: var(--accent);
-  color: var(--accent-ink);
+.week__n { transition: background-color 140ms ease-out, color 140ms ease-out; }
+.week__day:disabled { opacity: 0.38; cursor: default; }
+.week__wd { font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 500; color: var(--ink-3); }
+/* The date in a disc the size of a fingertip, so the selected day can be the
+   disc filled — the one mark in the row, and nothing under any day. */
+.week__n {
+  display: grid; place-items: center; width: 36px; height: 36px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-head); font-weight: 600; line-height: 1;
+  color: var(--ink);
 }
-.week__day[aria-current="date"] .week__wd { color: var(--accent-ink); }
-.week__day[aria-current="date"] .week__dot.is-on { background: var(--accent-ink); }
+.week__day[aria-current="date"] .week__wd { color: var(--ink); }
+.week__day[aria-current="date"] .week__n { background: var(--accent); color: var(--on-accent); }
+.week__caption.is-quiet { visibility: hidden; }
 @media (hover: hover) {
-  .week__day:hover:not(:disabled):not([aria-current="date"]) { background: var(--sunken); }
+  .week__day:hover:not(:disabled):not([aria-current="date"]) .week__n { background: var(--sunken); }
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -291,39 +481,20 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
    no figure at all, and that is what it is for.
    ───────────────────────────────────────────────────────────── */
 .day-note__field {
-  font-family: inherit; font-size: 15px; line-height: 1.5;
+  font-family: inherit; font-size: var(--t-body); line-height: var(--t-body-lh);
   resize: vertical; min-height: 84px;
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Two readings of one day. Phone only — a wide window runs the
-   nutrient panel in two columns beside a two-column Today, and
-   both earn a destination of their own there.
-   ───────────────────────────────────────────────────────────── */
-.dayviews {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 3px;
-  padding: 3px; border-radius: var(--r-pill); background: var(--sunken);
-}
-.dayviews__tab {
-  min-height: 38px; border-radius: var(--r-pill);
-  font-size: 13.5px; font-weight: 550; color: var(--ink-2);
-  transition: background-color 140ms ease-out, color 140ms ease-out;
-}
-.dayviews__tab[aria-current="page"] {
-  background: var(--surface); color: var(--ink);
-  box-shadow: var(--lift);
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Log again — the foods you have most days, as buttons that log
-   them. One tap, and the weight is printed on the control before
-   it is pressed. See QuickLog.tsx for why that is the whole of
-   the argument for it.
+   Done before — the Activity tab's sessions to repeat, as tiles
+   that log them. One tap, and what will be written is printed on
+   the tile before it is pressed. Today's own strip of foods went
+   when each empty sitting began offering its usual ones (`.usual`).
    ───────────────────────────────────────────────────────────── */
 .again { display: flex; flex-direction: column; gap: var(--s3); }
 .again__head { display: flex; align-items: baseline; gap: var(--s3); }
-.again__head h2 { font-size: 15px; }
-.again__note { color: var(--ink-3); font-size: 12px; }
+.again__head h2 { font-size: var(--t-body); line-height: var(--t-body-lh); }
+.again__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 /* Scrolls rather than wraps: a second row of tiles would push the day itself
    below the fold to show a shortcut. Edge padding restored inside the
    scroller so the first and last tiles are not clipped by the screen edge. */
@@ -352,21 +523,22 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
 .again__tile:disabled { opacity: 0.55; cursor: default; }
 .again__tile[aria-busy="true"] { border-color: var(--accent); }
 .again__name {
-  font-size: 13px; font-weight: 550; line-height: 1.35;
+  font-size: var(--t-sm); font-weight: 500; line-height: var(--t-sm-lh);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .again__amt {
   display: inline-flex; align-items: center; gap: 3px; align-self: flex-start;
   padding: 3px var(--s2); border-radius: var(--r-pill);
   background: var(--accent-wash); color: var(--accent-ink);
-  font-size: 12px; font-weight: 600;
+  font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 600;
 }
 
 /* ─────────────────────────────────────────────────────────────
-   What was just written, and the way back out of it. Sits ABOVE
-   the bottom bar rather than over it: the bar is how you leave
-   this screen, and covering it to announce a success would trap
-   someone who wanted to be somewhere else.
+   What was just written, and the way back out of it — the app's
+   one bar (components/UndoBar.tsx). Sits ABOVE the bottom bar
+   rather than over it: the bar is how you leave this screen, and
+   covering it to announce a success would trap someone who wanted
+   to be somewhere else. Bottom right on a desktop.
    ───────────────────────────────────────────────────────────── */
 .toast {
   position: fixed; left: var(--s4); right: var(--s4); z-index: 32;
@@ -382,21 +554,159 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
 }
+/* Two lines before it gives up, not one. The message ends with what matters
+   — "…, 85 g added to lunch" — and a reference food's name is often most of
+   a line on its own, so a single line cut off the amount and the meal. */
 .toast__text {
-  flex: 1; min-width: 0; font-size: 13px; line-height: 1.4;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .toast__undo {
   flex: none; min-height: 36px; padding: 0 var(--s3);
-  border-radius: var(--r-sm); color: var(--accent);
-  font-size: 13.5px; font-weight: 650;
+  border-radius: var(--r-sm); color: var(--on-ink-accent);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600;
+}
+/* Spent: pressed once, and the way back is under way. */
+.toast__undo:disabled { opacity: 0.5; cursor: default; }
+
+/* ─────────────────────────────────────────────────────────────
+   Sheets — what opens when something on the page is asked about
+   (components/Sheet.tsx).
+
+   On a phone, a sheet that rises from the bottom edge and stops
+   short of the top, so a sliver of the screen it came from stays
+   in view: that is what says it is over the screen rather than a
+   new one. `--full` covers the screen, for a search and its list
+   above a keyboard. With a pointer, a panel down the right-hand
+   side of the window, beside the page it explains rather than on
+   top of it; `--full` is a dialog in the middle.
+
+   Above the bottom bar, the drawer and the Undo bar; below the ⌘K
+   palette, which can be opened over one. Sheets over sheets share
+   the layer and stack by order, since each is added to the end of
+   the document when it opens.
+   ───────────────────────────────────────────────────────────── */
+.sheet {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  background: var(--scrim);
+  animation: sheet-scrim 200ms ease-out;
+}
+.sheet__box {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  max-height: 88vh;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-radius: 20px 20px 0 0;
+  /* Clear of the navigation pill, and of the keyboard when one is up: the
+     window is edge to edge and is not resized for it, so without this the
+     last line sits behind the keys. */
+  padding-bottom: max(var(--safe-bottom), var(--sys-ime));
+  /* Material's emphasized-decelerate, the drawer's own curve. */
+  animation: sheet-rise 200ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+/* Focus moved here by the app, not by Tab: no ring round the whole sheet. */
+.sheet__box:focus { outline: none; }
+.sheet__head { flex: none; display: flex; flex-direction: column; gap: var(--s3); padding: var(--s2) var(--s4) var(--s3); }
+/* Ruled off where the body scrolls under something that stays put. */
+.sheet__head--ruled { border-bottom: 1px solid var(--line); }
+/* The one affordance that says "this came up and can go back down". */
+.sheet__grip {
+  align-self: center; width: 34px; height: 4px; border-radius: var(--r-pill);
+  background: var(--line); margin-bottom: var(--s1);
+}
+.sheet__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 32px; }
+.sheet__title { font-size: var(--t-head); line-height: var(--t-head-lh); letter-spacing: -0.015em; }
+.sheet__close {
+  display: none; flex: none; width: 32px; height: 32px; border-radius: var(--r-sm);
+  color: var(--ink-2); font-size: var(--t-head); line-height: 1;
+}
+/* The cross: wherever a pointer can hover — a Mac window of any width — but
+   not on Android, where even the emulator's mouse reports no hover and the
+   back gesture closes the sheet. A pointer has no back gesture. */
+@media (hover: hover) {
+  .sheet__close { display: grid; place-items: center; }
+  .sheet__close:hover { background: var(--sunken); color: var(--ink); }
+}
+.sheet__body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 var(--s4) var(--s5);
 }
 
-/* Desktop keeps Nutrients as a destination of its own, so the switch that
-   makes them one screen is a phone control. Declared unconditionally so it
-   beats nothing and is beaten by nothing — see `.bar`'s comment. */
+/* Covering a phone's screen: the page's own ground, under the status bar. */
+.sheet--full { background: transparent; }
+.sheet--full .sheet__box {
+  flex: 1; max-height: none;
+  background: var(--bg); border-top: 0; border-radius: 0;
+  padding-top: var(--safe-top);
+  /* The list pads itself clear of the pill, so only the keyboard here. */
+  padding-bottom: var(--sys-ime);
+}
+.sheet--full .sheet__head { padding: var(--s4) var(--s4) var(--s3); }
+
+@keyframes sheet-scrim { from { background-color: transparent; } }
+@keyframes sheet-rise { from { transform: translateY(100%); } }
+@keyframes sheet-slide { from { transform: translateX(100%); } }
+@keyframes sheet-pop { from { opacity: 0; transform: translateY(8px); } }
+
+/* Wide but coarse — a tablet. Still a sheet from the bottom, a readable width. */
 @media (min-width: 721px) {
-  .dayviews { display: none; }
+  .sheet--auto { align-items: center; }
+  .sheet--auto .sheet__box { width: min(640px, 100%); }
+}
+
+/* With a pointer: a panel down the right of the window, the page beside it. */
+@media (min-width: 721px) and (pointer: fine) {
+  .sheet--auto { flex-direction: row; justify-content: flex-end; align-items: stretch; }
+  .sheet--auto .sheet__box {
+    width: min(440px, 100vw); max-height: none;
+    border-top: 0; border-left: 1px solid var(--line); border-radius: 0;
+    padding-bottom: 0;
+    animation-name: sheet-slide;
+  }
+  /* A panel opened over a panel lands exactly on it, so a second scrim would
+     only darken the page twice. It still catches the press that closes it. */
+  .sheet--auto ~ .sheet--auto { background: transparent; }
+  .sheet__grip { display: none; }
+  .sheet--auto .sheet__head { padding: var(--s5) var(--s5) var(--s3); }
+  .sheet__body { padding: 0 var(--s5) var(--s5); }
+
+  .sheet--full { align-items: center; justify-content: flex-start; padding-top: 9vh; background: var(--scrim); }
+  .sheet--full .sheet__box {
+    flex: none; width: min(560px, 92vw); max-height: min(720px, 84vh);
+    padding: 0; border-radius: var(--r-lg); overflow: hidden;
+    background: var(--surface); box-shadow: var(--lift-hi);
+    animation-name: sheet-pop;
+  }
+  .sheet--full .sheet__head { padding: var(--s4) var(--s5) var(--s3); }
+}
+@media (prefers-color-scheme: dark) and (min-width: 721px) and (pointer: fine) {
+  .sheet--full .sheet__box { border: 1px solid var(--line); }
+}
+
+/* ── the (i) ─────────────────────────────────────────────────
+   A 22px mark with a thumb's worth of target round it. The
+   negative margin hands the extra back to the line it sits in, so
+   an (i) beside a heading does not make the heading any taller.
+   Quiet ink: it is a footnote to the figure beside it.
+   ───────────────────────────────────────────────────────────── */
+.info {
+  display: inline-grid; place-items: center; flex: none;
+  width: 44px; height: 44px; margin: -11px;
+  vertical-align: middle;
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+}
+.info__glyph { width: 22px; height: 22px; }
+@media (hover: hover) { .info:hover { color: var(--ink); } }
+/* The ring round the mark, not round the whole invisible target. */
+.info:focus-visible { outline-offset: -9px; border-radius: var(--r-pill); }
+.info__body { max-width: 62ch; font-size: var(--t-body); line-height: var(--t-body-lh); }
+.info__body p, .info__body ul { margin: 0 0 var(--s3); }
+.info__body > :last-child { margin-bottom: 0; }
+
+/* Bottom right on a desktop, clear of the page's own column. */
+@media (min-width: 721px) {
   .toast { left: auto; right: var(--s6); bottom: var(--s6); width: min(420px, 40vw); }
 }
 
@@ -435,7 +745,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
   background: var(--surface);
   border-top: 1px solid var(--line);
   border-radius: 20px 20px 0 0;
-  box-shadow: 0 -4px 28px -6px rgba(28, 26, 23, 0.22);
+  box-shadow: 0 -4px 28px -6px rgba(15, 22, 21, 0.22);
   transform: translateY(101%);
   /* Material's emphasized-decelerate curve; the scrim above is slightly
      faster, so the page is already dimming as the panel lands. */
@@ -457,9 +767,10 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
   padding: var(--s3) var(--s3) calc(var(--s5) + var(--safe-bottom));
 }
 .drawer__group + .drawer__group { margin-top: var(--s3); }
+/* The group heading every list in the app uses — see `.group__name`. */
 .drawer__heading {
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--ink-3); font-weight: 600;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
+  color: var(--ink-2); font-weight: 600;
   padding: var(--s3) var(--s4) var(--s1);
 }
 /* --tap rather than the 40px a desktop list would take: eleven rows under a
@@ -468,7 +779,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
   display: flex; align-items: center; gap: 14px;
   width: 100%; height: var(--tap); padding: 0 var(--s4);
   border-radius: var(--r-pill); text-align: left;
-  color: var(--ink); font-size: 14.5px; font-weight: 500;
+  color: var(--ink); font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 500;
   transition: background-color 140ms ease-out, color 140ms ease-out;
 }
 @media (hover: hover) {
@@ -518,7 +829,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
        for position:fixed descendants — which is what once pinned this bar to
        an ancestor instead of the viewport. The blur was decoration; the bug
        was not. */
-    background: var(--bg);
+    background: var(--surface);
     border-top: 1px solid var(--line);
     padding-bottom: var(--safe-bottom);
   }
@@ -534,12 +845,12 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
     width: 46px; height: 26px; border-radius: var(--r-pill);
     transition: background-color 160ms ease-out;
   }
-  .bar__label { font-size: 11px; font-weight: 550; letter-spacing: 0.005em; }
-  /* Tone, not inversion: a wash behind the glyph and the accent on the word.
-     A solid filled pill is the heaviest mark a warm, near-white screen can
-     carry, and on this bar it belongs to the add button alone. */
+  .bar__label { font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 500; letter-spacing: 0.005em; }
+  /* The place you are in takes the food colour, glyph and word, and nothing
+     else: a filled pill is the heaviest mark the bar can carry, and on this
+     bar it belongs to the add button alone. */
   .bar__link[aria-current="page"] { color: var(--accent-ink); }
-  .bar__link[aria-current="page"] .bar__icon { background: var(--accent-wash); }
+  .bar__link[aria-current="page"] .bar__label { font-weight: 600; }
 
   /* Raised out of the bar, and the only accent fill in the row — so it reads
      as the thing you DO here rather than a fourth place to go. */
@@ -547,10 +858,10 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
     display: flex; align-items: center; justify-content: center;
     justify-self: center; align-self: center;
     width: 54px; height: 54px; margin-top: -18px;
-    border-radius: 18px;
+    border-radius: var(--r-pill);
     background: var(--accent); color: var(--on-accent);
-    border: 3px solid var(--bg);
-    box-shadow: 0 6px 16px -4px rgba(74, 124, 89, 0.5);
+    border: 3px solid var(--surface);
+    box-shadow: 0 6px 16px -4px rgba(15, 118, 110, 0.45);
     transition: transform 120ms ease-out, background-color 140ms ease-out;
   }
   .bar__add:active { transform: scale(0.94); }
@@ -565,7 +876,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
    Date strip
    ───────────────────────────────────────────────────────────── */
 .datenav { display: flex; align-items: center; gap: var(--s1); }
-.datenav__label { min-width: 116px; text-align: center; font-weight: 550; font-size: 14px; }
+.datenav__label { min-width: 116px; text-align: center; font-weight: 500; font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 .iconbtn {
   width: 34px; height: 34px; border-radius: var(--r-sm);
   color: var(--ink-2); display: grid; place-items: center;
@@ -584,8 +895,10 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
    control that reads as "adjust a value". Used by the desktop
    date-stepper and by the month nav on Days, at every width.
    ───────────────────────────────────────────────────────────── */
+/* A button's height, so the desktop date-stepper and the Today button beside
+   it are one row of controls rather than two that nearly line up. */
 .stepper {
-  display: flex; align-items: stretch; height: 40px;
+  display: flex; align-items: stretch; height: var(--btn-h);
   border: 1px solid var(--line); border-radius: var(--r-md);
   background: var(--surface); overflow: hidden;
 }
@@ -597,33 +910,334 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
   min-width: 168px; justify-content: center;
   border-left: 1px solid var(--line); border-right: 1px solid var(--line);
 }
-.stepper__label { font-size: 15px; font-weight: 500; white-space: nowrap; }
+.stepper__label { font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 500; white-space: nowrap; }
 /* The month nav has a whole card head to itself and no room to spare on a
    phone, so it takes the same control one size down. */
 .stepper--sm { height: 36px; }
 .stepper--sm .stepper__mid { min-width: 0; flex: 1; padding: 0 var(--s3); }
 .monthnav { align-items: center; gap: var(--s3); }
 .monthnav .stepper { flex: 1; min-width: 0; }
-.monthnav__label { font-size: 14.5px; font-weight: 600; white-space: nowrap; }
-.monthnav__note { margin: var(--s2) 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+.monthnav__label { font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 600; white-space: nowrap; }
+.monthnav__note { margin: var(--s2) 0 0; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 @media (min-width: 721px) { .monthnav .stepper { flex: none; min-width: 230px; } }
 
 /* ─────────────────────────────────────────────────────────────
-   Hero. Floats on the page: no card, no border. It is the anchor.
-   ───────────────────────────────────────────────────────────── */
-.hero__value { display: flex; align-items: baseline; gap: var(--s2); }
-/* 24px sans, where this was 52-76px serif.
-   The old size was the loudest thing in the app and it belonged to one day —
-   1.5x the type given to the thirty-day figure on Statistics. The typeface now
-   carries the hierarchy: Newsreader marks what is worth dwelling on, and a
-   single noisy day is not that. */
-.hero__num { font-size: 24px; line-height: 1.1; font-weight: 550; }
-.hero__unit { color: var(--ink-3); font-size: 14px; }
-.hero__sub { color: var(--ink-3); font-size: 13px; margin-top: var(--s1); }
+   Today: the day as a ledger.
 
-.macros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s5); margin-top: var(--s5); }
-.macro__v { font-size: 19px; font-weight: 600; }
-.macro__k { color: var(--ink-3); font-size: 13px; margin-top: 1px; }
+   The page holds entries and figures; the working sits behind an
+   (i). One line for what the day came to, then the four sittings,
+   then water, what was done and a note. No hero and no card round
+   the log: the rows sit on the ground, ruled off from each other,
+   which is the platform's own list and the lightest thing that
+   still reads as one.
+   ───────────────────────────────────────────────────────────── */
+.day-log, .day-side { display: flex; flex-direction: column; min-width: 0; }
+.day-log { gap: var(--s4); }
+.day-side { gap: var(--s5); }
+
+/* What the day came to: the energy at the normal width (a period's figures
+   are the wide ones), then how protein, carbohydrate and fat split it. The
+   whole block is the button that opens the day's nutrients; it is drawn as
+   a stretched target under the text so the (i) can sit on top of it and be
+   its own press. On the page, not in a cell: it is the day's heading. */
+.dayfig { position: relative; display: flex; align-items: flex-start; gap: var(--s2); padding: var(--s1) 0 var(--s2); }
+/* `align-items: stretch` said out loud: the Android System WebView's own
+   stylesheet gives a <button> `align-items: flex-start`, which shrank the bar
+   below to three 3px stubs on a phone while a current desktop Chrome, which
+   has dropped that default, drew it full width. */
+.dayfig__open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; text-align: left; }
+.dayfig__open::after { content: ""; position: absolute; inset: 0 calc(var(--s2) * -1); border-radius: var(--r-md); }
+.dayfig__open:focus-visible { outline: none; }
+.dayfig__open:focus-visible::after { outline: 2px solid var(--focus); outline-offset: 0; }
+.dayfig .info { position: relative; z-index: 1; margin-top: var(--s2); }
+.dayfig__kcal { font-size: 40px; line-height: 1.05; font-weight: 650; letter-spacing: -0.025em; }
+.dayfig__unit { margin-left: 0.18em; font-size: var(--t-head); font-weight: 500; letter-spacing: 0; color: var(--ink-2); }
+.dayfig__sub { margin-top: var(--s1); color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+/* The split, as a share of a whole: three flat segments in three tones of
+   the food colour, 3px apart, wide in proportion to the energy each carries.
+   Nothing in it fills: its length is always the whole width. */
+.share { display: flex; gap: 3px; height: 12px; margin-top: var(--s3); }
+.share i { min-width: 3px; border-radius: 3px; }
+.share__protein { background: var(--accent); }
+.share__carbs { background: var(--share-2); }
+.share__fat { background: var(--share-3); }
+.share__key { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); margin-top: var(--s2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.share__key > span { display: inline-flex; align-items: center; gap: 6px; }
+.share__key b { width: 10px; height: 10px; border-radius: 3px; }
+.share__key em { font-style: normal; color: var(--ink-3); }
+
+/* A day with nothing eaten on it: one line. The way to fill it is each
+   sitting's + under it, and the bar's own. */
+.day-empty {
+  display: flex; align-items: center; gap: var(--s3);
+  min-height: var(--row-h);
+}
+.day-empty p { margin: 0; color: var(--ink-2); }
+
+/* A sitting, the water and the note share one head: the name, a +,
+   and on the right what it came to, in the column the rows' own
+   figures stand in, so a meal's subtotal sits over its entries'. */
+.day-sec { display: flex; flex-direction: column; min-width: 0; }
+.day-sec__head { display: flex; align-items: center; gap: var(--s1); min-height: 44px; }
+.day-sec__head h2 { font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 650; }
+.day-sec__fig, .day-sec__aside { margin-left: auto; }
+.day-sec__fig { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500; white-space: nowrap; }
+.day-sec__aside { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.day-sec__aside.link { color: var(--area-ink); font-size: var(--t-sm); line-height: var(--t-sm-lh); padding: var(--s1) var(--s2); margin-right: calc(var(--s2) * -1); }
+/* A text action standing alone at the end of a line — "Add a note", and an
+   entry's "Change" beside its tags — is a thumb's 44px tall on a phone, as
+   every other control on Today is; it measured 27. The negative margin hands
+   the height back, so the line it ends is no taller for it. */
+@media (max-width: 720px) {
+  .day-sec__aside.link,
+  .esheet__line .link {
+    display: inline-flex; align-items: center;
+    min-height: 44px; margin-block: -8.5px;
+  }
+}
+.day-sec .alert { margin-top: var(--s2); }
+
+/* The + beside a sitting's name: a small washed disc, so it reads as a
+   control without being the screen's filled action. The press reaches
+   past the disc to a thumb's 44px; the negative margin hands that back
+   so the head is no taller for it. */
+.day-add {
+  position: relative; flex: none;
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; margin: 0 var(--s1);
+  border-radius: var(--r-pill);
+  background: var(--area-wash); color: var(--area-ink);
+  transition: background-color 140ms ease-out;
+}
+.day-add::before { content: ""; position: absolute; inset: -8px; }
+.day-add .plus { width: 15px; height: 15px; }
+@media (hover: hover) { .day-add:hover { background: var(--area); color: var(--on-area); } }
+
+/* A sitting's drawing — the sun coming up, the sun high, a cup, the moon —
+   in a small grey square before its name, so the four read apart at a
+   glance. Grey, not the food colour: it names the sitting and says nothing
+   about it. */
+.meal__glyph {
+  flex: none; display: inline-grid; place-items: center;
+  width: 28px; height: 28px; margin-right: var(--s2);
+  border-radius: var(--r-sm); background: var(--sunken); color: var(--ink-2);
+}
+
+/* A run of tiles: each record its own white cell, 2px from the next, the
+   run rounder at its two ends so a meal reads as one group. No rule between
+   two foods — the gap is the rule. */
+.tiles { display: flex; flex-direction: column; gap: 2px; }
+.tile {
+  display: grid; align-items: center; column-gap: var(--s3);
+  width: 100%; min-height: 64px; padding: 10px 14px;
+  border-radius: var(--r-in); background: var(--surface);
+  text-align: left; transition: background-color 140ms ease-out;
+}
+.tiles > .tile:first-child { border-top-left-radius: var(--r-md); border-top-right-radius: var(--r-md); }
+.tiles > .tile:last-child { border-bottom-left-radius: var(--r-md); border-bottom-right-radius: var(--r-md); }
+@media (hover: hover) { button.tile:hover { background: var(--sunken); } }
+
+/* The mark a tile leads with: where the food came from, readable without
+   reading (see `leadOf`). A pot on the food colour is home cooking; initials
+   on its wash, a food of your own; initials on grey, a reference food; an
+   outline, anything bought. */
+.lead {
+  flex: none; display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: 10px;
+  font-size: var(--t-sm); line-height: 1; font-weight: 700; letter-spacing: 0.01em;
+}
+.lead--own { background: var(--accent-wash); color: var(--accent-ink); }
+.lead--ref, .lead--dose { background: var(--sunken); color: var(--ink-2); }
+.lead--cook { background: var(--accent); color: var(--on-accent); }
+.lead--bought { box-shadow: inset 0 0 0 1.5px var(--line); color: var(--ink-2); }
+.lead--water { background: var(--water-wash); color: var(--water-ink); }
+.lead--act { background: var(--act-wash); color: var(--act-ink); }
+
+/* One entry: what it was, a quiet line, and its energy on the right. The
+   line may take a second line before it is cut: a pot that was never
+   weighed and a part with no figure are markers on the figure beside them,
+   and a marker cut to "some unme…" says nothing. */
+.entry { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s4); }
+.tile.entry { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--s3); }
+.tile .row__title { font-weight: 500; }
+
+/* The day's water: one tile, rounded all round, and a + beside it in the
+   water's own colour that logs the usual bottle whole. */
+.water__row { display: flex; align-items: center; gap: var(--s2); }
+.water__open { flex: 1; min-width: 0; border-radius: var(--r-md); grid-template-columns: auto minmax(0, 1fr) auto; }
+.water__add {
+  flex: none; display: grid; place-items: center;
+  width: 48px; height: 48px; border-radius: var(--r-pill);
+  background: var(--water-wash); color: var(--water-ink);
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+.water__add .plus { width: 18px; height: 18px; }
+.water__add:disabled { opacity: 0.55; cursor: default; }
+@media (hover: hover) { .water__add:hover:not(:disabled) { background: var(--water); color: var(--surface); } }
+.water .alert { margin-top: var(--s2); }
+.water-sheet { display: flex; flex-direction: column; gap: var(--s4); align-items: flex-start; }
+.water-sheet .rows { align-self: stretch; }
+
+/* The water sheet is water's own area: its chosen bottle, its slider and its
+   Log button take the water's blue, the way an activity area takes plum. */
+.water-area {
+  --area: var(--water);
+  --area-ink: var(--water-ink);
+  --area-wash: var(--water-wash);
+  --on-area: var(--on-water);
+  --focus: var(--water);
+}
+
+/* Part of a bottle, by eye (BottleShare): the bottle and its figure, a slider
+   from empty to full, and under it the four amounts people say. Each stop sits
+   where the thumb's centre lands for it, so a tap on "½" leaves the thumb over
+   the "½"; the last is held to the end, where centring would push it out. */
+.bshare { --thumb: 28px; display: flex; flex-direction: column; gap: var(--s3); align-self: stretch; }
+.bshare__read { display: flex; align-items: center; gap: var(--s3); }
+.bshare__bottle { flex: none; }
+.bshare__glass { fill: none; stroke: var(--water-ink); stroke-width: 1.5; }
+.bshare__cap { fill: var(--water-ink); }
+.bshare__water { fill: var(--water); opacity: 0.55; }
+.bshare__words { display: flex; flex-direction: column; min-width: 0; }
+.bshare__ml { font-size: var(--t-fig-sm); line-height: var(--t-fig-sm-lh); font-weight: 600; color: var(--ink); }
+.bshare__what { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.bshare__range { position: relative; }
+.bshare__input {
+  -webkit-appearance: none; appearance: none;
+  display: block; width: 100%; height: 44px; margin: 0;
+  background: transparent; cursor: pointer;
+}
+.bshare__input:focus { outline: none; }
+.bshare__input::-webkit-slider-runnable-track {
+  height: 12px; border-radius: var(--r-pill);
+  background: linear-gradient(to right,
+    var(--water) calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--f, 0)),
+    var(--sunken) 0);
+}
+.bshare__input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: var(--thumb); height: var(--thumb); margin-top: calc((12px - var(--thumb)) / 2);
+  border: 2px solid var(--water); border-radius: 50%; background: var(--surface);
+  box-shadow: 0 1px 3px rgba(15, 22, 21, 0.25);
+}
+.bshare__input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--focus); }
+.bshare__input::-moz-range-track { height: 12px; border-radius: var(--r-pill); background: var(--sunken); }
+.bshare__input::-moz-range-progress { height: 12px; border-radius: var(--r-pill); background: var(--water); }
+.bshare__input::-moz-range-thumb {
+  box-sizing: border-box; width: var(--thumb); height: var(--thumb);
+  border: 2px solid var(--water); border-radius: 50%; background: var(--surface);
+}
+.bshare__input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--focus); }
+.bshare__stops { position: relative; height: 40px; }
+.bshare__stop {
+  position: absolute; top: 0;
+  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--at));
+  transform: translateX(-50%);
+  min-width: 44px; height: 40px; padding: 0 var(--s2);
+  border-radius: var(--r-pill); color: var(--ink-2);
+  font-size: var(--t-body); line-height: 1; font-weight: 600;
+}
+/* A font's ¼ ½ ¾ are drawn small, as fractions are, and read as specks
+   beside "Whole" at the same size. */
+.bshare__stop:not(:last-child) { font-size: 21px; }
+.bshare__stop:last-child { left: auto; right: 0; transform: none; }
+.bshare__stop[aria-pressed="true"] { background: var(--area-wash); color: var(--area-ink); }
+@media (hover: hover) { .bshare__stop:hover:not([aria-pressed="true"]) { background: var(--sunken); color: var(--ink); } }
+
+/* A quiet line under a group, for what the group cannot show yet. */
+.day-sec__note { margin: var(--s2) 0 0; color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.entry__sub {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.entry__fig { text-align: right; white-space: nowrap; color: var(--ink); }
+
+/* What a sitting usually holds, and a bottle to log whole: actions,
+   not choices, so they are drawn as quiet outlined pills with a + in
+   the area's ink — never the wash a chosen chip wears. */
+/* The word, then the chips in a box of their own: a chip that wraps lines up
+   under the first chip, not under "Usually" at the left edge. On a baseline,
+   so the word sits on the first chip's line rather than halfway down two. */
+.usual { display: flex; align-items: baseline; gap: var(--s2); padding: var(--s1) 0 var(--s2); }
+.usual__label { flex: none; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.usual__chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); flex: 1 1 auto; min-width: 0; }
+.usual__chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 44px;
+  padding: var(--s1) var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--ink);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
+  transition: border-color 140ms ease-out, background-color 140ms ease-out;
+}
+.usual__chip .plus { flex: none; width: 13px; height: 13px; color: var(--area-ink); }
+.usual__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usual__amt { flex: none; color: var(--ink-3); }
+.usual__chip:disabled { opacity: 0.55; cursor: default; }
+.usual__chip[aria-busy="true"] { border-color: var(--area); }
+@media (hover: hover) { .usual__chip:hover:not(:disabled) { border-color: var(--area); background: var(--area-wash); } }
+/* A session done again, in the + sheet: the repeat mark where a food has its +. */
+.usual__chip .glyph { flex: none; color: var(--area-ink); }
+
+/* ── the bar's +: food or activity (LogSheet) ───────────────── */
+/* Two equal choices, each in its area's own colour, so neither reads as the
+   default. Then the usual of each one tap away, then water. */
+.logsheet { display: flex; flex-direction: column; gap: var(--s5); }
+.logsheet__pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.logbig {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-height: 116px; padding: var(--s4); border-radius: var(--r-lg);
+  text-align: left; transition: background-color 140ms ease-out;
+}
+.logbig .glyph { margin-bottom: var(--s3); }
+.logbig__name { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 700; }
+.logbig__what { font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.logbig--food { background: var(--accent); color: var(--on-accent); }
+.logbig--act { background: var(--act); color: var(--on-act); }
+@media (hover: hover) {
+  .logbig--food:hover { background: var(--accent-ink); }
+  .logbig--act:hover { background: var(--act-ink); }
+}
+.logsheet__h { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s2); }
+.logsheet__h h3 { margin: 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; }
+.logsheet__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+/* A white cell on a white sheet has no edge: the page's grey gives it one. */
+.logsheet .tile { background: var(--bg); }
+@media (hover: hover) { .logsheet button.tile:hover { background: var(--sunken); } }
+
+/* The note, folded to its head until there is something in it. */
+.day-note .day-note__field { margin-top: var(--s1); }
+
+/* ── one entry's sheet (EntrySheet) ─────────────────────────── */
+.esheet { display: flex; flex-direction: column; gap: var(--s4); }
+.esheet__amount { margin: 0; color: var(--ink-2); }
+.esheet__energy { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--s2); }
+.esheet__energy > .tnum { font-weight: 600; }
+.esheet__state { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+/* A corrected or filled-in entry's history: a state of the figures above it,
+   so in the sheet's own body text rather than a footnote's grey. */
+.esheet__history { margin: 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); }
+.esheet__line { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.esheet__line .link { padding: var(--s1) var(--s2); margin-right: calc(var(--s2) * -1); }
+.esheet__tags .tags { margin-top: var(--s3); }
+.esheet__part { padding-top: var(--s4); border-top: 1px solid var(--line); }
+.esheet__head {
+  display: flex; align-items: center; gap: var(--s1);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; color: var(--ink-2);
+  margin-bottom: var(--s2);
+}
+.esheet__acts {
+  display: flex; justify-content: space-between; gap: var(--s3);
+  padding-top: var(--s4); border-top: 1px solid var(--line);
+}
+/* Two quiet buttons of one shape, the destructive one in the ceiling's ink:
+   neither is this sheet's filled action, because neither is what it is for. */
+.esheet__acts .btn--danger { border-color: var(--line); }
+
+/* ── the day's nutrients (DaySheet) ─────────────────────────── */
+.daysheet__cover { display: flex; align-items: center; gap: var(--s1); margin: 0 0 var(--s4); color: var(--ink-2); }
+.daysheet__note { margin: 0 0 var(--s4); color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); }
+.daysheet .tier h3 { display: flex; align-items: center; gap: var(--s1); }
 
 /* ─────────────────────────────────────────────────────────────
    Cards. Shadow OR border, never both.
@@ -631,24 +1245,56 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.011em; }
 .card { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--lift); padding: var(--s4) var(--s5); }
 @media (prefers-color-scheme: dark) { .card { border: 1px solid var(--line); } }
 .card__head { display: flex; align-items: baseline; gap: var(--s3); margin-bottom: var(--s2); }
-.card__head h2 { font-size: 15px; }
-.card__note { color: var(--ink-3); font-size: 12px; margin-left: auto; }
-.card__foot { color: var(--ink-3); font-size: 12px; margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.card__head h2 { font-size: var(--t-body); line-height: var(--t-body-lh); }
+/* An (i) has no baseline of its own to share with the heading beside it. */
+.card__head > .info { align-self: center; }
+.card__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-left: auto; }
+.card__foot { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line); }
 
+/* ─────────────────────────────────────────────────────────────
+   The list row. One of them, for every list in the app.
+
+   Its text sits on the column it is in; the row itself reaches
+   --row-pad past that column on each side, which is where its
+   wash and its focus ring are drawn. 52px on a phone, the height
+   a two-line row (a name and one caption under it) needs to be
+   hit with a thumb without the next row taking the tap.
+   ───────────────────────────────────────────────────────────── */
 .rows { display: flex; flex-direction: column; }
 .row {
   display: grid; align-items: center; gap: var(--s3);
-  padding: var(--s2); margin: 0 calc(var(--s2) * -1);
-  border-radius: var(--r-sm); min-height: 44px;
-  width: calc(100% + var(--s4)); text-align: left;
+  padding: var(--s2) var(--row-pad); margin: 0 calc(var(--row-pad) * -1);
+  border-radius: var(--r-sm); min-height: var(--row-h);
+  width: calc(100% + 2 * var(--row-pad)); text-align: left;
   transition: background-color 140ms ease-out;
 }
-button.row:hover { background: var(--sunken); }
-.row + .row { border-top: 1px solid var(--line); border-radius: 0; }
+/* A pointer's hover only. On a phone :hover sticks to whatever was tapped
+   last, so the row just opened would keep a grey wash nobody asked for. */
+@media (hover: hover) { button.row:hover { background: var(--sunken); } }
+
+/* The hairline between two rows, inset to start where the text starts.
+
+   It was `.row + .row`, which only ever matched rows that were each other's
+   siblings — and the two lists people read most were not: Today wraps each
+   entry in an element that also holds its breakdown, and search results are
+   a `<li>` around each row. Neither list had a single divider. This keys off
+   the list instead of the row, so whatever a list's children are, every one
+   after the first is ruled off from the one before it.
+
+   A pseudo-element rather than a border, so the line can stop short of the
+   row's wash, and so a row keeps its rounded corners. A child that is itself
+   a row reaches past the column by --row-pad, so its line is pulled in by
+   the same amount; a wrapper sits on the column and needs no pull. */
+.rows > * + *, .hits > * + * { position: relative; }
+.rows > * + *::before, .hits > * + *::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0;
+  height: 1px; background: var(--line); pointer-events: none;
+}
+.rows > * + .row::before, .hits > * + .row::before { left: var(--row-pad); right: var(--row-pad); }
 .row__main { min-width: 0; }
 .row__title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row__sub { display: block; color: var(--ink-3); font-size: 12px; margin-top: 1px; }
-.row__chev { color: var(--ink-3); font-size: 15px; line-height: 1; }
+.row__sub { display: block; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 1px; }
+.row__chev { color: var(--ink-3); font-size: var(--t-body); line-height: 1; }
 
 /* ─────────────────────────────────────────────────────────────
    Nutrient rows: three visually distinct states.
@@ -664,18 +1310,23 @@ button.row:hover { background: var(--sunken); }
    by side so the reference is plainly subordinate — it is context for the
    number, not a second number competing with it. */
 .nval { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
-.nval__amt { font-weight: 550; }
-.nval__ref { color: var(--ink-3); font-size: 12px; margin-top: 1px; }
+.nval__amt { font-weight: 500; }
+.nval__ref { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 1px; }
 .is-over .nval__amt { color: var(--over); }
 .is-unknown .row__title, .is-unknown .nval__amt { color: var(--ink-3); }
 .is-partial .nval__amt { color: var(--ink-2); }
 
 .group + .group { margin-top: var(--s4); }
-.group__name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 600; margin-bottom: var(--s1); }
+/* The heading of a group, and the label above a field: sentence case, in the
+   secondary ink. It was 11px tracked-out capitals in the faintest grey, set
+   eight slightly different ways across the app, which read as a second
+   typeface and as the quietest thing on the screen at once — so "BREAKFAST"
+   both shouted and could not be read. */
+.group__name { font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); font-weight: 600; margin-bottom: var(--s1); }
 
 .tier { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--line); }
-.tier h3 { font-size: 14px; }
-.tier p { margin: var(--s1) 0 var(--s3); color: var(--ink-3); font-size: 13px; max-width: var(--measure); }
+.tier h3 { font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.tier p { margin: var(--s1) 0 var(--s3); color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); }
 
 /* ─────────────────────────────────────────────────────────────
    Controls
@@ -690,42 +1341,80 @@ button.row:hover { background: var(--sunken); }
 .field::placeholder { color: var(--ink-3); }
 
 .search-hero { max-width: 620px; margin: 0 auto; width: 100%; }
-.search-hero .field { font-size: 17px; padding: var(--s4) var(--s5); border-radius: var(--r-lg); box-shadow: var(--lift); border-color: transparent; }
+.search-hero .field { font-size: var(--t-head); line-height: var(--t-head-lh); padding: var(--s4) var(--s5); border-radius: var(--r-lg); box-shadow: var(--lift); border-color: transparent; }
 .search-hero .field:focus { box-shadow: var(--lift-hi); }
 
-/* --on-accent, not #fff: the dark palette lightens the accent to stop it
+/* One button, in two looks: filled for the screen's one primary action, and
+   quiet for everything beside it. The fill is the area's colour (sage, or
+   heather where an activity is being logged — see --area), and the solid fill
+   is the only one in the app: a selected chip is a wash, never this.
+
+   Height is set once, by --btn-h, and every one-off class that used to give
+   its own button a 44px floor now leaves the floor to this rule. The border
+   is drawn on both looks, transparent on the filled one, so a primary and a
+   quiet button side by side are exactly the same height.
+
+   --on-area, not #fff: the dark palette lightens the accent to stop it
    glaring, and white sitting on that is 2.4:1 — every primary button in the
    app was failing to be legible in dark mode. */
-.btn { padding: var(--s3) var(--s5); border-radius: var(--r-md); background: var(--accent); color: var(--on-accent); font-weight: 600; transition: background-color 140ms ease-out; }
-.btn:hover { background: var(--accent-ink); }
-.btn--quiet { background: transparent; color: var(--ink-2); border: 1px solid var(--line); }
-.btn--quiet:hover { background: var(--sunken); color: var(--ink); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  min-height: var(--btn-h); padding: var(--s1) var(--s5);
+  border: 1px solid transparent; border-radius: var(--r-md);
+  background: var(--area); color: var(--on-area);
+  font-weight: 600; text-align: center;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
+}
+.btn--quiet { background: transparent; color: var(--ink-2); border-color: var(--line); }
 .btn--danger { background: transparent; color: var(--over); }
-.btn--danger:hover { background: var(--over-wash); }
+/* A pointer's hover only, for the same reason as a row's. Each look restates
+   its own, at the same weight as the base rule, so a quiet button under the
+   pointer never takes the primary's fill. */
+@media (hover: hover) {
+  .btn:hover:not(:disabled) { background: var(--area-ink); }
+  .btn--quiet:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+  .btn--danger:hover:not(:disabled) { background: var(--over-wash); }
+}
+/* A button that cannot be pressed now says so. Before, a disabled primary
+   looked exactly like a live one everywhere outside the Activity tab. */
+.btn:disabled { opacity: 0.5; cursor: default; }
 
 .chip {
   padding: var(--s2) var(--s3); border-radius: var(--r-pill);
   border: 1px solid var(--line); color: var(--ink-2);
-  font-size: 13px; min-height: 36px;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); min-height: 36px;
   transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
 }
-.chip:hover { border-color: var(--ink-3); color: var(--ink); }
-.chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
+@media (hover: hover) { .chip:hover { border-color: var(--ink-3); color: var(--ink); } }
+/* Chosen: the area's wash, ruled in the area's colour, in its ink.
+
+   It was a solid ink pill — the heaviest mark a near-white screen can carry —
+   on the most repeated controls in the app: the meal, the serving, the
+   period, the Add tabs, the tags. The portion step alone put three of them
+   beside the one button that actually logs. A wash says "this one" and
+   leaves the solid fill to the action. Medium rather than semibold, so the
+   word does not grow wider when it is picked and shove its neighbours. */
+.chip[aria-pressed="true"] {
+  background: var(--area-wash); border-color: var(--area); color: var(--area-ink);
+  font-weight: 500;
+}
 .chips { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
 /* Not a link. Every one of these is a <button> — the app has no anchors at
    all — and the underline was borrowing the web's hyperlink vocabulary for
    what are in-app actions: "change", "cancel", "See all 47 nutrients". It read
    as something that would navigate away, and at 13px it was a 20px target.
-   Weight and colour carry the affordance now, with a wash under the pointer. */
+   Weight and colour carry the affordance now, with a wash under the pointer.
+   The colour is the area's (see --area), so a text action inside an activity
+   reads as heather without a rule of its own. */
 .link {
-  color: var(--accent-ink);
-  font-size: 13px;
+  color: var(--area-ink);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
   font-weight: 600;
   border-radius: var(--r-sm);
   transition: color 140ms ease-out, background-color 140ms ease-out;
 }
-.link:hover { color: var(--accent); background: var(--accent-wash); }
+.link:hover { color: var(--area); background: var(--area-wash); }
 /* A control standing alone as a card's or a photo slot's secondary action is
    given a real 44px target, and the wash needs room to sit in. It must centre
    rather than baseline-align, or it would drag the heading beside it down the
@@ -742,10 +1431,10 @@ button.row:hover { background: var(--sunken); }
    States
    ───────────────────────────────────────────────────────────── */
 .empty { text-align: center; padding: var(--s7) var(--s5); color: var(--ink-3); max-width: var(--measure); margin: 0 auto; }
-.empty h3 { color: var(--ink); font-size: 16px; margin-bottom: var(--s2); }
-.empty p { margin: 0 0 var(--s4); font-size: 14px; }
+.empty h3 { color: var(--ink); font-size: var(--t-body); line-height: var(--t-body-lh); margin-bottom: var(--s2); }
+.empty p { margin: 0 0 var(--s4); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
-.alert { padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--over-wash); color: var(--over); font-size: 13px; }
+.alert { padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--over-wash); color: var(--over); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
 /* Skeletons match the shape of what they replace. */
 .skel { background: var(--sunken); border-radius: var(--r-sm); animation: pulse 1.4s ease-in-out infinite; }
@@ -756,11 +1445,16 @@ button.row:hover { background: var(--sunken); }
    Foods screen
    ───────────────────────────────────────────────────────────── */
 .hits { list-style: none; margin: var(--s4) 0 0; padding: 0; }
-.hit { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: var(--s3); align-items: baseline; }
-.hit__note { display: block; color: var(--accent-ink); font-size: 12px; margin-top: 2px; white-space: normal; }
-.hit__src { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+/* No width of its own: every hit is also a `.row`, whose width is what lets it
+   reach past the column on BOTH sides. A `width: 100%` here won over it and
+   left every result row bled on the left and short on the right, so its
+   trailing button stopped a gutter short of everything above it. The same
+   goes for `.activityrow` and `.goalrow` below. */
+.hit { display: grid; grid-template-columns: 1fr auto; gap: var(--s3); align-items: baseline; }
+.hit__note { display: block; color: var(--accent-ink); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 2px; white-space: normal; }
+.hit__src { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); white-space: nowrap; }
 
-.picked__title { font-size: 19px; font-weight: 600; }
+.picked__title { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600; }
 .commit { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s4); }
 .grams { width: 96px; text-align: right; }
 
@@ -770,9 +1464,9 @@ button.row:hover { background: var(--sunken); }
 .rgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--s4); }
 .rcard { text-align: left; display: block; width: 100%; transition: box-shadow 160ms ease-out, transform 160ms ease-out; }
 .rcard:hover { box-shadow: var(--lift-hi); transform: translateY(-1px); }
-.rcard__name { font-size: 17px; font-weight: 600; }
-.rcard__meta { color: var(--ink-3); font-size: 13px; margin-top: var(--s1); }
-.rcard__ing { color: var(--ink-2); font-size: 13px; margin-top: var(--s3); }
+.rcard__name { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600; }
+.rcard__meta { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); margin-top: var(--s1); }
+.rcard__ing { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); margin-top: var(--s3); }
 
 .ing-row {
   /* Every column is fixed except the name. Each row is its own grid, so an
@@ -788,11 +1482,12 @@ button.row:hover { background: var(--sunken); }
 /* Smaller than a normal chip — it is a per-row flag in a dense table, not one
    of a row of choices. */
 .ing-opt {
-  font-size: 11px; padding: 4px var(--s2); letter-spacing: 0.04em;
+  font-size: var(--t-cap); line-height: var(--t-cap-lh); padding: 4px var(--s2);
 }
+/* The column headings, in the group heading's voice rather than capitals. */
 .ing-head {
-  color: var(--ink-3); font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.07em; font-weight: 600; border-bottom: none;
+  color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh);
+  font-weight: 600; border-bottom: none;
 }
 .ing-w { display: flex; flex-direction: column; gap: 2px; }
 .ing-w .field { width: 100%; text-align: right; padding: var(--s2) var(--s3); }
@@ -808,8 +1503,8 @@ button.row:hover { background: var(--sunken); }
   .ing-name { grid-column: 1 / -1; }
   .ing-head--wide { display: none; }
   .ing-w__k {
-    display: block; font-size: 10px; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--ink-3); font-weight: 600;
+    display: block; font-size: var(--t-sm); line-height: var(--t-sm-lh);
+    color: var(--ink-2); font-weight: 600;
   }
   .ing-x { align-self: end; }
 }
@@ -818,9 +1513,12 @@ button.row:hover { background: var(--sunken); }
    Calendar
    ───────────────────────────────────────────────────────────── */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--s1); margin-top: var(--s3); }
+/* Set like the weekdays on Today's strip (`.week__wd`) rather than as a group
+   heading: seven of them over a grid of dates are a scale to read the dates
+   against, and a semibold heading over each column would outweigh the days. */
 .cal__wd {
-  text-align: center; font-size: 11px; font-weight: 600;
-  color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em;
+  text-align: center; font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 500;
+  color: var(--ink-3);
   padding-bottom: var(--s2);
 }
 .cal__day {
@@ -835,8 +1533,8 @@ button.row:hover { background: var(--sunken); }
 .cal__day.has-data { color: var(--ink); }
 /* The current day is the one anchored element in the grid. */
 .cal__day.is-today { box-shadow: inset 0 0 0 1.5px var(--accent); }
-.cal__n { font-size: 13px; font-weight: 550; }
-.cal__k { font-size: 11px; color: var(--ink-3); }
+.cal__n { font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500; }
+.cal__k { font-size: var(--t-cap); line-height: var(--t-cap-lh); color: var(--ink-3); }
 /* Intensity encodes energy. A day with nothing logged has NO bar at all —
    a zero-height bar would read as "logged, ate nothing". */
 .cal__bar {
@@ -848,7 +1546,7 @@ button.row:hover { background: var(--sunken); }
 .daterange label { display: flex; flex-direction: column; gap: var(--s1); }
 .daterange .field { width: auto; }
 
-.rangenote { color: var(--ink-3); font-size: 13px; margin: 0; max-width: var(--measure); }
+.rangenote { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); margin: 0; max-width: var(--measure); }
 .rangenote strong { color: var(--ink-2); }
 
 @media (max-width: 720px) {
@@ -857,7 +1555,8 @@ button.row:hover { background: var(--sunken); }
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Log entry + its ingredient breakdown
+   A supplement's row, and an entry's ingredient breakdown (the
+   rows inside EntrySheet)
    ───────────────────────────────────────────────────────────── */
 .entryrow { grid-template-columns: 1fr auto auto; }
 .entryrow__main { text-align: left; min-width: 0; display: block; width: 100%; }
@@ -882,13 +1581,13 @@ button.row:hover { background: var(--sunken); }
   margin: var(--s1) 0 var(--s3);
 }
 .breakdown__head {
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
-  color: var(--ink-3); font-weight: 600; margin-bottom: var(--s2);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
+  color: var(--ink-2); font-weight: 600; margin-bottom: var(--s2);
 }
-.breakdown__head span { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.breakdown__head span { font-weight: 400; }
 .breakdown__row {
   display: flex; justify-content: space-between; gap: var(--s4);
-  padding: var(--s1) 0; font-size: 13px; color: var(--ink-2);
+  padding: var(--s1) 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2);
 }
 /* The weight must never wrap between number and unit ("25" / "g"). */
 .breakdown__row > :last-child { white-space: nowrap; flex: none; }
@@ -898,8 +1597,8 @@ button.row:hover { background: var(--sunken); }
    "this is a problem with your eating". It reads as the grey every other
    unmeasured thing in the app reads as. */
 .breakdown__row .no-data { color: var(--ink-3); }
-.breakdown__flag { font-size: 11px; }
-.breakdown__note { margin: var(--s2) 0 0; font-size: 12px; color: var(--ink-3); max-width: var(--measure); }
+.breakdown__flag { font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.breakdown__note { margin: var(--s2) 0 0; font-size: var(--t-cap); line-height: var(--t-cap-lh); color: var(--ink-3); max-width: var(--measure); }
 
 /* ─────────────────────────────────────────────────────────────
    Recipe builder yield row
@@ -912,11 +1611,11 @@ button.row:hover { background: var(--sunken); }
 .yieldrow__input .field { width: 100%; text-align: right; }
 .yieldrow__stat { display: flex; flex-direction: column; gap: var(--s1); }
 /* Derived, not editable — so it reads as a figure rather than a field. */
-.yieldrow__v { font-size: 22px; font-weight: 600; line-height: 1.2; }
-.yieldrow__u { font-size: 14px; font-weight: 400; color: var(--ink-3); }
+.yieldrow__v { font-size: var(--t-title); font-weight: 600; line-height: 1.2; }
+.yieldrow__u { font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 400; color: var(--ink-3); }
 @media (max-width: 720px) {
   .yieldrow { grid-template-columns: 100px 1fr 1fr; gap: var(--s4); }
-  .yieldrow__v { font-size: 19px; }
+  .yieldrow__v { font-size: var(--t-head); line-height: var(--t-head-lh); }
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -941,17 +1640,17 @@ button.row:hover { background: var(--sunken); }
 }
 .wf__cell { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
 .wf__gross { width: 100%; text-align: right; }
-.wf__op { color: var(--ink-3); font-size: 17px; padding-bottom: var(--s2); }
-.wf__fig { font-size: 22px; font-weight: 500; line-height: 1.2; color: var(--ink-2); }
-.wf__net { font-size: 30px; font-weight: 500; line-height: 1.1; }
+.wf__op { color: var(--ink-3); font-size: var(--t-head); line-height: var(--t-head-lh); padding-bottom: var(--s2); }
+.wf__fig { font-size: var(--t-head); font-weight: 500; line-height: 1.2; color: var(--ink-2); }
+.wf__net { font-size: var(--t-fig-sm); font-weight: 500; line-height: 1.1; }
 /* No reading yet, or none left after the tare: quiet, not alarming. */
 .wf__net.is-blank { color: var(--ink-3); }
-.wf__u { font-size: 14px; font-weight: 400; color: var(--ink-3); }
-.wf__snag { margin: 0; font-size: 13px; color: var(--ink-2); max-width: var(--measure); }
+.wf__u { font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 400; color: var(--ink-3); }
+.wf__snag { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); max-width: var(--measure); }
 
 .wf__vhead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
 .wf__vessels { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--s2); }
-.wf__note { margin: 0; font-size: 12px; color: var(--ink-3); max-width: var(--measure); }
+.wf__note { margin: 0; font-size: var(--t-cap); line-height: var(--t-cap-lh); color: var(--ink-3); max-width: var(--measure); }
 
 /* One tickable vessel. Checkboxes rather than a single-choice control: a katori
    on a thali means both come off, and picking one of the two is wrong by the other. */
@@ -971,7 +1670,7 @@ button.row:hover { background: var(--sunken); }
    the checkbox inside it too — two rings for one focused control. */
 .vsel__box:focus-visible { outline: none; }
 .vsel__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vsel__g { color: var(--ink-2); font-size: 14px; white-space: nowrap; }
+.vsel__g { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); white-space: nowrap; }
 
 @media (max-width: 720px) {
   .wf__modes .chip { flex: 1; min-height: 44px; }
@@ -981,7 +1680,7 @@ button.row:hover { background: var(--sunken); }
   .wf__calc > .wf__cell:first-child { grid-column: 1 / -1; }
   .wf__op { display: none; }
   .wf__op--eq { display: block; }
-  .wf__net { font-size: 26px; }
+  .wf__net { font-size: var(--t-fig-sm); line-height: var(--t-fig-sm-lh); }
   .wf__vessels { grid-template-columns: minmax(0, 1fr); }
   /* Mid-log, this is the only way to the library, and as bare `.link` text it is a
      20px target sitting directly above the first vessel checkbox — a thumb that
@@ -997,13 +1696,16 @@ button.row:hover { background: var(--sunken); }
 .vform { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; gap: var(--s3); align-items: end; }
 .vform__cell { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
 .vform__cell--g .field { text-align: right; }
-.vform__go { min-height: 44px; white-space: nowrap; }
+.vform__go { white-space: nowrap; }
 
 .vrow { grid-template-columns: minmax(0, 1fr) auto auto; }
-.vrow__g { font-size: 19px; font-weight: 500; white-space: nowrap; }
-.vrow__u { font-size: 13px; color: var(--ink-3); }
+.vrow__g { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 500; white-space: nowrap; }
+.vrow__u { font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-3); }
 .vrow__acts { display: flex; gap: var(--s2); }
-.vrow__btn { padding: var(--s2) var(--s3); font-size: 13px; min-height: 44px; }
+/* A row's own actions: the button's height and shape, in the smaller text and
+   narrower padding of something that sits beside a name rather than under a
+   form. */
+.vrow__btn { padding: var(--s1) var(--s3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
 @media (max-width: 720px) {
   .vform { grid-template-columns: minmax(0, 1fr) 104px; }
@@ -1039,7 +1741,7 @@ button.row:hover { background: var(--sunken); }
 .pslot__drop:hover:not(:disabled) { border-color: var(--accent); color: var(--ink); }
 .pslot__drop:disabled { cursor: default; }
 .pslot__take { font-weight: 600; }
-.pslot__hint { color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+.pslot__hint { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); max-width: var(--measure); }
 
 .pslot__shot {
   display: block; width: 100%; line-height: 0;
@@ -1052,7 +1754,7 @@ button.row:hover { background: var(--sunken); }
 .pslot__shot img { display: block; width: 100%; max-height: 300px; object-fit: contain; }
 
 .pslot__acts { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
-.pslot__btn { padding: var(--s2) var(--s4); min-height: 44px; }
+.pslot__btn { padding: var(--s1) var(--s4); }
 .pslot__err { margin: 0; }
 /* Off-screen rather than display:none — the click still has to reach it. */
 .pslot__file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -1070,7 +1772,7 @@ button.row:hover { background: var(--sunken); }
   padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line);
 }
 .pview__name { font-weight: 600; margin-right: auto; }
-.pview__btn { padding: var(--s2) var(--s4); min-height: 44px; white-space: nowrap; }
+.pview__btn { padding: var(--s1) var(--s4); white-space: nowrap; }
 .pview__body {
   flex: 1; overflow: auto; display: grid; place-items: center;
   padding: var(--s3) var(--s3) calc(var(--s3) + var(--safe-bottom));
@@ -1107,10 +1809,10 @@ button.row:hover { background: var(--sunken); }
 .lform { display: flex; flex-direction: column; gap: var(--s2); }
 .lform__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
 .lform__head .group__name { margin-bottom: 0; }
-.lform__count { color: var(--ink-2); font-size: 14px; font-weight: 500; }
-.lform__basis { margin: 0; color: var(--ink-3); font-size: 13px; max-width: var(--measure); }
-.lform__basis strong { color: var(--ink-2); font-weight: 550; }
-.lform__snag { margin: var(--s3) 0 0; font-size: 13px; color: var(--ink-2); max-width: var(--measure); }
+.lform__count { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500; }
+.lform__basis { margin: 0; color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); }
+.lform__basis strong { color: var(--ink-2); font-weight: 600; }
+.lform__snag { margin: var(--s3) 0 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); max-width: var(--measure); }
 
 .lrows { margin-top: var(--s3); }
 .lrow {
@@ -1119,10 +1821,10 @@ button.row:hover { background: var(--sunken); }
   padding: var(--s2) 0; border-bottom: 1px solid var(--line);
 }
 .lrow__name { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
-.lrow__unit { color: var(--ink-3); font-size: 12px; }
+.lrow__unit { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 .lrow__amt { width: 100%; text-align: right; padding: var(--s2) var(--s3); }
 .lrow__lt { white-space: nowrap; }
-.lrow__says { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+.lrow__says { grid-column: 1 / -1; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); max-width: var(--measure); }
 /* A line that cannot be read is a note, not an alarm: --over belongs to a nutrient
    limit actually exceeded, and spending it on a typo would spend it everywhere. */
 .lrow__says.is-snag { color: var(--ink-2); }
@@ -1162,11 +1864,11 @@ button.row:hover { background: var(--sunken); }
 }
 
 .tags { margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line); }
-.tags__type { width: 160px; padding: var(--s2) var(--s3); font-size: 13px; }
-.tags__note { color: var(--ink-3); font-size: 12px; margin: var(--s3) 0 0; max-width: var(--measure); }
+.tags__type { width: 160px; padding: var(--s2) var(--s3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.tags__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin: var(--s3) 0 0; max-width: var(--measure); }
 
 .chip--ghost { border-style: dashed; color: var(--ink-3); }
-.chip--sm { padding: 4px var(--s3); font-size: 12px; }
+.chip--sm { padding: 4px var(--s3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 
 /* The day's mix, under the energy bar. Segments are proportional to how many
    dishes carried each origin; a day with nothing logged draws none of this. */
@@ -1188,7 +1890,7 @@ button.row:hover { background: var(--sunken); }
 .callegend {
   display: flex; flex-wrap: wrap; gap: var(--s3);
   margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--line);
-  color: var(--ink-3); font-size: 11px;
+  color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh);
 }
 .callegend__item { display: inline-flex; align-items: center; gap: 5px; }
 .callegend__sw { width: 10px; height: 3px; border-radius: var(--r-pill); }
@@ -1216,22 +1918,22 @@ button.row:hover { background: var(--sunken); }
 .checkline {
   display: flex; gap: var(--s3); align-items: flex-start;
   margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line);
-  font-size: 14px; cursor: pointer;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); cursor: pointer;
 }
 .checkline input { margin-top: 3px; flex: none; }
 .checkline__sub {
-  display: block; color: var(--ink-3); font-size: 12px; margin-top: var(--s1);
+  display: block; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: var(--s1);
   max-width: var(--measure);
 }
 
+/* Sits in a `.rows` list, which draws the hairline between two of them. */
 .supline { padding: var(--s3) 0; }
-.supline + .supline { border-top: 1px solid var(--line); }
 .supline__top { display: flex; align-items: center; gap: var(--s2); }
 .supline__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .supline__amt { width: 88px; text-align: right; padding: var(--s2) var(--s3); }
 .supline__unit { width: 78px; padding: var(--s2); }
 .supline__forms { margin-top: var(--s2); }
-.supline__ok { color: var(--ink-3); font-size: 12px; margin: var(--s2) 0 0; }
+.supline__ok { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin: var(--s2) 0 0; }
 /* A refusal is information, not an error the user caused — it is the app saying
    what it cannot know from what the pack printed. Coloured accordingly.
    `.note` is the same treatment generalised, for the sentences on the Backup
@@ -1242,18 +1944,18 @@ button.row:hover { background: var(--sunken); }
    paragraphs on the page that most need reading. */
 .note,
 .supline__refused {
-  color: var(--ink-2); font-size: 12px; margin: var(--s2) 0 0;
+  color: var(--ink-2); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin: var(--s2) 0 0;
   padding: var(--s2) var(--s3); background: var(--sunken); border-radius: var(--r-sm);
   max-width: var(--measure);
 }
 
 .dose { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
 .dose__n { width: 96px; text-align: right; }
-.dose__unit { font-size: 15px; }
-.dose__note { color: var(--ink-3); font-size: 12px; }
+.dose__unit { font-size: var(--t-body); line-height: var(--t-body-lh); }
+.dose__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 
 /* The supplement share of a nutrient, on the full panel. */
-.nrow__sup { color: var(--ink-3); font-size: 11px; display: block; }
+.nrow__sup { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); display: block; }
 
 @media (max-width: 720px) {
   .supline__top { flex-wrap: wrap; }
@@ -1291,7 +1993,7 @@ button.row:hover { background: var(--sunken); }
   padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line);
 }
 .cam__title { font-weight: 600; margin-right: auto; }
-.cam__x { padding: var(--s2) var(--s4); min-height: 44px; white-space: nowrap; }
+.cam__x { padding: var(--s1) var(--s4); white-space: nowrap; }
 
 .cam__stage { position: relative; flex: 1; min-height: 0; background: var(--sunken); }
 .cam__view { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
@@ -1315,8 +2017,8 @@ button.row:hover { background: var(--sunken); }
   gap: var(--s2); padding: var(--s5);
   text-align: center; color: var(--ink-2); background: var(--sunken);
 }
-.cam__snagh { font-size: 16px; color: var(--ink); }
-.cam__snagp { margin: 0; font-size: 14px; max-width: var(--measure); }
+.cam__snagh { font-size: var(--t-body); line-height: var(--t-body-lh); color: var(--ink); }
+.cam__snagp { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); }
 .cam__snagbtn { margin-top: var(--s4); }
 
 .cam__bar {
@@ -1325,8 +2027,8 @@ button.row:hover { background: var(--sunken); }
   background: var(--surface); border-top: 1px solid var(--line);
 }
 .cam__read { flex: 1; min-width: 0; }
-.cam__state { display: flex; align-items: center; gap: var(--s2); margin: 0; font-weight: 550; }
-.cam__count { margin: var(--s1) 0 0; padding-left: calc(var(--dot) + var(--s2)); color: var(--ink-3); font-size: 13px; }
+.cam__state { display: flex; align-items: center; gap: var(--s2); margin: 0; font-weight: 500; }
+.cam__count { margin: var(--s1) 0 0; padding-left: calc(var(--dot) + var(--s2)); color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
 .cam__dot {
   width: var(--dot); height: var(--dot); flex: none;
@@ -1342,7 +2044,7 @@ button.row:hover { background: var(--sunken); }
    allowed to overrule it. While the frame is not readable it drops to the quiet
    treatment, so the button says which way the app would go without blocking the
    other. */
-.cam__shot { flex: none; min-height: 44px; white-space: nowrap; }
+.cam__shot { flex: none; white-space: nowrap; }
 .cam__shot.is-dim {
   background: transparent; color: var(--ink-2); border: 1px solid var(--line);
 }
@@ -1373,11 +2075,11 @@ button.row:hover { background: var(--sunken); }
 @media (min-width: 721px) {
   :root {
     /* One new tone, spent only on the sidebar: a shade past --sunken, in
-       the same warm-neutral family, so it reads as structure around the
-       canvas rather than more canvas — a mail app's source list next to
-       its reading pane, not a second hue. */
-    --chrome: #eeeae1;
-    --chrome-line: #e3ddd0;
+       the same cool grey, so it reads as structure around the canvas rather
+       than more canvas — a mail app's source list next to its reading pane,
+       not a second hue. */
+    --chrome: #dfe6e5;
+    --chrome-line: #d2dad9;
     /* The old 940px cap left roughly a third of a 1440px window bare on
        either side; the sidebar earns some of that back for every screen. */
     --shell: 1120px;
@@ -1403,8 +2105,8 @@ button.row:hover { background: var(--sunken); }
   }
   .sidebar__brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; }
   .sidebar__word {
-    font-family: Newsreader, Georgia, "Times New Roman", serif;
-    font-size: 20px; font-weight: 500; letter-spacing: -0.025em;
+    font-stretch: 125%;
+    font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 700; letter-spacing: -0.02em;
   }
 
   /* Add food is an ACTION, not a place — the app's own primary-button
@@ -1412,9 +2114,9 @@ button.row:hover { background: var(--sunken); }
      that matched four unrelated tabs. */
   .sidebar__cta {
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    min-height: 44px; margin: 0 4px 18px; padding: 0 var(--s4);
+    min-height: var(--btn-h); margin: 0 4px 18px; padding: 0 var(--s4);
     border-radius: var(--r-md); background: var(--accent); color: var(--on-accent);
-    font-size: 14.5px; font-weight: 600; box-shadow: var(--lift);
+    font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 600; box-shadow: var(--lift);
     transition: background-color 140ms ease-out;
   }
   .sidebar__cta:hover { background: var(--accent-ink); }
@@ -1424,7 +2126,7 @@ button.row:hover { background: var(--sunken); }
   .sidebar__link {
     position: relative; display: flex; align-items: center; gap: 12px;
     min-height: 40px; padding: 0 12px; border-radius: var(--r-md);
-    font-size: 14px; font-weight: 500; color: var(--ink-2);
+    font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500; color: var(--ink-2);
     transition: background-color 140ms ease-out, color 140ms ease-out;
   }
   .sidebar__link:hover { background: var(--sunken); color: var(--ink); }
@@ -1438,7 +2140,7 @@ button.row:hover { background: var(--sunken); }
   }
   .sidebar__link[aria-current="page"] .sidebar__rail { background: var(--accent); }
   .sidebar__icon { flex: none; display: block; }
-  .sidebar__note { margin-top: auto; padding: 12px 12px 4px; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+  .sidebar__note { margin-top: auto; padding: 12px 12px 4px; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 
   /* The date-stepper's new home: out of the corner this app's real Back
      buttons occupy, and bounded in one control so its shape says "adjust a
@@ -1449,30 +2151,11 @@ button.row:hover { background: var(--sunken); }
     border-bottom: 1px solid var(--line); background: var(--surface);
     position: sticky; top: 0; z-index: 10;
   }
-  .toolbar__today { height: 40px; padding: 0 var(--s4); }
+  .toolbar__today { padding: 0 var(--s4); }
   .toolbar__today:disabled { opacity: 0.4; }
-  .toolbar__count { margin-left: auto; color: var(--ink-3); font-size: 13px; }
+  .toolbar__count { margin-left: auto; color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
   .main { padding-left: var(--s6); padding-right: var(--s6); }
-}
-
-@media (min-width: 1080px) {
-  /* Today only: the freed width is worth two columns. Which section goes
-     where is stated by CLASS rather than by position — `nth-of-type` meant
-     inserting a section anywhere in Today.tsx silently reshuffled the whole
-     layout, and the placement rules were duplicated the first time this
-     grid was revised. See `.day-hero`, `.day-watch`, `.day-ate`.
-
-     Below this width the sidebar shell still applies but these sections
-     stack exactly as they do on a phone: there is no room here for two
-     300px+ columns, and a squeezed grid is worse than a stack. */
-  .screen--today {
-    display: grid;
-    gap: var(--s6);
-    align-items: start;
-  }
-  .screen--today > [aria-busy="true"],
-  .screen--today > .empty { grid-column: 1 / -1; }
 }
 
 /* --chrome/--chrome-line had no dark-mode value, so the sidebar stayed the
@@ -1485,7 +2168,7 @@ button.row:hover { background: var(--sunken); }
    changes nothing for a light-mode desktop or for mobile in either scheme. */
 @media (min-width: 721px) and (prefers-color-scheme: dark) {
   :root {
-    --chrome: #2b2822;
+    --chrome: #101817;
     --chrome-line: var(--line);
   }
 }
@@ -1509,25 +2192,25 @@ button.row:hover { background: var(--sunken); }
 .imp-drop:hover:not(:disabled) { border-color: var(--accent); color: var(--ink); }
 .imp-drop:disabled { cursor: default; }
 .imp-drop__take { font-weight: 600; }
-.imp-drop__hint { color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+.imp-drop__hint { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); max-width: var(--measure); }
 /* Off-screen rather than display:none — the drop button's click still has to
    reach it, matching the pattern PhotoSlot's own hidden file input uses. */
 .imp-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-.imp-assume { color: var(--ink-3); font-size: 13px; max-width: var(--measure); margin: var(--s3) 0 0; }
-.imp-note { color: var(--ink-2); font-size: 13px; max-width: var(--measure); margin: var(--s3) 0 0; }
+.imp-assume { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); margin: var(--s3) 0 0; }
+.imp-note { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); margin: var(--s3) 0 0; }
 
 /* Three counts, read at a glance: what imports, and the two reasons a row
    would not. Equal visual weight on purpose — a skip is not a failure. */
 .imp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: var(--s4); }
-.imp-stat__v { font-size: 28px; font-weight: 600; line-height: 1.2; }
-.imp-stat__k { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
+.imp-stat__v { font-size: var(--t-title); font-weight: 600; line-height: var(--t-title-lh); }
+.imp-stat__k { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 2px; }
 
 .imp-chips { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s2); }
 .imp-chip {
   display: flex; flex-direction: column; gap: 1px;
   padding: var(--s2) var(--s3); border-radius: var(--r-md);
-  font-size: 12px; font-weight: 550; border: 1px solid transparent; max-width: 100%;
+  font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 500; border: 1px solid transparent; max-width: 100%;
 }
 .imp-chip--ok { background: var(--accent-wash); color: var(--accent-ink); }
 /* Same muted grey as an unmeasured nutrient and an untagged dish elsewhere in
@@ -1536,10 +2219,10 @@ button.row:hover { background: var(--sunken); }
 .imp-chip__note { font-weight: 400; color: var(--ink-3); white-space: normal; }
 
 .imp-table-wrap { overflow-x: auto; margin-top: var(--s3); }
-.imp-table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+.imp-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); line-height: var(--t-sm-lh); white-space: nowrap; }
 .imp-table th {
-  text-align: left; color: var(--ink-3); font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.06em; font-weight: 600; padding: var(--s2) var(--s3);
+  text-align: left; color: var(--ink-2); font-size: var(--t-cap); line-height: var(--t-cap-lh);
+  font-weight: 600; padding: var(--s2) var(--s3);
   border-bottom: 1px solid var(--line);
 }
 .imp-table td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); }
@@ -1548,12 +2231,12 @@ button.row:hover { background: var(--sunken); }
 .imp-fails { margin-top: var(--s2); }
 .imp-fail {
   display: flex; gap: var(--s3); padding: var(--s2) 0;
-  border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-2);
+  border-top: 1px solid var(--line); font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2);
 }
 .imp-fail__row { flex: none; width: 68px; color: var(--ink-3); }
 
 @media (max-width: 720px) {
-  .imp-table { font-size: 12px; }
+  .imp-table { font-size: var(--t-cap); line-height: var(--t-cap-lh); }
   .imp-fail { flex-direction: column; gap: 2px; }
   .imp-fail__row { width: auto; }
 }
@@ -1573,8 +2256,8 @@ button.row:hover { background: var(--sunken); }
 .exp-date { display: flex; flex-direction: column; gap: var(--s1); }
 
 .exp-what { display: grid; gap: var(--s3); margin-top: var(--s2); }
-.exp-what__line { color: var(--ink-2); font-size: 13px; max-width: var(--measure); margin: 0; }
-.exp-note { color: var(--ink-3); font-size: 13px; max-width: var(--measure); margin: var(--s3) 0 0; }
+.exp-what__line { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); margin: 0; }
+.exp-note { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure); margin: var(--s3) 0 0; }
 
 /* Styled as information, the way `.supline__refused` is — not as the user's
    mistake and not as a celebration. Half of what this line says is "nothing
@@ -1582,7 +2265,7 @@ button.row:hover { background: var(--sunken); }
    must not arrive in --accent-wash any more than in --over-wash. */
 .exp-done {
   padding: var(--s2) var(--s3); border-radius: var(--r-md);
-  background: var(--sunken); color: var(--ink-2); font-size: 13px;
+  background: var(--sunken); color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -1605,13 +2288,13 @@ button.row:hover { background: var(--sunken); }
   border-radius: var(--r-md);
   background: var(--sunken);
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
 }
 .scanbox__head { display: flex; align-items: center; gap: var(--s3); }
 /* .group__name carries a bottom margin for stacked labels; here the block's own
    padding already spaces it, and the extra would drop the button beside it. */
 .scanbox__head .group__name { margin-bottom: 0; }
-.scanbox__all { margin-left: auto; padding: var(--s2) var(--s3); font-size: 13px; min-height: 44px; }
+.scanbox__all { margin-left: auto; padding: var(--s1) var(--s3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
 /* A sentence and its way out, on one line until there is no room for one. */
 .scanbox__row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -1626,7 +2309,7 @@ button.row:hover { background: var(--sunken); }
   margin: var(--s2) 0 0; color: var(--ink); line-height: 1.5;
   white-space: pre-wrap; max-width: var(--measure);
 }
-.scanbox__note { margin: var(--s3) 0 0; color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+.scanbox__note { margin: var(--s3) 0 0; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); max-width: var(--measure); }
 
 /* One reading: the nutrient, the figure in the panel's own words, and what
    taking it would do. The figure sits on the same line as the name so the pair
@@ -1635,9 +2318,9 @@ button.row:hover { background: var(--sunken); }
 .scanrow + .scanrow { border-top: 1px solid var(--line); }
 .scanrow__main { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .scanrow__top { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
-.scanrow__name { color: var(--ink); font-weight: 550; }
+.scanrow__name { color: var(--ink); font-weight: 500; }
 .scanrow__read { color: var(--ink); }
-.scanrow__aside { color: var(--ink-3); font-size: 12px; max-width: var(--measure); }
+.scanrow__aside { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); max-width: var(--measure); }
 
 /* Barcode: a field with the shortcut beside it, on its own line under the six
    boxes above. The field keeps the width — typing the digits printed under the
@@ -1645,7 +2328,7 @@ button.row:hover { background: var(--sunken); }
 .sup-barcode { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--s1); }
 .sup-barcode__row { display: flex; align-items: center; gap: var(--s2); }
 .sup-barcode__row .field { flex: 1; min-width: 0; }
-.sup-barcode__btn { flex: none; min-height: 44px; padding: var(--s2) var(--s4); }
+.sup-barcode__btn { flex: none; padding: var(--s1) var(--s4); }
 
 @media (max-width: 720px) {
   /* The wording takes the line and the buttons take the next, full-size rather
@@ -1662,45 +2345,36 @@ button.row:hover { background: var(--sunken); }
    is falling back to a generic figure. Deliberately not alarm-coloured —
    falling back to a Daily Value is a limitation to state, not an error. */
 .pill {
-  font-size: 11px; padding: 3px var(--s3); border-radius: var(--r-pill);
+  font-size: var(--t-cap); line-height: var(--t-cap-lh); padding: 3px var(--s3); border-radius: var(--r-pill);
   background: var(--sunken); color: var(--ink-3); white-space: nowrap;
   letter-spacing: 0.02em;
 }
 .pill.is-on { background: var(--accent-wash); color: var(--accent-ink); }
 @media (prefers-color-scheme: dark) {
-  .pill.is-on { background: rgba(74, 124, 89, 0.22); }
+  .pill.is-on { background: rgba(92, 205, 192, 0.18); }
 }
 
 /* Which reference system a percentage is against, under the nutrient's name.
    Only rendered where it is not the app-wide default. */
-.nrow__basis { display: block; color: var(--ink-3); font-size: 11px; margin-top: 1px; }
-
-/* The energy hero's provenance — "estimated" or "your target". */
-.hero__basis { color: var(--ink-3); }
-
-/* A macronutrient's acceptable range, under its amount. Muted, because the
-   range is context for the figure above rather than a second figure. */
-.macro__range { color: var(--ink-3); font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
-/* Outside the range is worth noticing but is not an error: the AMDRs are broad
-   and a day outside one is a fact, not a failure. Weight, not alarm colour. */
-.macro__range.is-outside { color: var(--ink-2); font-weight: 600; }
+.nrow__basis { display: block; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 1px; }
 
 /* Sits apart from the four destinations: reached occasionally rather than
    somewhere the day is spent. */
 .sidebar__link--quiet { margin-top: auto; color: var(--ink-3); }
 .sidebar__link--quiet:hover { color: var(--ink); }
 
-.activityrow { grid-template-columns: 1fr auto; text-align: left; width: 100%; }
+.activityrow { grid-template-columns: 1fr auto; text-align: left; }
 .activityrow[aria-pressed="true"] { background: var(--accent-wash); border-radius: var(--r-md); }
 @media (prefers-color-scheme: dark) {
-  .activityrow[aria-pressed="true"] { background: rgba(74, 124, 89, 0.18); }
+  .activityrow[aria-pressed="true"] { background: rgba(92, 205, 192, 0.14); }
 }
-.activityrow__mark { color: var(--accent-ink); font-weight: 700; width: 16px; text-align: center; }
+.activityrow__mark { color: var(--accent-ink); font-weight: 600; width: 16px; text-align: center; }
 
-.goalrow { grid-template-columns: 1fr auto; text-align: left; width: 100%; }
+.goalrow { grid-template-columns: 1fr auto; text-align: left; }
+/* A word after the nutrient's name — "Sodium limit" — not a badge. */
 .goalrow__limit {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--ink-3); margin-left: var(--s2);
+  font-size: var(--t-cap); line-height: var(--t-cap-lh);
+  color: var(--ink-3); margin-left: var(--s1);
 }
 
 
@@ -1714,8 +2388,8 @@ button.row:hover { background: var(--sunken); }
 .correct__row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 /* Wide enough to read a figure in, but free to shrink on a narrow phone rather
    than pushing the button it sits beside off the row. */
-.correct__row .field { flex: 1 1 7rem; min-width: 0; min-height: 44px; }
-.correct__row .btn { min-height: 44px; flex: none; }
+.correct__row .field { flex: 1 1 7rem; min-width: 0; min-height: var(--btn-h); }
+.correct__row .btn { flex: none; }
 .correct__unit { color: var(--ink-3); flex: none; }
 .correct__error { color: var(--over); }
 
@@ -1729,7 +2403,7 @@ button.row:hover { background: var(--sunken); }
 .dial__step {
   flex: none; width: 28px; height: 28px; border-radius: var(--r-sm);
   border: 1px solid var(--line); background: transparent; color: var(--ink-2);
-  font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
+  font-size: var(--t-body); line-height: 1; cursor: pointer; display: grid; place-items: center;
 }
 .dial__step:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
 .dial__step:disabled { opacity: 0.35; cursor: default; }
@@ -1760,7 +2434,7 @@ button.row:hover { background: var(--sunken); }
 }
 .dial__reset {
   flex: none; min-width: 104px; text-align: right; border: none; background: none;
-  color: var(--ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums;
+  color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); font-variant-numeric: tabular-nums;
   cursor: pointer; padding: 0;
 }
 .dial__reset:disabled { cursor: default; }
@@ -1774,8 +2448,8 @@ button.row:hover { background: var(--sunken); }
   gap: var(--s2); align-items: center;
 }
 .cook-row__amt { text-align: right; padding: var(--s2); }
-.cook-row__planned { color: var(--ink-3); font-size: 11.5px; }
-.cook-row__sub { color: var(--ink-3); font-size: 11.5px; margin-top: 2px; }
+.cook-row__planned { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.cook-row__sub { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 2px; }
 .cook-row__dial { margin-top: var(--s2); }
 @media (max-width: 720px) {
   .cook-row__head { grid-template-columns: 1fr 76px auto; }
@@ -1802,10 +2476,10 @@ button.row:hover { background: var(--sunken); }
   /* The scrim under a palette or a sheet. Its own token because it is not a
      surface — it is the absence of one, and it has to darken a cream page and
      a near-black one by different amounts to read the same. */
-  --scrim: rgba(28, 26, 23, 0.30);
+  --scrim: rgba(15, 22, 21, 0.32);
   /* A key cap. Quieter than --ink-3 text on --sunken would be on its own,
      because a shortcut hint is a footnote to the thing it labels. */
-  --kbd-bg: rgba(28, 26, 23, 0.06);
+  --kbd-bg: rgba(15, 22, 21, 0.06);
   /* A radius below --r-sm, for the two things smaller than a control: a key
      cap and a micro-chip. 8px on a 17px-wide box reads as a pill. */
   --r-xs: 6px;
@@ -1830,7 +2504,7 @@ button.row:hover { background: var(--sunken); }
   display: inline-block; min-width: 17px; padding: 2px 5px;
   border-radius: var(--r-xs); background: var(--kbd-bg); color: var(--ink-3);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 10.5px; line-height: 1.35; text-align: center;
+  font-size: var(--t-cap); line-height: var(--t-cap-lh); text-align: center;
   letter-spacing: 0; font-weight: 500;
 }
 .kbd + .kbd { margin-left: 3px; }
@@ -1856,7 +2530,7 @@ button.row:hover { background: var(--sunken); }
   width: 100%; max-width: 580px; max-height: 62vh;
   display: flex; flex-direction: column;
   background: var(--surface); border-radius: var(--r-lg);
-  box-shadow: var(--lift-hi), 0 32px 64px -24px rgba(28, 26, 23, 0.35);
+  box-shadow: var(--lift-hi), 0 32px 64px -24px rgba(15, 22, 21, 0.35);
   overflow: hidden;
   animation: palRise 160ms ease-out;
 }
@@ -1875,7 +2549,7 @@ button.row:hover { background: var(--sunken); }
    second radius inside it would be a control drawn inside a control. */
 .pal__input {
   flex: 1; min-width: 0; border: none; background: none; outline: none;
-  font-size: 16px; color: var(--ink);
+  font-size: var(--t-body); line-height: var(--t-body-lh); color: var(--ink);
 }
 .pal__input::placeholder { color: var(--ink-3); }
 
@@ -1883,8 +2557,8 @@ button.row:hover { background: var(--sunken); }
 
 .pal__group {
   padding: var(--s3) var(--s3) var(--s1);
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
-  color: var(--ink-3); font-weight: 600;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
+  color: var(--ink-2); font-weight: 600;
 }
 
 /* Inner radius is the box's minus the list's padding — an element nested in a
@@ -1903,23 +2577,23 @@ button.row:hover { background: var(--sunken); }
 .pal__row[data-active="true"] .pal__hint { color: var(--bg); opacity: 0.62; }
 
 .pal__label {
-  flex: 1; min-width: 0; font-size: 14px; font-weight: 500;
+  flex: 1; min-width: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pal__hint {
-  flex: none; max-width: 46%; color: var(--ink-3); font-size: 12px;
+  flex: none; max-width: 46%; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .pal__none {
   margin: 0; padding: var(--s5) var(--s3); color: var(--ink-3);
-  font-size: 14px; max-width: var(--measure);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: var(--measure);
 }
 
 .pal__foot {
   display: flex; align-items: center; gap: var(--s4); flex: none;
   padding: var(--s2) var(--s5); border-top: 1px solid var(--line);
-  background: var(--sunken); color: var(--ink-3); font-size: 11.5px;
+  background: var(--sunken); color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh);
 }
 .pal__footnote { margin-left: auto; }
 
@@ -1947,51 +2621,40 @@ button.row:hover { background: var(--sunken); }
 }
 
 /* ── Today, on a desktop ─────────────────────────────────────
-   The 1080px rule above this put the hero beside the triage card
-   and left the day's own list full-width beneath both — which
-   gave the LONGEST content the widest column only by accident,
-   and gave a 40-row list the same 44px rows it has on a phone.
+   Two columns, the log and the day around it.
 
-   This makes the split deliberate: the day reads down the wide
-   column, hero then dishes, and the triage card becomes a rail
-   that stays put while that column scrolls. A findings list you
-   have to scroll back up to re-read is a findings list you stop
-   consulting.
+   The wide column is the ledger — the day's line and the four
+   sittings — because it is the longest thing on the screen and
+   the one read row by row. The narrow one holds what is not a
+   meal: water, what was done, and the note. It stays put while
+   the log scrolls, so a bottle chip or the note is never a
+   scroll away from wherever you are in the day.
+
+   An entry or the day's nutrients open over the right-hand edge
+   as a panel (see `.sheet`), beside the log rather than in it.
+
+   Below 1080px the sidebar shell still applies but the two stack
+   exactly as they do on a phone: there is no room for two 300px+
+   columns, and a squeezed grid is worse than a stack. This
+   replaced a grid placed section by section — a hero, a triage
+   rail and the dishes — whose rail outlived the card it was for.
    ───────────────────────────────────────────────────────────── */
 @media (min-width: 1080px) {
-  .screen--today { grid-template-columns: minmax(0, 1fr) minmax(316px, 0.44fr); }
-
-  /* The day reads DOWN the wide column: what you ate, then the dishes. */
-  .day-hero { grid-column: 1; grid-row: 1; }
-  .day-ate  { grid-column: 1; grid-row: 2; }
-
-  /* The note goes in the narrow column, beside the day rather than under a
-     scroll of it. Placed rather than left to auto-placement: a card that lands
-     wherever the algorithm finds a hole moves the moment another section is
-     added above it. Row 2, so the quick-add strip keeps the top of the rail —
-     a thing you reach for before the day is written is worth more room than a
-     thing you reach for after. */
-  .day-note { grid-column: 2; grid-row: 2; align-self: start; }
-
-  /* The triage rail. Spans both rows so it can stay put for the whole
-     scroll — a findings list you have to scroll back up to re-read is a
-     findings list you stop consulting. */
-  .day-watch {
-    grid-column: 2; grid-row: 1 / span 2;
-    position: sticky; top: calc(var(--toolbar-h) + var(--s5));
-    align-self: start;
+  /* 1.6 to 1 rather than the 2.3 to 1 the old split gave the dishes: at
+     1,030px a row's kcal sat a thousand pixels from the name it belongs to,
+     which is a stretched phone list and not a ledger. The log stays about
+     670px on a 1440 window, and the column beside it gets the rest. */
+  .screen--today {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(316px, 1fr);
+    column-gap: var(--s7); row-gap: var(--s5);
+    align-items: start;
   }
-
-  /* In a 330px rail the track compresses to about 60px, which is too short
-     to read as a proportion and is redundant beside the percentage printed
-     immediately to its right. It carries no coverage information here
-     either: every row in this card is a `measured` reading by definition —
-     `worthALook()` filters on exactly that — so the hidden-track state
-     that distinguishes "unmeasured" from "none" can never occur in it.
-     Two columns instead, and the limit note stops wrapping into a row
-     twice the height of its neighbours. */
-  .day-watch .nrow { grid-template-columns: minmax(0, 1fr) auto; }
-  .day-watch .track { display: none; }
+  .day-log { grid-column: 1; }
+  .day-side {
+    grid-column: 2;
+    position: sticky; top: calc(var(--toolbar-h) + var(--s5));
+  }
 }
 
 /* ── the master/detail workbench (Add food) ──────────────────
@@ -2040,8 +2703,8 @@ button.row:hover { background: var(--sunken); }
   color: var(--ink-3); border: 1px dashed var(--line);
   border-radius: var(--r-lg); background: var(--sunken);
 }
-.rest h3 { color: var(--ink-2); font-size: 14px; font-weight: 600; margin-bottom: var(--s2); }
-.rest p { margin: 0; font-size: 13px; max-width: 34ch; margin-inline: auto; }
+.rest h3 { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; margin-bottom: var(--s2); }
+.rest p { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); max-width: 34ch; margin-inline: auto; }
 @media (min-width: 1080px) { .rest { display: block; } }
 
 /* ═════════════════════════════════════════════════════════════
@@ -2055,24 +2718,29 @@ button.row:hover { background: var(--sunken); }
    ═════════════════════════════════════════════════════════════ */
 
 @media (min-width: 721px) and (pointer: fine) {
+  /* The two heights everything else is set from. Every button — the primary,
+     the quiet one, a row's own Re-weigh and Delete, the stepper beside the
+     date — takes --btn-h, so a cursor gets one height of control and not the
+     four it had (32, 37, 40 and 44px). */
+  :root { --btn-h: 36px; --row-h: 32px; }
+
   /* Rows and lists */
-  .row { min-height: 32px; }
-  .nrow, .entryrow { padding-block: var(--s1); }
+  .nrow, .entryrow, .entry { padding-block: var(--s1); }
+  .day-sec__head { min-height: 32px; }
+  .usual__chip { min-height: 30px; padding: 2px var(--s3); }
   .iconbtn { width: 28px; height: 28px; }
   .supline { padding: var(--s2) 0; }
 
   /* Controls */
   .chip { min-height: 28px; padding: var(--s1) var(--s3); }
   .chip--sm { padding: var(--s1) var(--s2); }
-  .btn { padding: var(--s2) var(--s4); }
+  .btn { padding: var(--s1) var(--s4); }
   .field { padding: var(--s2) var(--s3); }
-  .search-hero .field { font-size: 15px; padding: var(--s3) var(--s4); }
+  .search-hero .field { font-size: var(--t-body); line-height: var(--t-body-lh); padding: var(--s3) var(--s4); }
 
-  /* Everything that was given a 44px floor for a thumb. A cursor does not
-     need it, and on a dense screen the floor is what stops a table reading
-     as a table. */
-  .vrow__btn, .pslot__btn, .pview__btn, .cam__x, .cam__shot,
-  .scanbox__all, .sup-barcode__btn, .vform__go, .correct__row .btn,
+  /* The controls that are not buttons but were given a 44px floor for a
+     thumb. A cursor does not need it, and on a dense screen the floor is what
+     stops a table reading as a table. */
   .lrow__lt, .lrow__amt, .dial__step { min-height: var(--s6); }
   .vsel { min-height: var(--s6); }
   .dial__step { width: var(--s5); height: var(--s5); }
@@ -2136,7 +2804,7 @@ button.row:hover { background: var(--sunken); }
     margin: 0 4px var(--s5); padding: 0 var(--s3);
     min-height: 32px; border-radius: var(--r-md);
     background: var(--surface); color: var(--ink-3);
-    font-size: 13px; text-align: left;
+    font-size: var(--t-sm); line-height: var(--t-sm-lh); text-align: left;
     box-shadow: inset 0 0 0 1px var(--chrome-line);
     transition: color 140ms ease-out, box-shadow 140ms ease-out;
   }
@@ -2148,7 +2816,7 @@ button.row:hover { background: var(--sunken); }
      beats recall: a shortcut the user has to be told about in a changelog is
      a shortcut nobody presses. */
   .sidebar__key {
-    margin-left: auto; color: var(--ink-3); font-size: 11px;
+    margin-left: auto; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh);
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     opacity: 0; transition: opacity 140ms ease-out;
   }
@@ -2183,7 +2851,7 @@ button.row:hover { background: var(--sunken); }
    the search field, in the space the first result wants. */
 .search-hero__hint { display: none; }
 @media (min-width: 721px) { .search-hero__hint { display: block; } }
-.hits__hint { color: var(--ink-3); font-size: 11.5px; }
+.hits__hint { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 
 @media (min-width: 721px) and (pointer: fine) {
   .hit { position: relative; }
@@ -2252,7 +2920,7 @@ button.row:hover { background: var(--sunken); }
   min-height: 38px; padding: 0 var(--s3);
   border-radius: var(--r-pill);
   background: var(--accent-wash); color: var(--accent-ink);
-  font-size: 12.5px; font-weight: 650;
+  font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 600;
   transition: background-color 140ms ease-out, transform 120ms ease-out;
 }
 .quickrow__log:active:not(:disabled) { transform: scale(0.94); }
@@ -2303,8 +2971,10 @@ button.row:hover { background: var(--sunken); }
    itself: the subtitle broke into the heading, and "‹ back" sat
    stranded to the left of a 22px title looking bolted on.
 
-   Three rows now, in reading order — way back, title and its one
-   action, then what the screen is for. See ScreenHead.tsx.
+   Two rows now, in reading order — the way back, then the title and
+   its one action. There is no subtitle row any more; see
+   ScreenHead.tsx for where the subtitles went. `.head__sub` stays
+   for the unlock screen, which still states what it is asking.
    ═════════════════════════════════════════════════════════════ */
 
 .head { display: flex; flex-direction: column; gap: var(--s2); }
@@ -2316,13 +2986,13 @@ button.row:hover { background: var(--sunken); }
   flex-wrap: wrap;
 }
 .head__text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
-.head__title { font-size: 22px; }
+.head__title { font-size: var(--t-title); line-height: var(--t-title-lh); }
 /* Wraps under the title block, still right-aligned, when there is no room
    beside it — rather than squeezing a long title into an ellipsis to keep
    one row. */
 .head__act { display: flex; gap: var(--s2); flex: none; margin-left: auto; flex-wrap: wrap; }
 .head__sub {
-  color: var(--ink-3); font-size: 14px; margin: 0; max-width: var(--measure);
+  color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); margin: 0; max-width: var(--measure);
 }
 
 /* Desktop only. Android's back gesture already does this, and every
@@ -2340,7 +3010,7 @@ button.row:hover { background: var(--sunken); }
     display: inline-flex; align-items: center; gap: 5px;
     align-self: flex-start; margin-left: calc(var(--s2) * -1);
     padding: var(--s1) var(--s2); border-radius: var(--r-sm);
-    color: var(--ink-3); font-size: 13px; font-weight: 500;
+    color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500;
     transition: color 140ms ease-out, background-color 140ms ease-out;
   }
   .head__back:hover { color: var(--ink); background: var(--sunken); }
@@ -2379,7 +3049,7 @@ button.row:hover { background: var(--sunken); }
 }
 
 .ledger__head {
-  font-size: 13px;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
   font-weight: 600;
   color: var(--ink-2);
   margin-bottom: var(--s4);
@@ -2398,8 +3068,8 @@ button.row:hover { background: var(--sunken); }
 .ledger__row {
   display: grid;
   /* `max-content` with a floor, NOT a `ch` width: `ch` resolves against this
-     row's 15px sans while the numeral renders at 28px serif, so "12" overflowed
-     its track and collided with the word beside it. The floor keeps single
+     row's 15px text while the numeral renders at 26px, so "12" overflowed its
+     track and collided with the word beside it. The floor keeps single
      digits aligned with double ones. */
   grid-template-columns: minmax(2.2rem, max-content) minmax(0, 1fr);
   /* Baseline between the numeral and its label — a 28px figure and a 14px
@@ -2414,13 +3084,13 @@ button.row:hover { background: var(--sunken); }
 
 .ledger__n {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--t-fig-sm);
   line-height: 1;
   text-align: right;
   color: var(--ink);
 }
 
-.ledger__of { margin: 0; font-size: 14px; color: var(--ink-2); }
+.ledger__of { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); }
 
 /* No numerals on this side, deliberately, and no bullets either — a
    marker would imply a list of equivalent items where the point is
@@ -2430,14 +3100,14 @@ button.row:hover { background: var(--sunken); }
   display: flex;
   align-items: center;
   min-height: var(--ledger-step);
-  font-size: 14px;
+  font-size: var(--t-sm); line-height: var(--t-sm-lh);
   color: var(--ink-2);
 }
 
 .ledger__why {
   margin: var(--s4) 0 0;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--t-sm);
+  line-height: var(--t-sm-lh);
   color: var(--ink-3);
   max-width: 34ch;
 }
@@ -2473,14 +3143,14 @@ button.row:hover { background: var(--sunken); }
   padding: var(--s7) var(--s4) var(--s6);
 }
 
-.pair__ask { font-size: 20px; margin-bottom: var(--s5); }
+.pair__ask { font-size: var(--t-head); line-height: var(--t-head-lh); margin-bottom: var(--s5); }
 
-/* Set at the scale of the day's energy figure, in the same serif the
-   app gives every numeral. Weight 500 because that is the heaviest
-   Newsreader loaded — asking for 600 would have the browser fake it. */
+/* At the size of a period's figure, so the six digits can be read off one
+   screen while holding the other, but in the text face: a code to compare is
+   not an aggregate, and the serif belongs to aggregates (see `.fig`). */
 .pair__digits {
   margin: 0;
-  font-size: clamp(48px, 11vw, 76px);
+  font-size: var(--t-fig);
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.06em;
@@ -2501,8 +3171,8 @@ button.row:hover { background: var(--sunken); }
 .pair__say {
   margin: var(--s5) 0 0;
   max-width: 46ch;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: var(--t-sm);
+  line-height: var(--t-sm-lh);
   color: var(--ink-2);
 }
 
@@ -2572,8 +3242,8 @@ button.row:hover { background: var(--sunken); }
 .stats__basis {
   margin: 0 0 var(--s2);
   max-width: var(--measure);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: var(--t-sm);
+  line-height: var(--t-sm-lh);
   color: var(--ink-2);
 }
 
@@ -2585,14 +3255,14 @@ button.row:hover { background: var(--sunken); }
   border-top: 1px solid var(--line);
 }
 
-.stats__h { font-size: 14px; font-weight: 600; color: var(--ink); }
-.stats__h3 { margin-top: var(--s5); font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.stats__h { font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; color: var(--ink); }
+.stats__h3 { margin-top: var(--s5); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; color: var(--ink-2); }
 
 .stats__note,
 .stats__read {
   max-width: var(--measure);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--t-sm);
+  line-height: var(--t-sm-lh);
   color: var(--ink-3);
 }
 .stats__note { margin: var(--s2) 0 var(--s4); }
@@ -2607,11 +3277,12 @@ button.row:hover { background: var(--sunken); }
   gap: var(--s2);
   margin: var(--s3) 0 var(--s4);
 }
-/* 44px serif, against the day's 24px sans. The ratio is the argument: the
+/* 36px serif, against the day's 24px sans. The ratio is the argument: the
    figure you are meant to dwell on is the one taken over weeks, and the
-   typeface says so before you have read either number. */
-.stats__n { font-size: 44px; line-height: 1; color: var(--ink); }
-.stats__when { font-size: 13px; color: var(--ink-3); margin-left: var(--s2); }
+   typeface says so before you have read either number. (It was 44px, which
+   made the strip under it read as a caption to a headline.) */
+.stats__n { font-size: var(--t-fig); line-height: 1; color: var(--ink); }
+.stats__when { font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-3); margin-left: var(--s2); }
 
 /* ── the strip ────────────────────────────────────────────────
    Height is generous because every element in it is thin: a
@@ -2663,7 +3334,7 @@ button.row:hover { background: var(--sunken); }
 .spread__reflabel {
   position: absolute; top: -17px; left: var(--s2);
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--t-cap); line-height: var(--t-cap-lh);
   color: var(--ink-3);
 }
 /* Past halfway the label runs off the right edge, so it flips to the other
@@ -2685,10 +3356,10 @@ button.row:hover { background: var(--sunken); }
 }
 .stats__row:last-child { border-bottom: none; }
 
-.stats__name { margin: 0; font-size: 14px; color: var(--ink); }
-.stats__amt { margin: 0; font-size: 17px; color: var(--ink); white-space: nowrap; }
+.stats__name { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink); }
+.stats__amt { margin: 0; font-size: var(--t-head); line-height: var(--t-head-lh); color: var(--ink); white-space: nowrap; }
 .stats__amt--over { color: var(--over); }
-.stats__ref { margin: 0; font-size: 12px; color: var(--ink-3); text-align: right; }
+.stats__ref { margin: 0; font-size: var(--t-cap); line-height: var(--t-cap-lh); color: var(--ink-3); text-align: right; }
 
 @media (max-width: 420px) {
   /* The reference figure drops under the amount rather than
@@ -2710,15 +3381,6 @@ button.row:hover { background: var(--sunken); }
   .stats__list > .stats__row { border-bottom: 1px solid var(--line); }
 }
 
-/* A sentence where a leaderboard used to be. Prose measure, not a data row. */
-.daynote {
-  margin: var(--s2) 0 0;
-  max-width: var(--measure);
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--ink-2);
-}
-
 /* ── Activity (D26) ──────────────────────────────────────────
    The Add screen's Activity tab, the Today card and the Trends
    section. Everything here keys off the `--act` family, so a
@@ -2726,31 +3388,41 @@ button.row:hover { background: var(--sunken); }
    without a single new shape: the same chips, cards, rows and
    strip, in the other colour.
    ───────────────────────────────────────────────────────────── */
-.chip--act[aria-pressed="true"],
-.activity .chip[aria-pressed="true"] { background: var(--act); border-color: var(--act); color: var(--on-act); }
-.activity .btn:not(.btn--quiet):not(.btn--danger):not(.btn--again) { background: var(--act); color: var(--on-act); }
-.activity .btn:not(.btn--quiet):not(.btn--danger):not(.btn--again):hover { background: var(--act-ink); }
-.activity .btn:disabled { opacity: 0.5; cursor: default; }
-.activity .link, .activity-card .link { color: var(--act-ink); }
-.activity .link:hover, .activity-card .link:hover { color: var(--act); background: var(--act-wash); }
+/* The activity areas, named once. Everything that draws from --area — the
+   primary button, a chosen chip, a text action, the focus ring — turns
+   heather inside these and nowhere else. The Add screen's Activity tab is
+   its own area, so that picking it already reads as heather before the
+   tab's content has rendered under it. */
+.activity, .activity-card, .xsheet, .stats__block--act, .chip--act {
+  --area: var(--act);
+  --area-ink: var(--act-ink);
+  --area-wash: var(--act-wash);
+  --on-area: var(--on-act);
+  --focus: var(--act);
+  /* Muted text a shade darker here, because an activity area is where the
+     heather wash is laid under text (see --act-ink-3). */
+  --ink-3: var(--act-ink-3);
+}
 .activity .again__amt { background: var(--act-wash); color: var(--act-ink); }
 .activity .again__tile[aria-busy="true"] { border-color: var(--act); }
 .activity .chip:disabled { opacity: 0.4; cursor: default; }
 
 .activity { display: flex; flex-direction: column; gap: var(--s5); max-width: var(--measure); width: 100%; margin: 0 auto; }
-.activity__q { font-size: 15px; margin-bottom: var(--s3); }
+/* The Activity screen's title, kept to the same column as what it names. */
+.activity__head { max-width: var(--measure); width: 100%; margin: 0 auto; }
+.activity__q { font-size: var(--t-body); line-height: var(--t-body-lh); margin-bottom: var(--s3); }
 .activity__form { display: flex; flex-direction: column; gap: var(--s4); }
 .activity__row { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); align-items: center; gap: var(--s3); }
 .activity__row:has(.activity__hint) { align-items: start; }
 .activity__row:has(.activity__hint) > .activity__label { padding-top: var(--s2); }
-.activity__label { color: var(--ink-2); font-size: 14px; }
-.activity__hint { margin: var(--s2) 0 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
-.activity__minutes { justify-self: start; height: 44px; }
-.activity__minutes .stepper__seg { width: 44px; font-size: 18px; }
+.activity__label { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.activity__hint { margin: var(--s2) 0 0; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.activity__minutes { justify-self: start; }
+.activity__minutes .stepper__seg { width: 44px; font-size: var(--t-head); line-height: var(--t-head-lh); }
 .activity__minutes .stepper__mid { min-width: 0; padding: 0 var(--s3); gap: var(--s1); }
-.activity__mins { width: 4ch; border: none; background: transparent; text-align: right; font-size: 17px; font-weight: 550; }
+.activity__mins { width: 4ch; border: none; background: transparent; text-align: right; font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 500; }
 .activity__mins:focus { outline: none; }
-.activity__unit { color: var(--ink-3); font-size: 14px; }
+.activity__unit { color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
 @media (max-width: 420px) {
   .activity__row { grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
@@ -2764,12 +3436,12 @@ button.row:hover { background: var(--sunken); }
 .lift { display: flex; flex-direction: column; gap: var(--s2); }
 .lift + .lift { padding-top: var(--s4); border-top: 1px solid var(--line); }
 .lift__head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
-.lift__name { font-size: 15px; }
-.lift__last { color: var(--ink-3); font-size: 12px; }
+.lift__name { font-size: var(--t-body); line-height: var(--t-body-lh); }
+.lift__last { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 .lift__sets { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin: var(--s1) 0 var(--s1) calc(var(--s2) * -1); }
 .lift__set {
   padding: var(--s1) var(--s2); border-radius: var(--r-sm);
-  font-size: 18px; font-weight: 500; letter-spacing: -0.01em; color: var(--ink);
+  font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 500; letter-spacing: -0.01em; color: var(--ink);
   min-height: 40px;
   transition: background-color 140ms ease-out, color 140ms ease-out;
 }
@@ -2785,57 +3457,53 @@ button.row:hover { background: var(--sunken); }
 .lift__entry--held { grid-template-columns: minmax(0, 7rem) auto; }
 .lift__entry > .lift__drop { grid-column: 1 / -1; justify-self: start; }
 .lift__pair { position: relative; display: block; min-width: 0; }
+/* A button's height, so the weight and reps fields and "Same again" beside
+   them are one row of controls. The right padding is the room "reps" needs
+   at --t-sm plus a gap: 3em of the field's own 15px, where 2.6em had been
+   sized for a 16px field and a 13px unit, and left the 8 touching "reps". */
 .lift__field {
-  width: 100%; text-align: right; min-height: 44px; font-size: 16px;
-  padding: var(--s2) 2.6em var(--s2) var(--s2);
+  width: 100%; text-align: right; min-height: var(--btn-h); font-size: var(--t-body); line-height: var(--t-body-lh);
+  padding: var(--s2) 3em var(--s2) var(--s2);
 }
 .lift__unit {
   position: absolute; right: var(--s3); top: 50%; transform: translateY(-50%);
-  color: var(--ink-3); font-size: 13px; pointer-events: none;
+  color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); pointer-events: none;
 }
-.lift__x { color: var(--ink-3); font-size: 15px; }
-.btn--again {
-  background: transparent; color: var(--act-ink);
-  border: 1.5px solid var(--act); min-height: 44px; padding: 0 var(--s4);
-}
-.activity .btn.btn--again { background: transparent; color: var(--act-ink); }
-.activity .btn.btn--again:hover:not(:disabled) { background: var(--act-wash); }
-.lift__drop { min-height: 44px; }
+.lift__x { color: var(--ink-3); font-size: var(--t-body); line-height: var(--t-body-lh); }
+/* "Add set" and "Same again": the quiet look, ruled in the area's colour
+   rather than the neutral line, because it is the control a session is
+   mostly made of — pressed once a set — and "Done" beside it is the filled
+   one. 1px like every other border, not the 1.5px it had. */
+.btn--again { background: transparent; color: var(--area-ink); border-color: var(--area); padding: var(--s1) var(--s4); }
+@media (hover: hover) { .btn--again:hover:not(:disabled) { background: var(--area-wash); } }
 
 
-/* Today: the same card, tinted, so it is never mistaken for food. */
-.activity-card { background: var(--act-wash); box-shadow: none; }
-.activity-card .card__head { margin-bottom: 0; }
-.activity-card .rows { margin-top: 0; }
-.activity-card__row { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
-.activity-card .row + .row { border-top-color: var(--act-rule); }
-button.activity-card__row:hover { background: var(--act-press); }
-/* The day's rough energy line: the card's own rule colour, and the body ink
-   rather than the faintest, because it carries the one caveat that matters. */
-.activity-card__foot { border-top-color: var(--act-rule); color: var(--ink-2); line-height: 1.5; }
-@media (prefers-color-scheme: dark) { .activity-card { border-color: var(--act-rule); } }
-@media (min-width: 1080px) {
-  /* Down the wide column, under the dishes: the day reads what was eaten,
-     then what was done. */
-  .day-ate ~ .activity-card { grid-column: 1; grid-row: 3; }
-  .activity-card { align-self: start; }
-  /* On a day with nothing eaten the empty state spans the grid, and the card
-     follows it rather than being pinned above it. */
-  .screen--today > .empty ~ .activity-card { grid-column: 1; }
-}
-
+/* Today: activity laid out as a meal is — its name and + on the page, a
+   tile per session — in the activity colour, so it is never mistaken for
+   food. A strength session is a card in the plum wash, with the drawing of
+   its first lift and each lift's sets. */
+.activity-card .meal__glyph { background: var(--act-wash); color: var(--act-ink); }
+.activity-card .tile.entry { grid-template-columns: auto minmax(0, 1fr); }
+.actcard { display: flex; flex-direction: column; align-items: stretch; gap: var(--s2); padding: 12px 14px; background: var(--act-wash); }
+@media (hover: hover) { button.actcard:hover { background: var(--act-press); } }
+.actcard__head { display: flex; align-items: center; gap: var(--s3); }
+.actcard__head .row__main { flex: 1; }
+.actcard .row__title { color: var(--act-ink); font-weight: 650; }
+.actcard .row__sub { color: var(--act-ink-3); }
+.actcard .figure { width: 52px; height: 60px; color: var(--act-ink); }
+.actcard__sets { display: grid; gap: 2px; padding-top: var(--s2); border-top: 1px solid var(--act-rule); }
+.actcard__lift { display: flex; justify-content: space-between; gap: var(--s3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.actcard__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actcard__did { flex: none; color: var(--act-ink); font-weight: 600; }
 /* Trends: the strip and its middle mark in the activity colour. */
 .stats__block--act .spread__band { background: var(--act-wash); }
 .stats__block--act .spread__mid { background: var(--act); }
-.stats__block--act .link { color: var(--act-ink); }
 .stats__list--one { display: block; }
 
 /* Desktop with a pointer: denser, the way the rest of the app is there. */
 @media (min-width: 721px) and (pointer: fine) {
-  .lift__field, .lift__drop, .btn--again { min-height: 34px; }
-  .lift__set { min-height: 32px; font-size: 17px; }
-  .activity__minutes { height: 36px; }
-  .activity__minutes .stepper__seg { width: 34px; font-size: 16px; }
+  .lift__set { min-height: 32px; font-size: var(--t-head); line-height: var(--t-head-lh); }
+  .activity__minutes .stepper__seg { width: 34px; font-size: var(--t-body); line-height: var(--t-body-lh); }
 }
 
 /* ── Exercise drawings (D27) ─────────────────────────────────
@@ -2869,7 +3537,7 @@ button.activity-card__row:hover { background: var(--act-press); }
 
 .lift__head--art { display: flex; align-items: flex-start; gap: var(--s3); flex-wrap: nowrap; }
 .lift__titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.lift__muscles { color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
+.lift__muscles { color: var(--ink-2); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 .lift__art {
   border-radius: var(--r-md); padding: var(--s1);
   background: var(--sunken);
@@ -2886,9 +3554,9 @@ button.activity-card__row:hover { background: var(--act-press); }
 }
 .frames { display: flex; gap: var(--s4); justify-content: center; flex-wrap: wrap; }
 .frames__one { display: flex; flex-direction: column; align-items: center; gap: var(--s1); }
-.frames__label { color: var(--ink-3); font-size: 12px; }
-.lift__caption { margin: 0; color: var(--ink-2); font-size: 12.5px; text-align: center; }
-.lift__credit { margin: 0; color: var(--ink-3); font-size: 11px; text-align: center; }
+.frames__label { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.lift__caption { margin: 0; color: var(--ink-2); font-size: var(--t-cap); line-height: var(--t-cap-lh); text-align: center; }
+.lift__credit { margin: 0; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); text-align: center; }
 
 
 /* ── The session's foot, and the way to the next lift (D27) ─── */
@@ -2897,10 +3565,10 @@ button.activity-card__row:hover { background: var(--act-press); }
   width: 100%; min-height: 52px; padding: var(--s3) var(--s4);
   border: 1.5px solid var(--act-line);
   border-radius: var(--r-md); background: var(--act-wash);
-  color: var(--act-ink); font-size: 15px; font-weight: 600;
+  color: var(--act-ink); font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 600;
   transition: background-color 140ms ease-out, border-color 140ms ease-out;
 }
-.addlift__plus { font-size: 20px; line-height: 1; font-weight: 500; }
+.addlift__plus { font-size: var(--t-head); line-height: 1; font-weight: 500; }
 @media (hover: hover) { .addlift:hover { border-color: var(--act); } }
 .ledger__how { margin: calc(var(--s3) * -1) 0 0; }
 .ledger__foot {
@@ -2912,49 +3580,28 @@ button.activity-card__row:hover { background: var(--act-press); }
 .ledger__commit { margin: 0 0 0 auto; }
 
 /* ── The exercise sheet ──────────────────────────────────────
-   Full screen on a phone, because a search field, a row of
-   filters and more than two results only fit above a keyboard
-   that way; a dialog where there is a pointer. Above the bar and
-   the toast, below the ⌘K palette.
+   A `Sheet` at its full size: the whole screen on a phone,
+   because a search field, a row of filters and more than two
+   results only fit above a keyboard that way; a dialog where
+   there is a pointer. The shell is `.sheet`'s; what is here is
+   the search, its filters and the list.
    ───────────────────────────────────────────────────────────── */
-.xsheet { position: fixed; inset: 0; z-index: 70; display: flex; }
-.xsheet__box {
-  /* min-width 0: as a flex item it would otherwise grow to the width of the
-     one-line chip row inside it, and push the whole sheet off the screen. */
-  flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
-  background: var(--bg);
-  padding-top: var(--safe-top);
-}
-.xsheet__head {
-  display: flex; flex-direction: column; gap: var(--s3);
-  padding: var(--s4) var(--s4) var(--s3);
-  border-bottom: 1px solid var(--line);
-}
-.xsheet__bar { display: flex; align-items: center; justify-content: space-between; }
-.xsheet__title { font-size: 20px; letter-spacing: -0.015em; }
-.xsheet__close {
-  display: none; width: 32px; height: 32px; border-radius: var(--r-sm);
-  color: var(--ink-2); font-size: 20px; line-height: 1;
-}
-.xsheet__search { font-size: 16px; padding: var(--s3) var(--s4); background: var(--surface); }
+.xsheet__search { font-size: var(--t-body); line-height: var(--t-body-lh); padding: var(--s3) var(--s4); background: var(--surface); }
 .xsheet__areas {
   flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
   margin: calc(var(--s1) * -1) calc(var(--s4) * -1); padding: var(--s1) var(--s4);
 }
 .xsheet__areas::-webkit-scrollbar { display: none; }
 .xsheet__areas .chip { flex: none; }
-.xsheet__areas .chip[aria-pressed="true"] { background: var(--act); border-color: var(--act); color: var(--on-act); }
-.xsheet__list {
-  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  padding: var(--s2) 0 calc(var(--s6) + var(--safe-bottom));
-}
-.xsheet__note { margin: var(--s4); color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+/* The rows run to the sheet's edges, and the last one clears the pill. */
+.sheet__body.xsheet__list { padding: var(--s2) 0 calc(var(--s6) + var(--safe-bottom)); }
+.xsheet__note { margin: var(--s4); color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 .xnew__note { margin: var(--s3) 0 0; }
 
 .xgroup + .xgroup { margin-top: var(--s3); }
 .xgroup__name {
   padding: var(--s3) var(--s4) var(--s2);
-  font-size: 13px; font-weight: 600; color: var(--ink-2);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; color: var(--ink-2);
 }
 .xrow {
   display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center;
@@ -2974,36 +3621,28 @@ button.activity-card__row:hover { background: var(--act-press); }
 .xrow__tile .figure { width: 46px; height: 54px; color: var(--ink-2); }
 .xrow__glyph { width: 26px; height: 26px; color: var(--ink-3); }
 .xrow__text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.xrow__name { font-size: 16px; font-weight: 550; color: var(--ink); }
+.xrow__name { font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 500; color: var(--ink); }
 .xrow__detail {
-  font-size: 13px; color: var(--ink-2);
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .xrow__added {
   padding: 3px var(--s2); border-radius: var(--r-pill);
-  background: var(--act-wash); color: var(--act-ink); font-size: 12px; font-weight: 600; white-space: nowrap;
+  background: var(--act-wash); color: var(--act-ink); font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 600; white-space: nowrap;
 }
 @media (hover: hover) and (pointer: fine) { .xrow[data-hi] .xrow__added { background: var(--surface); } }
 .xnew { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4); }
 .xnew__start {
   align-self: flex-start; padding: var(--s3) 0;
-  color: var(--act-ink); font-size: 15px; font-weight: 600;
+  color: var(--act-ink); font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 600;
 }
-.xnew__q { margin: 0; font-size: 15px; font-weight: 600; }
-.xnew .chip[aria-pressed], .xnew .chip:focus-visible { border-color: var(--act); }
+.xnew__q { margin: 0; font-size: var(--t-body); line-height: var(--t-body-lh); font-weight: 600; }
 
 /* With a pointer: a dialog over the session, not a page. */
 @media (min-width: 721px) and (pointer: fine) {
-  .xsheet { align-items: flex-start; justify-content: center; padding-top: 9vh; background: var(--scrim); }
-  .xsheet__box {
-    flex: none; width: min(560px, 92vw); max-height: min(720px, 84vh);
-    padding-top: 0; border-radius: var(--r-lg); overflow: hidden;
-    background: var(--surface); box-shadow: var(--lift-hi);
-  }
-  .xsheet__head { padding: var(--s4) var(--s5) var(--s3); }
   .xsheet__areas { flex-wrap: wrap; margin: 0; padding: 0; overflow: visible; }
   .xsheet__search { background: var(--bg); }
-  .xsheet__list { padding-bottom: var(--s3); }
+  .sheet__body.xsheet__list { padding-bottom: var(--s3); }
   .xrow { min-height: 64px; padding: var(--s1) var(--s5); }
   .xrow__tile { width: 48px; height: 52px; }
   .xrow__tile .figure { width: 40px; height: 46px; }
@@ -3011,33 +3650,16 @@ button.activity-card__row:hover { background: var(--act-press); }
   .xgroup__name { padding: var(--s3) var(--s5) var(--s1); }
   .xnew { padding: var(--s4) var(--s5); }
 }
-@media (prefers-color-scheme: dark) and (min-width: 721px) and (pointer: fine) {
-  .xsheet__box { border: 1px solid var(--line); }
-}
-
 /* The lift's head in the ledger: a smaller tile, so the name and its one
    reminder line sit beside it rather than wrapping down past it. */
 .lift__head--art .figure { width: 56px; height: 64px; }
 .lift__art--none { display: grid; place-items: center; width: 64px; height: 72px; flex: none; }
 .lift__art--none .xrow__glyph { width: 28px; height: 28px; }
-.lift__how-muscles { margin: 0; color: var(--ink-2); font-size: 13px; text-align: center; }
+.lift__how-muscles { margin: 0; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); text-align: center; }
 
-/* The cross: wherever a pointer can hover — a Mac window of any width — but
-   not on Android, where even the emulator's mouse reports no hover and the
-   back gesture closes the sheet. A pointer has no back gesture. */
-@media (hover: hover) {
-  .xsheet__close { display: grid; place-items: center; }
-  .xsheet__close:hover { background: var(--sunken); color: var(--ink); }
-}
-/* Focus moved here by the app, not by Tab: no ring around the whole sheet or
-   a heading. */
-.xsheet__box:focus, .lift__name:focus { outline: none; }
+/* Focus moved here by the app, not by Tab: no ring around a heading. */
+.lift__name:focus { outline: none; }
 @media (min-width: 721px) and (pointer: fine) {
   /* A pointer does not need a thumb-sized target. */
-  .addlift { min-height: 40px; padding: var(--s2) var(--s4); font-size: 14px; }
+  .addlift { min-height: 40px; padding: var(--s2) var(--s4); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 }
-/* On a phone the sheet ends where the keyboard begins. The window is not
-   resized for it (edge to edge), so without this the bottom of the list sits
-   behind the keys and cannot be scrolled into view. */
-.xsheet__box { padding-bottom: var(--sys-ime); }
-@media (min-width: 721px) and (pointer: fine) { .xsheet__box { padding-bottom: 0; } }

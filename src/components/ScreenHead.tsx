@@ -2,8 +2,6 @@ import type { ReactNode } from "react";
 
 interface Props {
   title: string;
-  /** What the screen is for, in a few words. Sits under the title, never beside it. */
-  sub?: ReactNode;
   /**
    * Where this screen closes to.
    *
@@ -35,9 +33,17 @@ interface Props {
  * incoherent — the eye had to find the title afresh on every screen.
  *
  * One shape now: an optional way back, then the title with at most one action
- * beside it, then the subtitle underneath.
+ * beside it.
+ *
+ * There is no subtitle any more, and that is on purpose. Every screen had one —
+ * "what every percentage is measured against", "the proportions, not one batch
+ * of it" — and twenty taglines under twenty titles were a good part of why the
+ * app read as explanation before it read as a record. A subtitle that carried
+ * real state ("4 weighed", "no other devices yet") has moved to the list or
+ * the empty state it describes, which is where the eye is when it matters.
+ * What a screen is FOR belongs one tap away, not printed over its content.
  */
-export default function ScreenHead({ title, sub, onBack, action }: Props) {
+export default function ScreenHead({ title, onBack, action }: Props) {
   return (
     <header className="head">
       {onBack && (
@@ -49,15 +55,12 @@ export default function ScreenHead({ title, sub, onBack, action }: Props) {
           Back
         </button>
       )}
-      {/* Title and subtitle are ONE block, not two rows of the header. When
-          the action does not fit beside them it wraps underneath the pair —
-          if the subtitle were a separate row it would be pushed below the
-          action instead, and a screen would read "Nutrients / [filters] /
-          Today" with its own caption stranded under a control. */}
+      {/* When the action does not fit beside the title it wraps underneath,
+          still right-aligned, rather than squeezing the title into an
+          ellipsis to keep one row. */}
       <div className="head__row">
         <div className="head__text">
           <h1 className="head__title">{title}</h1>
-          {sub && <p className="head__sub">{sub}</p>}
         </div>
         {action && <div className="head__act">{action}</div>}
       </div>

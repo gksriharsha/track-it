@@ -94,11 +94,7 @@ export default function Vessels(p: Props) {
 
   return (
     <div className="screen">
-      <ScreenHead
-        title="Vessels"
-        sub={vessels.length > 0 ? `${vessels.length} weighed` : "so the plate can go on the scale"}
-        onBack={back}
-      />
+      <ScreenHead title="Vessels" onBack={back} />
 
       {error && <p className="alert" role="alert">{error}</p>}
 
@@ -162,8 +158,10 @@ export default function Vessels(p: Props) {
         </div>
       ) : (
         <section className="card">
+          {/* The count used to be the screen's subtitle; it heads the list it
+              counts now. */}
           <div className="card__head">
-            <h2>Weighed</h2>
+            <h2>{vessels.length} weighed</h2>
             <span className="card__note">most recently used first</span>
           </div>
           <div className="rows">

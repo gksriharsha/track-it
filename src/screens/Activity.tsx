@@ -3,7 +3,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { humanDate, todayIso } from "../api";
 import {
   EFFORTS, KINDS, addSet, byLift, deleteSession, deleteSet, findExercises, getSession,
-  minutesText, recentSessions, saveSession, sessionTitle, setText, updateSet,
+  minutesText, recentSessions, saveSession, sayActivityChanged, sessionTitle, setText, updateSet,
 } from "../lib/activity";
 import type {
   ActivityKind, Effort, ExerciseHit, ExerciseRef, RecentSession, SessionSet, SetFigures,
@@ -11,6 +11,7 @@ import type {
 import { artFor, creditFor, mostlyLine, muscleLine, musclesFor, nameKey } from "../lib/exerciseArt";
 import LiftFigure, { LiftFrames } from "../components/LiftFigure";
 import ExerciseSheet, { BarbellGlyph } from "../components/ExerciseSheet";
+import { useAnnounce } from "../components/UndoBar";
 import { useHashSheet } from "../lib/hashSheet";
 
 /**
@@ -30,10 +31,10 @@ interface Props {
   date: string;
   /** A session to carry on with or correct, from Today. */
   sessionId: string | null;
+  /** Start strength on the lifts of the last session, as "Done before" does. */
+  likeLast?: boolean;
   onDone: () => void;
 }
-
-const UNDO_MS = 8000;
 
 /** One lift in the session being written, and what is in its entry fields. */
 interface LiftBlock {
@@ -145,10 +146,8 @@ export default function ActivityPane(p: Props) {
     sheet.show();
   }
 
-  // The last one-tap log, and the way back out of it.
-  const [last, setLast] = useState<{ id: string; label: string } | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  // A one-tap log is said in the app's one bar, with the way back out of it.
+  const announce = useAnnounce();
 
   useEffect(() => {
     recentSessions(6).then(setRecent).catch(() => setRecent([]));
@@ -196,6 +195,22 @@ export default function ActivityPane(p: Props) {
     return () => { live = false; };
   }, [p.sessionId, withLast]);
 
+  // Sent from the + sheet's one tap: the same as pressing the last strength
+  // session under "Done before", without the screen to find it on first.
+  useEffect(() => {
+    if (!p.likeLast || p.sessionId !== null) return;
+    let live = true;
+    recentSessions(6)
+      .then((rs) => {
+        const r = rs.find((x) => x.kind === "strength");
+        if (live && r) void again(r);
+      })
+      .catch(() => {});
+    return () => { live = false; };
+    // `again` is redefined each render and reads nothing this needs to follow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.likeLast, p.sessionId]);
+
   function choose(k: ActivityKind) {
     if (k === kind) return;
     setError(null);
@@ -220,22 +235,20 @@ export default function ActivityPane(p: Props) {
         id: null, logged_on: p.date, kind: r.kind, label: r.label,
         minutes: r.minutes, effort: r.effort, note: null,
       });
-      if (timer.current) clearTimeout(timer.current);
-      setLast({ id, label: `${sessionTitle(r)}, ${minutesText(r.minutes ?? 0)}` });
-      timer.current = setTimeout(() => setLast(null), UNDO_MS);
+      announce({
+        message: `Added to ${dayWords(p.date)}: ${sessionTitle(r)}, ${minutesText(r.minutes ?? 0)}`,
+        // A session written seconds ago, taken away again: nothing has been
+        // added to it yet, so removing it is the whole of the way back.
+        undo: async () => {
+          await deleteSession(id);
+          sayActivityChanged();
+        },
+      });
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
     }
-  }
-
-  async function undo() {
-    if (!last) return;
-    const { id } = last;
-    if (timer.current) clearTimeout(timer.current);
-    setLast(null);
-    try { await deleteSession(id); } catch (e) { setError(String(e)); }
   }
 
   async function commit(e: FormEvent) {
@@ -526,13 +539,6 @@ export default function ActivityPane(p: Props) {
         added={new Set(lifts.map((b) => nameKey(b.ref.name)))}
         onPick={addLift}
       />
-
-      {last && (
-        <div className="toast" role="status">
-          <span className="toast__text">Added to {dayWords(p.date)}: {last.label}</span>
-          <button className="toast__undo" onClick={undo}>Undo</button>
-        </div>
-      )}
     </div>
   );
 }

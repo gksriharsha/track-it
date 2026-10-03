@@ -135,11 +135,7 @@ export default function ImportData(p: Props) {
 
   return (
     <div className="screen">
-      <ScreenHead
-        title="Import a tracking file"
-        sub="bring in days you already logged elsewhere"
-        onBack={p.onBack}
-      />
+      <ScreenHead title="Import a tracking file" onBack={p.onBack} />
 
       {/* ── Pick a file ──────────────────────────────────────── */}
       <section className="card">

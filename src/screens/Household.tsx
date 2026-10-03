@@ -263,15 +263,7 @@ export default function Household(p: Props) {
 
   return (
     <div className="screen">
-      <ScreenHead
-        title="Household"
-        sub={
-          peers.length === 0
-            ? "no other devices yet"
-            : `${peers.length} other device${peers.length === 1 ? "" : "s"}`
-        }
-        onBack={back}
-      />
+      <ScreenHead title="Household" onBack={back} />
 
       {error && <p className="alert" role="alert">{error}</p>}
 
@@ -362,8 +354,15 @@ export default function Household(p: Props) {
           <div className="hh">
             <section className="hh__main">
               <div className="card">
+                {/* How many other devices there are used to be the screen's
+                    subtitle. It heads the list now; with none, the empty state
+                    below already says so ("Nothing else in the house yet"). */}
                 <div className="card__head">
-                  <h2>Devices</h2>
+                  <h2>
+                    {peers.length === 0
+                      ? "Devices"
+                      : `${peers.length} other device${peers.length === 1 ? "" : "s"}`}
+                  </h2>
                   {peers.length > 0 && (
                     <button className="link card__note" onClick={runSync} disabled={syncing}>
                       {syncing ? "syncing…" : "sync now"}

@@ -121,6 +121,11 @@ export interface LogEntry {
   /**
    * The vessel names, joined. Denormalised for the same reason `description` is:
    * deleting a vessel must not change what a past day says it weighed.
+   *
+   * Also the one note a water entry logged without a scale carries —
+   * `WHOLE_BOTTLE_NOTE` — with `gross_g` and `tare_g` null, because no reading
+   * was taken. Worth showing as a marker on the row: it is how that amount
+   * was arrived at.
    */
   tare_note: string | null;
   /**
@@ -213,6 +218,21 @@ export type Volume =
   | { kind: "measured"; ml: number }
   | { kind: "assumed"; ml: number };
 
+/**
+ * The `tare_note` of a water entry logged as a whole bottle without a scale —
+ * `store::WHOLE_BOTTLE_NOTE` in Rust, which writes it. Matched against rather
+ * than inferred from a null `gross_g`, because an amount corrected by hand
+ * carries no reading either, and that is a different fact. A Rust test reads
+ * this line and fails if the two sentences ever differ by a character.
+ */
+export const WHOLE_BOTTLE_NOTE = "whole bottle, not weighed";
+
+/**
+ * The same for part of a bottle, judged by eye on the water sheet's slider —
+ * `store::PART_BOTTLE_NOTE`, held to this line by the same Rust test.
+ */
+export const PART_BOTTLE_NOTE = "part of a bottle, not weighed";
+
 /** Litres past a litre, millilitres below — how people actually say it. */
 export function describeVolume(ml: number): string {
   return ml >= 1000 ? `${(ml / 1000).toFixed(1)} L` : `${Math.round(ml)} ml`;
@@ -228,18 +248,72 @@ export interface Component {
   has_data: boolean;
 }
 
+/**
+ * What one entry is made of, and what it came to in energy.
+ *
+ * Every live entry on a day has exactly one, a plain food included (its
+ * `components` are empty), so a row can look its own up by `entry_id`.
+ */
 export interface EntryBreakdown {
   entry_id: string;
   components: Component[];
   recipe_name: string | null;
   recipe_yield_g: number | null;
   recipe_servings: number | null;
+  /**
+   * For a portion of a pot, whether `recipe_yield_g` was the pot weighed —
+   * as it stood when the portion was taken. False means the portion was
+   * divided by the recipe's estimate, which its row says ("pot not
+   * weighed"). Null for a recipe, which has no pot, and for an older portion
+   * whose pot could not be matched back up: not recorded, so not claimed.
+   */
+  recipe_yield_weighed: boolean | null;
+  /**
+   * How the values came to be what they are: frozen as the entry was logged,
+   * worked out later for an entry logged before freezing existed, or changed
+   * on purpose. Only "logged" is a record of what was believed at the time,
+   * so the other two are said on the row and on the sheet.
+   */
+  basis: SnapshotBasis;
+  frozen_at: string;
+  corrected_at: string | null;
+  /**
+   * This entry's own energy, in kcal, summed exactly the way the day's is —
+   * so it reads "228", "≥ 112" or "—" by the same rule, and the rows of a day
+   * add up to the day. Read it through the same three states as any total:
+   * `coverage` of 0 is unmeasured ("—"), never 0 kcal.
+   *
+   * Null for what is not food, which the day's energy leaves out too: water,
+   * and a supplement whose panel states neither energy nor protein,
+   * carbohydrate or fat — almost all of them. A tablet is not a zero-calorie
+   * food, so it gets no figure at all. A softgel whose label prints its
+   * calories keeps them, with `coverage` null (a dose has no mass) and
+   * `from_supplements` set.
+   */
+  energy: DailyTotal | null;
+}
+
+/**
+ * One sitting's energy, summed from its entries' own contributions rather
+ * than from their rounded rows — so its coverage is weighted by mass across
+ * the whole meal. Never water, which belongs to no sitting.
+ */
+export interface MealEnergy {
+  meal: Meal;
+  energy: DailyTotal;
 }
 
 export interface DayView {
   logged_on: string;
   entries: LogEntry[];
   breakdowns: EntryBreakdown[];
+  /**
+   * Each sitting that holds something with energy to count, in the order the
+   * day is eaten. Absent for a sitting holding only a vitamin, and for one
+   * with nothing in it — look a meal up by name, and treat a miss as "no
+   * subtotal", not as zero.
+   */
+  meals: MealEnergy[];
   totals: NutrientTotal[];
   /**
    * What the day's energy is read against, or null when the profile gives
@@ -1609,7 +1683,7 @@ export interface WidgetLanding {
  * names the Foods screen's water tab rather than a food, because that is where
  * a bottle is actually logged — the bottle library is an inventory screen.
  */
-export type PickKind = "food" | "custom" | "water" | "activity";
+export type PickKind = "food" | "custom" | "water" | "activity" | "strength";
 
 export interface PickTarget {
   kind: PickKind;
@@ -1632,6 +1706,9 @@ export function parsePick(raw: string | null): PickTarget | null {
   // The Add screen's Activity tab, and with an id a session to carry on with or
   // to correct (D26). Not a food, for the same reason water is not one.
   if (raw === "activity") return { kind: "activity", id: null };
+  // The Activity tab, with a strength session started on the lifts of the
+  // last one: the + sheet's one tap for "the gym, like last time".
+  if (raw === "strength") return { kind: "strength", id: null };
   const cut = raw.indexOf(":");
   if (cut === -1) return null;
   const kind = raw.slice(0, cut);

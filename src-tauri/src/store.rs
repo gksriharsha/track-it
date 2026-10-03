@@ -721,7 +721,11 @@ CREATE TABLE IF NOT EXISTS entry_snapshots (
   -- must not change what a past day says was eaten.
   recipe_name     TEXT,
   recipe_yield_g  REAL CHECK (recipe_yield_g IS NULL OR recipe_yield_g > 0),
-  recipe_servings REAL CHECK (recipe_servings IS NULL OR recipe_servings > 0)
+  recipe_servings REAL CHECK (recipe_servings IS NULL OR recipe_servings > 0),
+  -- For a portion of a pot: 1 when recipe_yield_g was the pot weighed, 0 when
+  -- it was the recipe's expected yield because nobody weighed it. NULL for a
+  -- recipe, which has no pot, and where it was never known (see v20).
+  recipe_yield_weighed INTEGER CHECK (recipe_yield_weighed IS NULL OR recipe_yield_weighed IN (0,1))
 );
 
 CREATE TABLE IF NOT EXISTS entry_components (
@@ -1303,7 +1307,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-const SCHEMA_VERSION: i64 = 19;
+pub(crate) const SCHEMA_VERSION: i64 = 20;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -3028,6 +3032,51 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
     // `activity_sets` are new tables that reference only each other, so
     // SCHEMA creating them is the whole migration and no existing row moves.
 
+    // v19 -> v20: whether the pot a portion came from had been weighed.
+    //
+    // A portion of a pot is divided by the pot's yield, and that yield is the
+    // pot weighed if anybody weighed it and the recipe's expected yield if
+    // not. The snapshot froze the number and not which of the two it was, so
+    // Today printed "210 g of a 1,680 g pot" for both — an estimate read as a
+    // weighing. The column is added plain, with no rebuild: SQLite can add a
+    // nullable column with a CHECK in place, and no existing row has to move.
+    //
+    // Existing portions are then matched back to their pot, and only where
+    // the match is exact is anything written. A portion divided by the very
+    // weighing its pot carries now was taken after the pot was weighed. One
+    // divided by the pot's expected yield was taken before any weighing —
+    // had the pot been weighed by then, the weighing is what it would have
+    // been divided by — however the pot reads today. Anything else, a pot
+    // re-planned since, stays NULL, which reads as "not recorded" rather than
+    // as either answer. This writes a label beside frozen figures and never a
+    // figure: no portion's nutrition moves.
+    if !columns(conn, "entry_snapshots")?
+        .iter()
+        .any(|c| c == "recipe_yield_weighed")
+    {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            r#"
+            ALTER TABLE entry_snapshots ADD COLUMN recipe_yield_weighed INTEGER
+              CHECK (recipe_yield_weighed IS NULL OR recipe_yield_weighed IN (0,1));
+            UPDATE entry_snapshots
+               SET recipe_yield_weighed = (
+                 SELECT CASE
+                          WHEN c.weighed_yield_g IS NOT NULL
+                               AND abs(c.weighed_yield_g - entry_snapshots.recipe_yield_g) < 0.005
+                            THEN 1
+                          WHEN abs(c.expected_yield_g - entry_snapshots.recipe_yield_g) < 0.005
+                            THEN 0
+                        END
+                   FROM log_entries e JOIN cooks c ON c.id = e.cook_id
+                  WHERE e.id = entry_snapshots.entry_id AND e.source_kind = 'cook')
+             WHERE recipe_yield_g IS NOT NULL;
+            "#,
+        )
+        .map_err(|e| format!("migrating entry_snapshots to v20: {e}"))?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
     // column this indexes does not exist yet and the whole batch would fail.
@@ -3496,6 +3545,50 @@ pub fn get_bottle(conn: &Connection, id: &str) -> Result<Bottle, String> {
         },
     )
     .map_err(|_| format!("bottle {id} is no longer in the library"))
+}
+
+/// What a water entry logged without a scale says about itself, in
+/// `tare_note`.
+///
+/// The note is the whole record of how the amount was arrived at, because
+/// there is nothing else to record: no scale reading was taken, so `gross_g`
+/// and `tare_g` stay NULL rather than being filled with the bottle's full and
+/// empty weights as though somebody had weighed it. Those would be two
+/// readings nobody made, and a later look at the entry would have no way to
+/// tell them from real ones.
+pub const WHOLE_BOTTLE_NOTE: &str = "whole bottle, not weighed";
+
+/// The note on part of a bottle, judged by eye on the water sheet's slider
+/// rather than read off a scale. The amount is a share of what the bottle
+/// holds, so it is as good as the eye that set it, and the entry says so in
+/// the place a weighed one keeps its reading.
+pub const PART_BOTTLE_NOTE: &str = "part of a bottle, not weighed";
+
+/// How much water a whole bottle holds: its full weight less its empty one.
+///
+/// Refused for a bottle that has never been weighed empty. Without that
+/// figure the only number available is the full weight, which includes the
+/// bottle — a steel flask is a third of its own full weight — and logging it
+/// as water would overstate the day by the weight of the steel.
+pub fn whole_bottle_g(bottle: &Bottle) -> Result<f64, String> {
+    let Some(empty_g) = bottle.empty_g else {
+        return Err(format!(
+            "{} has never been weighed empty, so what a full one holds is not known — \
+             weigh it after drinking instead, or add its empty weight in Water bottles",
+            bottle.name
+        ));
+    };
+    let held = bottle.full_g - empty_g;
+    if !(held.is_finite() && held > 0.0) {
+        // `save_bottle` refuses this shape, so reaching it means the row
+        // arrived some other way — over the household feed, or from an older
+        // build. Answered rather than logged as a negative amount of water.
+        return Err(format!(
+            "{} is recorded as weighing no more full than empty, so it holds nothing to log",
+            bottle.name
+        ));
+    }
+    Ok(held)
 }
 
 pub fn touch_bottle(conn: &Connection, id: &str) -> Result<(), String> {
@@ -4645,6 +4738,79 @@ pub fn remove(conn: &Connection, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// How long after a remove the entry can still be brought back, in seconds.
+///
+/// Long enough to notice a wrong tap and press Undo, or to step away from the
+/// screen and come back to it; short enough that nobody restores a helping
+/// from last week into a pot that has since been finished, or into a day whose
+/// totals they have already read and moved on from. Past it, the way back is
+/// to log the food again — a new entry, valued as the data stands then, which
+/// is what it would honestly be.
+pub const RESTORE_WINDOW_SECS: i64 = 600;
+
+/// Undo a [`remove`]: the same entry, with the same id, comes back.
+///
+/// The inverse of `remove` and nothing more. The entry keeps its id, its
+/// `created_at` (so it returns to its own place in the day, not the end of
+/// it), and above all its frozen snapshot — `remove` never touched
+/// `entry_snapshots`, and nothing here does either. Logging it afresh instead
+/// would value it against today's data, which is exactly the rewrite of
+/// history the freeze exists to prevent: a food edited in the minute between
+/// the remove and the undo would come back worth something it never was.
+///
+/// One transaction, because the entry and its draw on a pot are one fact
+/// recorded in two tables. An entry restored without its draw is a helping
+/// eaten and still in the pot; a draw restored without its entry drains a pot
+/// of food nobody logged. The draw's `updated_at` moves, which is what the
+/// `trg_ver_cook_draws_upd` trigger keys the household feed on, so a peer that
+/// already saw the helping go learns it came back.
+///
+/// Refused, with a sentence, for an entry that was never removed — there is
+/// nothing to undo, and clearing a NULL would still stamp `updated_at` — and
+/// for one removed longer ago than [`RESTORE_WINDOW_SECS`].
+pub fn restore(conn: &mut Connection, id: &str) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let found = tx.query_row(
+        "SELECT deleted_at IS NOT NULL,
+                deleted_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?2)
+           FROM log_entries WHERE id = ?1",
+        rusqlite::params![id, format!("-{RESTORE_WINDOW_SECS} seconds")],
+        |r| Ok((r.get::<_, bool>(0)?, r.get::<_, Option<bool>>(1)?)),
+    );
+    let (removed, recent) = match found {
+        Ok(row) => row,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            return Err("that entry is not in the log, so there is nothing to bring back".into())
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    if !removed {
+        return Err("that entry was never removed, so there is nothing to undo".into());
+    }
+    if recent != Some(true) {
+        return Err(
+            "that entry was removed more than ten minutes ago, which is too long ago to undo — \
+             log it again instead"
+                .into(),
+        );
+    }
+    let now = now_iso(&tx)?;
+    tx.execute(
+        "UPDATE log_entries SET deleted_at = NULL, updated_at = ?2 WHERE id = ?1",
+        rusqlite::params![id, now],
+    )
+    .map_err(|e| e.to_string())?;
+    // Matches nothing for an entry that never came out of a pot, which is
+    // every entry but a cook's — the same unconditional shape `remove` uses.
+    tx.execute(
+        "UPDATE cook_draws SET deleted_at = NULL, updated_at = ?2
+          WHERE entry_id = ?1 AND deleted_at IS NOT NULL",
+        rusqlite::params![id, now],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())
+}
+
 pub fn day(conn: &Connection, logged_on: &str) -> Result<Vec<LogEntry>, String> {
     let mut stmt = conn
         .prepare(
@@ -5156,6 +5322,35 @@ pub fn frequent_foods(
     since: &str,
     limit: u32,
 ) -> Result<Vec<FrequentFood>, String> {
+    frequent_foods_at(conn, since, limit, None)
+}
+
+/// [`frequent_foods`], narrowed to one sitting when `meal` is given.
+///
+/// Both halves are narrowed, not only the ranking. A food counts towards a
+/// meal's list only on the days it was logged TO that meal, and the amount its
+/// row opens on is the last helping logged to that meal — otherwise the
+/// breakfast list would rank the curd eaten at dinner and open it on the
+/// dinner bowl's weight. `None` is the unfiltered list, exactly as it was
+/// before this existed: the `IS NULL` arm makes the predicate vanish
+/// rather than match a NULL meal, which no food entry has anyway.
+///
+/// A sitting's list also asks for a habit, which the whole list does not: a
+/// food counts only once it has been had at that sitting on at least two
+/// days. Today offers these under the one word "Usually", and a dish logged to
+/// dinner once is not what is usually had at dinner — the word would be the
+/// app claiming a pattern the log does not show. The unfiltered list keeps its
+/// old rule, because the widget and Add say only that a food was had before.
+///
+/// The caller is trusted to have checked `meal` against the four sittings; a
+/// value outside them matches nothing and returns an empty list, which is
+/// truthful about the log but unhelpful, so the command layer refuses it first.
+pub fn frequent_foods_at(
+    conn: &Connection,
+    since: &str,
+    limit: u32,
+    meal: Option<&str>,
+) -> Result<Vec<FrequentFood>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT e.source_kind, e.fdc_id, e.custom_food_id
@@ -5163,12 +5358,14 @@ pub fn frequent_foods(
               WHERE e.deleted_at IS NULL
                 AND e.source_kind IN ('food','custom')
                 AND e.logged_on >= ?1
+                AND (?3 IS NULL OR e.meal = ?3)
                 AND (e.custom_food_id IS NULL
                      OR EXISTS (SELECT 1 FROM custom_foods f
                                  WHERE f.id = e.custom_food_id
                                    AND f.deleted_at IS NULL
                                    AND f.import_only = 0))
               GROUP BY e.source_kind, e.fdc_id, e.custom_food_id
+             HAVING ?3 IS NULL OR COUNT(DISTINCT e.logged_on) >= 2
               ORDER BY COUNT(DISTINCT e.logged_on) DESC,
                        MAX(e.logged_on) DESC,
                        MAX(e.created_at) DESC,
@@ -5177,7 +5374,7 @@ pub fn frequent_foods(
         )
         .map_err(|e| e.to_string())?;
     let groups = stmt
-        .query_map(rusqlite::params![since, limit], |r| {
+        .query_map(rusqlite::params![since, limit, meal], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, Option<i64>>(1)?,
@@ -5202,9 +5399,10 @@ pub fn frequent_foods(
                   WHERE deleted_at IS NULL AND source_kind = ?1
                     AND (?2 IS NULL OR fdc_id = ?2)
                     AND (?3 IS NULL OR custom_food_id = ?3)
+                    AND (?4 IS NULL OR meal = ?4)
                   ORDER BY logged_on DESC, created_at DESC, rowid DESC
                   LIMIT 1",
-                rusqlite::params![source_kind, fdc_id, custom_food_id],
+                rusqlite::params![source_kind, fdc_id, custom_food_id, meal],
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
             )
             .map_err(|e| e.to_string())?;
@@ -6115,6 +6313,13 @@ pub struct SnapRecipe {
     /// Kept so a past day still reads the way it did when it was written, and
     /// never backfilled: an entry frozen without one was never told a number.
     pub servings: Option<f64>,
+    /// For a portion of a pot, whether `yield_g` was the pot weighed or the
+    /// recipe's expected yield standing in for a weighing nobody made. Frozen
+    /// beside the yield it describes, so weighing the pot later cannot change
+    /// how an earlier portion reads. `None` for a recipe, which has no pot,
+    /// and for a portion frozen before this was kept whose pot the v20
+    /// migration could not match back up.
+    pub yield_weighed: Option<bool>,
 }
 
 /// One frozen contribution: what it was, how much of it, and what it contained.
@@ -6149,8 +6354,8 @@ fn write_snapshot(conn: &Connection, entry_id: &str, snap: &Snapshot) -> Result<
     conn.execute(
         "INSERT OR REPLACE INTO entry_snapshots
            (entry_id, frozen_at, basis, corrected_at,
-            recipe_name, recipe_yield_g, recipe_servings)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            recipe_name, recipe_yield_g, recipe_servings, recipe_yield_weighed)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             entry_id,
             snap.frozen_at,
@@ -6159,6 +6364,7 @@ fn write_snapshot(conn: &Connection, entry_id: &str, snap: &Snapshot) -> Result<
             snap.recipe.as_ref().map(|r| r.name.as_str()),
             snap.recipe.as_ref().map(|r| r.yield_g),
             snap.recipe.as_ref().and_then(|r| r.servings),
+            snap.recipe.as_ref().and_then(|r| r.yield_weighed).map(i64::from),
         ],
     )
     .map_err(|e| format!("freezing entry {entry_id}: {e}"))?;
@@ -6260,6 +6466,48 @@ pub fn add_with_snapshot(
     Ok(id)
 }
 
+/// Log water from a bottle with no scale reading, and freeze it: a whole
+/// bottle, or a share of one judged by eye.
+///
+/// `add_with_snapshot` for water with one difference: the entry carries
+/// `note` — [`WHOLE_BOTTLE_NOTE`] or [`PART_BOTTLE_NOTE`] — in `tare_note` and
+/// nothing in `gross_g` or `tare_g`.
+/// `add` has no way to write a note without a reading — a `Tare` IS a
+/// reading — and widening it would put a "note but no scale" case in front
+/// of every caller that weighs food. So the note is set here, inside the same
+/// transaction as the insert and the snapshot: the entry is never visible
+/// without it. The schema allows this shape and always has: the checks on
+/// `gross_g` and `tare_g` tie those two to each other, never to the note.
+pub fn add_unweighed_bottle(
+    conn: &mut Connection,
+    logged_on: &str,
+    bottle_id: &str,
+    description: &str,
+    grams: f64,
+    note: &str,
+    snap: &Snapshot,
+) -> Result<String, String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let id = add(
+        &tx,
+        logged_on,
+        None,
+        Source::Water(bottle_id),
+        description,
+        Quantity::Grams(grams),
+        None,
+        &Tags::default(),
+    )?;
+    tx.execute(
+        "UPDATE log_entries SET tare_note = ?2 WHERE id = ?1",
+        rusqlite::params![id, note],
+    )
+    .map_err(|e| e.to_string())?;
+    write_snapshot(&tx, &id, snap)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
 /// Freeze an entry that already exists — the backfill path, and the repair path
 /// if an entry is ever found without a snapshot.
 pub fn freeze_entry(
@@ -6282,7 +6530,8 @@ pub fn day_snapshots(conn: &Connection, logged_on: &str) -> Result<HashMap<Strin
     let mut stmt = conn
         .prepare(
             "SELECT s.entry_id, s.frozen_at, s.basis, s.corrected_at,
-                    s.recipe_name, s.recipe_yield_g, s.recipe_servings
+                    s.recipe_name, s.recipe_yield_g, s.recipe_servings,
+                    s.recipe_yield_weighed
              FROM entry_snapshots s
              JOIN log_entries e ON e.id = s.entry_id
              WHERE e.logged_on = ?1 AND e.deleted_at IS NULL",
@@ -6297,11 +6546,12 @@ pub fn day_snapshots(conn: &Connection, logged_on: &str) -> Result<HashMap<Strin
             let name: Option<String> = r.get(4)?;
             let yield_g: Option<f64> = r.get(5)?;
             let servings: Option<f64> = r.get(6)?;
-            Ok((id, frozen_at, basis, corrected_at, name, yield_g, servings))
+            let weighed: Option<i64> = r.get(7)?;
+            Ok((id, frozen_at, basis, corrected_at, name, yield_g, servings, weighed))
         })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (id, frozen_at, basis, corrected_at, name, yield_g, servings) =
+        let (id, frozen_at, basis, corrected_at, name, yield_g, servings, weighed) =
             row.map_err(|e| e.to_string())?;
         // Name and yield are what make this a recipe entry, and they are
         // written together or not at all; requiring both means a half-written
@@ -6315,6 +6565,7 @@ pub fn day_snapshots(conn: &Connection, logged_on: &str) -> Result<HashMap<Strin
                 name,
                 yield_g,
                 servings,
+                yield_weighed: weighed.map(|w| w != 0),
             }),
             _ => None,
         };
@@ -8354,6 +8605,72 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("Tofu"), "the message must name the line: {err}");
+    }
+
+    /// v19 -> v20 writes beside each portion already taken from a pot whether
+    /// the pot had been weighed — only where the pot still shows it without
+    /// doubt, and never a figure.
+    #[test]
+    fn migrates_a_v19_portion_saying_whether_its_pot_was_weighed() {
+        let mut c = db();
+        c.execute_batch(
+            r#"
+            DROP TABLE entry_snapshots;
+            CREATE TABLE entry_snapshots (
+              entry_id   TEXT PRIMARY KEY REFERENCES log_entries(id) ON DELETE CASCADE,
+              frozen_at  TEXT NOT NULL,
+              basis      TEXT NOT NULL CHECK (basis IN ('logged','backfilled','corrected')),
+              corrected_at TEXT,
+              recipe_name     TEXT,
+              recipe_yield_g  REAL CHECK (recipe_yield_g IS NULL OR recipe_yield_g > 0),
+              recipe_servings REAL CHECK (recipe_servings IS NULL OR recipe_servings > 0)
+            );
+            INSERT INTO cooks (id,name,cooked_on,cooked_at,scale,expected_yield_g,weighed_yield_g,
+                               created_at,updated_at)
+              VALUES ('weighed','Dal','2026-09-01','t',1,1680,1500,'t','t'),
+                     ('never','Rajma','2026-09-01','t',1,1680,NULL,'t','t'),
+                     ('later','Sambar','2026-09-01','t',1,1680,1500,'t','t'),
+                     ('replanned','Kadhi','2026-09-01','t',1,1680,NULL,'t','t');
+            "#,
+        )
+        .unwrap();
+        // What each portion was divided by when it was frozen. The third pot
+        // was weighed only after its portion had been divided by the estimate;
+        // the fourth was re-planned after its portion was taken.
+        let mut ids = Vec::new();
+        for (pot, divisor) in [("weighed", 1500.0), ("never", 1680.0), ("later", 1680.0), ("replanned", 1600.0)] {
+            let id = add(
+                &c, "2026-09-02", Some("lunch"), Source::Cook(pot), pot,
+                Quantity::Grams(210.0), None, &Tags::default(),
+            )
+            .unwrap();
+            c.execute(
+                "INSERT INTO entry_snapshots (entry_id, frozen_at, basis, recipe_name, recipe_yield_g)
+                 VALUES (?1, 't', 'logged', ?2, ?3)",
+                rusqlite::params![id, pot, divisor],
+            )
+            .unwrap();
+            ids.push(id);
+        }
+        c.pragma_update(None, "user_version", 19).unwrap();
+
+        migrate(&mut c).unwrap();
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+
+        let snaps = day_snapshots(&c, "2026-09-02").unwrap();
+        let read = |id: &str| snaps[id].recipe.clone().unwrap();
+        assert_eq!(read(&ids[0]).yield_weighed, Some(true), "divided by the weighing the pot carries");
+        assert_eq!(read(&ids[1]).yield_weighed, Some(false), "divided by the estimate of a pot never weighed");
+        assert_eq!(
+            read(&ids[2]).yield_weighed,
+            Some(false),
+            "divided by the estimate, so taken before the weighing, whatever the pot says now"
+        );
+        assert_eq!(read(&ids[3]).yield_weighed, None, "matches neither, so it is not guessed at");
+        for (id, divisor) in ids.iter().zip([1500.0, 1680.0, 1680.0, 1600.0]) {
+            assert_eq!(read(id).yield_g, divisor, "a label is written; no figure moves");
+        }
     }
 
     #[test]
@@ -10546,6 +10863,242 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM cook_draws WHERE entry_id = ?1", [&eid], |r| r.get(0))
             .unwrap();
         assert_eq!(kept, 1, "the row must survive for the household to see it went");
+    }
+
+    // -----------------------------------------------------------------------
+    // Undo of a remove
+    // -----------------------------------------------------------------------
+
+    /// A snapshot of one weighed component, with a figure that could not have
+    /// come from anywhere but this snapshot — so a restore that re-valued the
+    /// entry instead of bringing it back would be caught by the number alone.
+    fn odd_snapshot() -> Snapshot {
+        Snapshot {
+            basis: SnapBasis::Logged,
+            frozen_at: "2026-09-04T08:00:00Z".into(),
+            corrected_at: None,
+            recipe: None,
+            components: vec![SnapComponent {
+                description: "Idli".into(),
+                fdc_id: Some(1000),
+                quantity: SnapQuantity::Grams(156.0),
+                has_data: true,
+                values: vec![
+                    (1008, NutrientValue::Measured { amount: 146.153 }),
+                    (1003, NutrientValue::LabelZero { upper: 0.5 }),
+                ],
+            }],
+        }
+    }
+
+    /// Pretend an entry was removed `minutes` ago, on the store's own clock.
+    fn removed_minutes_ago(c: &Connection, id: &str, minutes: i64) {
+        c.execute(
+            "UPDATE log_entries
+                SET deleted_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?2)
+              WHERE id = ?1",
+            rusqlite::params![id, format!("-{minutes} minutes")],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn restoring_a_removed_entry_brings_back_the_same_entry_and_its_frozen_values() {
+        let mut c = db();
+        let first = add_with_snapshot(
+            &mut c, "2026-09-04", Some("breakfast"), Source::Food(1000), "Idli",
+            Quantity::Grams(156.0), None, &Tags::default(), &odd_snapshot(),
+        )
+        .unwrap();
+        // A second entry after it, so "its own place in the day" is a claim
+        // the order of the day can actually test.
+        add(
+            &c, "2026-09-04", Some("breakfast"), Source::Food(1001), "Coffee",
+            Quantity::Grams(240.0), None, &Tags::default(),
+        )
+        .unwrap();
+        let before = day_snapshots(&c, "2026-09-04").unwrap()[&first].clone();
+
+        remove(&c, &first).unwrap();
+        assert!(
+            !day_snapshots(&c, "2026-09-04").unwrap().contains_key(&first),
+            "a removed entry is off the day"
+        );
+        restore(&mut c, &first).unwrap();
+
+        let after = day_snapshots(&c, "2026-09-04").unwrap();
+        assert_eq!(after[&first], before, "the snapshot is the one frozen at logging, untouched");
+        assert_eq!(after[&first].frozen_at, "2026-09-04T08:00:00Z");
+        let order: Vec<String> = day(&c, "2026-09-04").unwrap().into_iter().map(|e| e.id).collect();
+        assert_eq!(order[0], first, "it returns to its own place, not to the end of the day");
+        assert_eq!(order.len(), 2);
+    }
+
+    #[test]
+    fn restoring_a_helping_puts_it_back_on_the_pot_and_tells_the_household() {
+        let mut c = db();
+        let cid = pot(&mut c, "Dal", 900.0);
+        let eid = add(
+            &c, "2026-09-04", Some("lunch"), Source::Cook(&cid), "Dal",
+            Quantity::Grams(250.0), None, &Tags::default(),
+        )
+        .unwrap();
+        remove(&c, &eid).unwrap();
+        assert_eq!(get_cook(&c, &cid).unwrap().remaining_g, 900.0);
+        let version = |c: &Connection| -> i64 {
+            c.query_row(
+                "SELECT version FROM row_version WHERE table_name = 'cook_draws' AND row_id = ?1",
+                [&eid],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let tombstoned_at = version(&c);
+
+        restore(&mut c, &eid).unwrap();
+        assert_eq!(
+            get_cook(&c, &cid).unwrap().remaining_g,
+            650.0,
+            "the helping is out of the pot again, by the weight it was"
+        );
+        let live: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM cook_draws WHERE entry_id = ?1 AND deleted_at IS NULL",
+                [&eid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(live, 1, "the same draw, un-tombstoned, rather than a second one");
+        assert!(
+            version(&c) > tombstoned_at,
+            "the restore has to reach a peer that already saw the helping go"
+        );
+    }
+
+    #[test]
+    fn an_entry_that_was_never_removed_cannot_be_restored() {
+        let mut c = db();
+        let id = add(
+            &c, "2026-09-04", Some("lunch"), Source::Food(1000), "Rice",
+            Quantity::Grams(200.0), None, &Tags::default(),
+        )
+        .unwrap();
+        let err = restore(&mut c, &id).unwrap_err();
+        assert!(err.contains("never removed"), "{err}");
+        let err = restore(&mut c, "no-such-entry").unwrap_err();
+        assert!(err.contains("not in the log"), "{err}");
+    }
+
+    #[test]
+    fn an_entry_removed_more_than_ten_minutes_ago_stays_removed() {
+        let mut c = db();
+        let cid = pot(&mut c, "Dal", 900.0);
+        let old = add(
+            &c, "2026-09-04", Some("lunch"), Source::Cook(&cid), "Dal",
+            Quantity::Grams(250.0), None, &Tags::default(),
+        )
+        .unwrap();
+        remove(&c, &old).unwrap();
+        removed_minutes_ago(&c, &old, 11);
+
+        let err = restore(&mut c, &old).unwrap_err();
+        assert!(err.contains("ten minutes"), "{err}");
+        assert!(day(&c, "2026-09-04").unwrap().is_empty(), "the refusal changed nothing");
+        assert_eq!(
+            get_cook(&c, &cid).unwrap().remaining_g,
+            900.0,
+            "and the pot's draw stays tombstoned with it"
+        );
+
+        // Inside the window it still comes back.
+        let recent = add(
+            &c, "2026-09-04", Some("lunch"), Source::Food(1000), "Rice",
+            Quantity::Grams(200.0), None, &Tags::default(),
+        )
+        .unwrap();
+        remove(&c, &recent).unwrap();
+        removed_minutes_ago(&c, &recent, 9);
+        restore(&mut c, &recent).unwrap();
+        assert_eq!(day(&c, "2026-09-04").unwrap().len(), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // A whole bottle, not weighed
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_whole_bottle_holds_its_full_weight_less_its_empty_one() {
+        let c = db();
+        let cal = save_bottle(&c, None, "Steel", 1050.0, Some(290.0), Some(750.0)).unwrap();
+        let plain = save_bottle(&c, None, "Old", 1050.0, None, None).unwrap();
+
+        let held = whole_bottle_g(&get_bottle(&c, &cal).unwrap()).unwrap();
+        assert!((held - 760.0).abs() < 1e-9);
+
+        // Never weighed empty: the full weight includes the bottle, so there
+        // is no figure to log, and logging the full weight would count the
+        // steel as water.
+        let err = whole_bottle_g(&get_bottle(&c, &plain).unwrap()).unwrap_err();
+        assert!(err.contains("never been weighed empty"), "{err}");
+    }
+
+    #[test]
+    fn a_whole_bottle_is_logged_with_its_note_and_no_invented_scale_reading() {
+        let mut c = db();
+        let cal = save_bottle(&c, None, "Steel", 1050.0, Some(290.0), Some(750.0)).unwrap();
+        let snap = Snapshot {
+            basis: SnapBasis::Logged,
+            frozen_at: "2026-09-04T08:00:00Z".into(),
+            corrected_at: None,
+            recipe: None,
+            components: vec![SnapComponent {
+                description: "Steel".into(),
+                fdc_id: None,
+                quantity: SnapQuantity::Grams(760.0),
+                has_data: true,
+                values: vec![(1051, NutrientValue::Measured { amount: 100.0 })],
+            }],
+        };
+        let id = add_unweighed_bottle(&mut c, "2026-09-04", &cal, "Steel", 760.0, WHOLE_BOTTLE_NOTE, &snap)
+            .unwrap();
+
+        let entries = day(&c, "2026-09-04").unwrap();
+        let e = entries.iter().find(|e| e.id == id).unwrap();
+        assert_eq!(e.meal, None, "water belongs to no sitting");
+        assert_eq!(e.grams, Some(760.0));
+        assert_eq!(e.tare_note.as_deref(), Some(WHOLE_BOTTLE_NOTE));
+        assert_eq!(e.gross_g, None, "nobody read a scale, so no reading is stored");
+        assert_eq!(e.tare_g, None);
+        let v = e.water.expect("a water entry carries a volume");
+        assert!(v.is_measured(), "a calibrated bottle's whole is its stated volume");
+        assert!((v.ml() - 750.0).abs() < 0.01);
+        assert_eq!(day_snapshots(&c, "2026-09-04").unwrap()[&id], snap);
+    }
+
+    /// The note is the only thing that tells a whole bottle from a weighed
+    /// one, and the screen matches it as a string it keeps a copy of
+    /// (`WHOLE_BOTTLE_NOTE` in src/types.ts). Two copies of one sentence in two
+    /// languages drift without a word from either compiler: reword this one and
+    /// every whole bottle would quietly lose its "not weighed" on Today and
+    /// read like a weighing. So the TypeScript is read here and held to it, the
+    /// way keystore.rs holds BackupPlugin.kt to its reply keys.
+    #[test]
+    fn the_screen_matches_the_whole_bottle_note_word_for_word() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let path = root.join("../src/types.ts");
+        let ts = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        let line = format!("export const WHOLE_BOTTLE_NOTE = \"{WHOLE_BOTTLE_NOTE}\";");
+        assert!(
+            ts.contains(&line),
+            "src/types.ts must carry `{line}` — the screen marks a whole bottle by matching it"
+        );
+        // Part of a bottle is marked the same way, and would drift the same way.
+        let line = format!("export const PART_BOTTLE_NOTE = \"{PART_BOTTLE_NOTE}\";");
+        assert!(
+            ts.contains(&line),
+            "src/types.ts must carry `{line}` — the screen marks part of a bottle by matching it"
+        );
     }
 
     #[test]
@@ -12777,6 +13330,90 @@ mod tests {
         assert_eq!(
             rows[0].last_grams, 200.0,
             "and it is the surviving helping the amount step opens on"
+        );
+    }
+
+    /// One entry of a reference food at the sitting given.
+    fn logged_at(c: &Connection, fdc: i64, on: &str, meal: &str, grams: f64) {
+        add(
+            c, on, Some(meal), Source::Food(fdc), "as it was called then",
+            Quantity::Grams(grams), None, &Tags::default(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_meals_list_counts_only_what_was_had_at_that_meal() {
+        let c = db();
+        // Curd most days, but at dinner; idli three times, all at breakfast.
+        logged_at(&c, 111, "2026-09-01", "dinner", 120.0);
+        logged_at(&c, 111, "2026-09-02", "dinner", 120.0);
+        logged_at(&c, 111, "2026-09-03", "dinner", 120.0);
+        logged_at(&c, 222, "2026-09-01", "breakfast", 156.0);
+        logged_at(&c, 222, "2026-09-02", "breakfast", 156.0);
+        logged_at(&c, 222, "2026-09-03", "breakfast", 156.0);
+        // And two spoonfuls of curd at breakfast, the later the most recent of
+        // all its helpings: they must put curd on the breakfast list, ranked by
+        // the two days it was had there, and open on its own weight.
+        logged_at(&c, 111, "2026-09-02", "breakfast", 35.0);
+        logged_at(&c, 111, "2026-09-04", "breakfast", 40.0);
+
+        let breakfast = frequent_foods_at(&c, SINCE, 6, Some("breakfast")).unwrap();
+        let ids: Vec<Option<i64>> = breakfast.iter().map(|r| r.fdc_id).collect();
+        assert_eq!(ids, vec![Some(222), Some(111)], "three breakfasts of idli outrank two of curd");
+        assert_eq!(breakfast[1].last_grams, 40.0, "the breakfast spoonful, not the dinner bowl");
+
+        let dinner = frequent_foods_at(&c, SINCE, 6, Some("dinner")).unwrap();
+        assert_eq!(dinner.len(), 1, "idli was never had at dinner");
+        assert_eq!(
+            dinner[0].last_grams, 120.0,
+            "the last helping AT DINNER, though a later one was had at breakfast"
+        );
+        assert!(frequent_foods_at(&c, SINCE, 6, Some("snack")).unwrap().is_empty());
+    }
+
+    /// "Usually" is the one word Today says about these, so a sitting's list
+    /// holds only what has been had at it on more than one day. The whole list
+    /// is still every food had before.
+    #[test]
+    fn a_food_had_at_a_sitting_once_is_not_what_is_usually_had_at_it() {
+        let c = db();
+        logged_at(&c, 111, "2026-09-01", "dinner", 120.0);
+        logged_at(&c, 111, "2026-09-02", "dinner", 120.0);
+        logged_at(&c, 222, "2026-09-03", "dinner", 156.0);
+        logged_at(&c, 333, "2026-09-03", "lunch", 80.0);
+        logged_at(&c, 333, "2026-09-03", "lunch", 60.0);
+
+        let dinner = frequent_foods_at(&c, SINCE, 6, Some("dinner")).unwrap();
+        let ids: Vec<Option<i64>> = dinner.iter().map(|r| r.fdc_id).collect();
+        assert_eq!(ids, vec![Some(111)], "two dinners of curd are a habit; one of idli is not");
+        assert!(
+            frequent_foods_at(&c, SINCE, 6, Some("lunch")).unwrap().is_empty(),
+            "two helpings on ONE day are one day, not a habit"
+        );
+        let all: Vec<Option<i64>> =
+            frequent_foods(&c, SINCE, 6).unwrap().iter().map(|r| r.fdc_id).collect();
+        assert_eq!(all.len(), 3, "the whole list is every food had before, once or not: {all:?}");
+    }
+
+    #[test]
+    fn without_a_meal_the_list_is_what_it_always_was() {
+        let c = db();
+        logged_at(&c, 111, "2026-09-01", "dinner", 120.0);
+        logged_at(&c, 111, "2026-09-02", "dinner", 120.0);
+        logged_at(&c, 222, "2026-09-03", "breakfast", 156.0);
+        logged_at(&c, 111, "2026-09-04", "breakfast", 40.0);
+
+        let plain = frequent_foods(&c, SINCE, 6).unwrap();
+        let unfiltered = frequent_foods_at(&c, SINCE, 6, None).unwrap();
+        let shape = |rows: &[FrequentFood]| -> Vec<(Option<i64>, f64)> {
+            rows.iter().map(|r| (r.fdc_id, r.last_grams)).collect()
+        };
+        assert_eq!(shape(&plain), shape(&unfiltered));
+        assert_eq!(
+            shape(&plain),
+            vec![(Some(111), 40.0), (Some(222), 156.0)],
+            "every sitting counts, and the amount is the last helping at any of them"
         );
     }
 

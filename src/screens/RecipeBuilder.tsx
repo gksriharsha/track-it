@@ -243,7 +243,6 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     <div className="screen">
       <ScreenHead
         title="New recipe"
-        sub="the proportions, not one batch of it"
         action={
           <>
             <button
@@ -267,7 +266,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
       />
 
       {wasRestored && (
-        <p className="rangenote" style={{ marginTop: "calc(var(--s5) * -1)" }}>
+        <p className="rangenote" style={{ marginTop: "calc(var(--s4) * -1)" }}>
           Picked up where you left off — this draft was still unsaved.
         </p>
       )}
@@ -385,7 +384,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
                 {/* One weight, and it is the one that can be measured: what
                     this weighs on the scale before it goes in the pot. */}
                 <label className="ing-w">
-                  <span className="ing-w__k">raw</span>
+                  <span className="ing-w__k">Raw g</span>
                   <input className="field tnum" type="number" min="1" value={r.raw}
                     onChange={(e) => patch(r.key, e.target.value)}
                     aria-label={`Raw grams of ${r.description}`} />

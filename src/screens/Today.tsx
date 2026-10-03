@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  deleteLogEntry, frequentFoods, getDayNote, humanDate, loggedDates, setDayNote, setEntryTags,
-  shiftIso, todayIso,
-} from "../api";
-import CorrectEntry from "../components/CorrectEntry";
-import type { DayView, FrequentFood, LogEntry, Meal, Origin } from "../types";
-import { MEALS, ORIGIN_LABEL, describeVolume } from "../types";
-import { plural, read, unassessable } from "../lib/nutrient";
-import TagPicker from "../components/TagPicker";
-import DayTabs from "../components/DayTabs";
-import { QuickAddStrip, UndoToast, useQuickLog } from "../components/QuickLog";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { frequentFoods, getRange, shiftIso, todayIso } from "../api";
+import type { DayView, EntryBreakdown, FrequentFood, LogEntry, Meal } from "../types";
+import { MEALS } from "../types";
+import { dayFigure, energyShares, mealFigure, rowFigure } from "../lib/energy";
+import { leadOf, rowSub } from "../lib/entryText";
+import { useHashSheet, useHashSheetValue } from "../lib/hashSheet";
 import ActivityCard from "../components/ActivityCard";
+import DayNote from "../components/DayNote";
+import DaySheet from "../components/DaySheet";
+import DayWater, { PlusGlyph } from "../components/DayWater";
+import EntrySheet from "../components/EntrySheet";
+import Glyph from "../components/Glyph";
+import Info from "../components/Info";
+import { useQuickLog } from "../components/QuickLog";
+import { summarise } from "../components/Spread";
+import WeekStrip, { stripDays } from "../components/WeekStrip";
 
 interface Props {
   day: DayView | null;
@@ -18,17 +22,16 @@ interface Props {
   date: string;
   label: string;
   canGoForward: boolean;
-  /** Which sitting a one-tap repeat goes into. Shared with the Add food screen. */
-  meal: Meal;
-  onPrev: () => void;
-  onNext: () => void;
   onToday: () => void;
-  /** Any of the seven days in the strip. */
+  /** Any of the days in the strip. */
   onPickDate: (iso: string) => void;
-  onRemoved: () => void;
-  onSeeAll: () => void;
-  onAddFood: () => void;
-  /** The profile, reached from the hero when there is no target to show. */
+  /** Something was written to the day — re-read it. */
+  onChanged: () => void;
+  /** Add, opened on a sitting when one is given. */
+  onAddFood: (meal?: Meal) => void;
+  /** Add's Water tab, for part of a bottle weighed on the scale. */
+  onAddWater: () => void;
+  /** About you, reached from the day's sheet when there is no energy figure to read against. */
   onOpenProfile: () => void;
   /** The Add screen's Activity tab, and a session already on this day. */
   onAddActivity: () => void;
@@ -36,905 +39,388 @@ interface Props {
 }
 
 /**
- * The day at a glance — a triage surface, not a summary.
+ * The day, as a departure board: each record a white cell on the grey page,
+ * every figure lined up in one column on the right.
  *
- * It answers three questions and nothing else: am I on track for energy, what
- * is off, and what can't I judge yet. The full 47-nutrient panel lives on its
- * own screen; putting it here is what made the old layout an info dump.
+ * The look was chosen by the user from rendered options (October 2026), after
+ * a first redesign set the day as a hairline-ruled ledger on an off-white
+ * page and read as a printed document. What it kept from that ledger, and
+ * from the screen before it, is the order and the honesty:
+ *
+ * - The day's energy leads, in the normal width (a period's figures are set
+ *   wide; a day's are not), with how the day's protein, carbohydrate and fat
+ *   split it, and the month's middle day beside it so the day is read against
+ *   the period rather than against a target. It opens the day's nutrients as
+ *   a sheet, each reference figure named beside its amount (`DaySheet`).
+ * - Each food is its own tile, led by a mark of where it came from: a pot for
+ *   home cooking, initials for a food of your own, an outline for anything
+ *   bought (`leadOf`). Its state — "≥", "—", "pot not weighed" — is on its
+ *   line, and the whole tile opens it (`EntrySheet`).
+ * - Logging again is one tap from the meal it belongs to: an empty sitting
+ *   offers what is usually had at it.
+ * - What each figure means and how it was arrived at is behind an (i).
+ *
+ * Nothing unfolds in place, so the day never moves under your thumb.
  */
 export default function Today(p: Props) {
   const day = p.day;
   const entries = day?.entries ?? [];
-  const totals = day?.totals ?? [];
 
-  const energy = totals.find((t) => t.id === 1008);
-  // `coverage` is null on a day holding only supplements — no food mass to have
-  // covered. A pill's energy is not the day's energy, so the hero stays blank
-  // rather than reporting a near-zero figure that reads as "you barely ate".
-  const kcal =
-    energy && energy.total.coverage !== null && energy.total.coverage > 0
-      ? Math.round(energy.total.lower)
-      : null;
-  /**
-   * What the day is read against, or null.
-   *
-   * There is deliberately no default here. This used to be a hard-coded 2,200
-   * kcal, which described nobody in particular and yet had a progress rail
-   * drawn against it — the same class of confident falsehood the nutrient panel
-   * exists to avoid. With no profile and no figure of the user's own, the hero
-   * now reports what was eaten and says there is nothing to compare it to.
-   */
-  const energyTarget = day?.energy_target ?? null;
-  const target = energyTarget?.kcal ?? null;
+  const entrySheet = useHashSheetValue("entry");
+  const daySheet = useHashSheet("sheet", "nutrients");
 
-  const macros = [1003, 1005, 1004]
-    .map((id) => totals.find((t) => t.id === id))
-    .filter(Boolean)
-    .map((t) => ({
-      id: t!.id,
-      name: t!.name,
-      r: read(t!),
-      range: (day?.macro_ranges ?? []).find((m) => m.nutrient_id === t!.id) ?? null,
-      lower: t!.total.lower,
-    }));
-
-  const unknown = unassessable(totals);
-  const covered = totals.filter((t) => read(t).state === "measured").length;
-
-  const [open, setOpen] = useState<string | null>(null);
-
-  /* The days the strip is going to draw, and the first of them.
-     `stripDays` is the single definition of the strip's reach: the marks below
-     are read for exactly this span, so a dot cannot be missing from a day the
-     strip shows. Recomputed on every date change and almost always identical,
-     which is why the read is keyed on `from` — a string — rather than on the
-     array. */
+  /* The days the strip is going to draw. `stripDays` is the single definition
+     of its reach, decided here from the day being read. */
   const stripDates = useMemo(() => stripDays(p.date), [p.date]);
-  const from = stripDates[0];
 
-  /* The foods you have most days. Read once per mount: it does not change as
-     you step between days, and re-reading it on every date change would put a
-     round trip in front of a tap that should feel instant. */
-  const [quick, setQuick] = useState<FrequentFood[]>([]);
+  /*
+    The latest `onChanged`, through a ref: an Undo can be pressed from the
+    app's bar after this screen has gone.
+  */
+  const changed = useRef(() => {});
+  changed.current = () => p.onChanged();
+  const onChanged = useCallback(() => changed.current(), []);
+
+  /*
+    A middle day of the last thirty — the figure Trends opens on, computed by
+    the same function from the same days, so Today and Trends cannot give two
+    answers for one month. Re-read whenever the day is, because a write here
+    moves the month too. Null below the five logged days a middle needs.
+  */
+  const [middle, setMiddle] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
-    frequentFoods(8).then((f) => live && setQuick(f)).catch(() => {});
+    const to = todayIso();
+    getRange(shiftIso(to, -29), to)
+      .then((r) => {
+        const kcal = r.days.filter((d) => d.food_items > 0 && d.kcal !== null).map((d) => d.kcal as number);
+        if (live) setMiddle(summarise(kcal)?.median ?? null);
+      })
+      .catch(() => { if (live) setMiddle(null); });
+    return () => { live = false; };
+  }, [day]);
+
+  /* What each sitting usually holds, two foods apiece. Read once per visit:
+     it does not change as you step between days, and re-reading it on every
+     date change would put a round trip in front of a tap that should feel
+     instant. */
+  const [usual, setUsual] = useState<Partial<Record<Meal, FrequentFood[]>>>({});
+  useEffect(() => {
+    let live = true;
+    Promise.all(MEALS.map((m) => frequentFoods(2, m).catch(() => [] as FrequentFood[])))
+      .then((lists) => { if (live) setUsual(Object.fromEntries(MEALS.map((m, i) => [m, lists[i]]))); });
     return () => { live = false; };
   }, []);
 
-  /* Which of those days hold something. Keyed on the strip's first day, so it
-     is re-read only when the strip's reach actually moves — which happens when
-     a day older than the strip is picked out of the Days calendar, and not
-     when you step from Tuesday to Wednesday. */
-  const [logged, setLogged] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => {
-    let live = true;
-    loggedDates(from).then((d) => live && setLogged(new Set(d))).catch(() => {});
-    return () => { live = false; };
-  }, [from]);
+  const breakdown = (e: LogEntry) => day?.breakdowns.find((b) => b.entry_id === e.id);
+  // Water is the one thing on the day that belongs to no sitting — see the
+  // `meal` column in store.rs, which enforces it. Keyed on the missing meal
+  // rather than on `source_kind`, so anything else that turns out to have no
+  // sitting lands here without this needing to know about it.
+  const water = entries.filter((e) => e.meal === null);
+  const isToday = p.date === todayIso();
+  // A day of nothing but water has nothing eaten to add up: the bottles carry
+  // no energy, so its figure would be a dash over an empty bar. It is said in
+  // a sentence instead, and the water is right there in its own row below.
+  const onlyWater = entries.length > 0 && water.length === entries.length;
 
-  /*
-    A repeat is written straight in, and the way back out of it sits over the
-    screen for eight seconds. `refreshAll` rather than `onRemoved` alone: a
-    day that had nothing in it before this tap now has something, and the dot
-    under its date in the strip has to follow.
-  */
-  const refreshAll = () => {
-    p.onRemoved();
-    loggedDates(from).then((d) => setLogged(new Set(d))).catch(() => {});
-  };
-  const q = useQuickLog(p.date, p.meal, refreshAll);
-  /**
-   * Tags being edited, held here until the day reloads.
-   *
-   * Without this, each change reads the other dimension off the entry as the
-   * server last returned it — so setting an origin and then a cuisine before
-   * the refetch lands would write the new cuisine beside the OLD origin and
-   * silently drop the first answer.
-   */
-  const [pendingTags, setPendingTags] = useState<Record<string, { origin: Origin | null; cuisine: string | null }>>({});
-
-  async function remove(id: string) {
-    await deleteLogEntry(id);
-    p.onRemoved();
-  }
-
-  /**
-   * The day, in the groups it actually happened in.
-   *
-   * Four sittings, and then one group for the things that were not had at a
-   * sitting at all. Water is the only one of those today: a bottle is refilled
-   * and drunk from across the whole day, so it carries no meal — see the
-   * `meal` column in store.rs, which enforces that rather than merely allowing
-   * it. Grouping on `e.meal === null` rather than on `source_kind === "water"`
-   * keys off the fact that decides the layout, so anything else that turns out
-   * to have no sitting lands here without this needing to know about it.
-   *
-   * Empty groups are dropped, so a day with no water shows no water heading.
-   */
-  const groups: { key: string; label: string; entries: LogEntry[] }[] = [
-    ...MEALS.map((m) => ({
-      key: m,
-      label: m,
-      entries: entries.filter((e) => e.meal === m),
-    })),
-    {
-      key: "no-meal",
-      label: "Water",
-      entries: entries.filter((e) => e.meal === null),
-    },
-  ].filter((g) => g.entries.length > 0);
+  /* The title names the day as it is spoken — Today, Yesterday, Thursday —
+     and the line under it gives the date, so the month is always on screen. */
+  const dt = new Date(`${p.date}T00:00:00`);
+  const relative = isToday || p.date === shiftIso(todayIso(), -1);
+  const thisYear = p.date.slice(0, 4) === todayIso().slice(0, 4);
+  const title = relative ? p.label : dt.toLocaleDateString(undefined, { weekday: "long" });
+  const dateLine = dt.toLocaleDateString(undefined, {
+    ...(relative ? { weekday: "long" as const } : {}),
+    day: "numeric", month: "long",
+    ...(thisYear ? {} : { year: "numeric" as const }),
+  });
 
   return (
     // screen--today: hook for the desktop-only two-column layout in
     // styles.css. No other screen uses it, and it does nothing below 1080px.
     <div className="screen screen--today">
-      {/* The date IS the page title on mobile — a separate heading would just
+      {/* The day IS the page title on mobile — a separate heading would just
           repeat it. Desktop shows the date in App.tsx's own toolbar instead
-          (see styles.css, `.daybar` is hidden there), so this block still
-          renders here for the phone but nowhere on a wide window. */}
+          (see styles.css, `.daybar` is hidden there). */}
       <div className="daybar">
         <div className="daybar__row">
-          <h1>{p.label}</h1>
+          <div className="daybar__title">
+            <h1>{title}</h1>
+            <p className="daybar__date">{dateLine}</p>
+          </div>
           {p.canGoForward && (
             <button className="btn btn--quiet daybar__today" onClick={p.onToday}>Today</button>
           )}
-          {entries.length > 0 && (
-            <span className="screen__sub daybar__count">
-              {plural(entries.length, "item")}
-            </span>
-          )}
         </div>
-        <WeekStrip date={p.date} days={stripDates} logged={logged} onPick={p.onPickDate} />
+        <WeekStrip date={p.date} days={stripDates} onPick={p.onPickDate} />
       </div>
 
-      {/* Phone only. The nutrient panel is this same day counted differently,
-          not another place — see DayTabs. */}
-      <DayTabs current="day" onDay={() => {}} onNutrients={p.onSeeAll} />
-
-      {/* Above the day, and outside the empty branch on purpose: a day with
-          nothing in it is exactly when a one-tap repeat is worth most. */}
-      <QuickAddStrip foods={quick} meal={p.meal} pending={q.pending} onLog={q.log} />
-      {q.error && <p className="alert" role="alert">{q.error}</p>}
-
-      {p.loading ? (
-        <Skeleton />
-      ) : entries.length === 0 ? (
-        <div className="empty">
-          <h3>Nothing logged yet</h3>
-          <p>
-            Add what you have eaten and this becomes a picture of the day — including
-            what the data can and cannot tell you.
-          </p>
-          <button className="btn" onClick={p.onAddFood}>Add your first food</button>
-        </div>
-      ) : (
-        <>
-          {/*
-            What today came to — reported, not scored.
-
-            This used to be the anchor of the app: a 52px serif figure with a
-            green bar filling toward a target beneath it, over the words "498
-            left of 2,240". Three separate ways of saying the same thing, which
-            was that a day is an allowance to spend down and there is a line to
-            reach. It is now an ordinary line of text, in the plain sans, the
-            same size as everything else on the screen.
-
-            The number has not been hidden — this is a tracker and a person is
-            entitled to it. It has been put in proportion: one day is a noisy
-            sample, and what it is worth knowing against is the fortnight above
-            it, not a target below it.
-          */}
-          <section className="day-hero">
-            <div className="hero__value">
-              <span className="tnum hero__num">{kcal !== null ? kcal.toLocaleString() : "—"}</span>
-              <span className="hero__unit">kcal today</span>
-            </div>
-            <div className="hero__sub">
-              {kcal === null ? (
-                "energy not measured in these items"
-              ) : target === null ? (
-                <>
-                  no target set —{" "}
-                  <button className="link" onClick={p.onOpenProfile}>
-                    tell the app about you
-                  </button>{" "}
-                  and it can work one out
-                </>
-              ) : (
-                <>
-                  {/*
-                    The reference figure, named, and NOT as a remainder.
-                    "498 left of 2,240" floored the difference at zero so the
-                    day could only ever count down to a finish line, and called
-                    a published estimate "your target" — a figure the user never
-                    set, presented as a personal commitment.
-                  */}
-                  {energyTarget === null
-                    ? `read against ${Math.round(target).toLocaleString()}`
-                    : energyTarget.basis === "estimated"
-                      ? `an estimate for you is ${Math.round(target).toLocaleString()}`
-                      : `the figure you set is ${Math.round(target).toLocaleString()}`}
-                </>
-              )}
-            </div>
-            <div className="macros">
-              {macros.map((m) => {
-                // A macronutrient has no single right number, so where a range
-                // exists it is shown as one and the reading says whether the
-                // day sits inside it. Printing the midpoint of 20–35% as "the
-                // target" would invent a precision the evidence lacks.
-                const inRange =
-                  m.range && m.r.state === "measured"
-                    ? m.lower >= m.range.low_g && m.lower <= m.range.high_g
-                    : null;
-                return (
-                  <div key={m.id}>
-                    <div className="macro__v tnum">{m.r.amount}</div>
-                    <div className="macro__k">{m.name.toLowerCase()}</div>
-                    {m.range && (
-                      <div
-                        className={`macro__range${inRange === false ? " is-outside" : ""}`}
-                        title={`${m.range.low_pct}–${m.range.high_pct}% of energy`}
-                      >
-                        {Math.round(m.range.low_g)}–{Math.round(m.range.high_g)} g
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          {/*
-            What today held, and what could not be measured in it — no ranking.
-
-            This was "Worth a look": the five nutrients furthest from target,
-            worst first, each with a direction arrow, a percentage and a bar,
-            under a heading that graded the day. It ran `worthALook`, which
-            sorted a ONE-DAY sample by shortfall against an undocumented 60%
-            line and cut it to five — a leaderboard of the day's failures,
-            recomputed every morning, on a sample far too small to mean
-            anything. Its empty state read "Nothing stands out. Every nutrient
-            with enough data to judge is within range", which is a pass mark.
-
-            What has actually been high or low is a question about weeks, and
-            it is asked on Statistics, where there are enough days to answer it.
-            What belongs here is only what this day can honestly say: what was
-            measured in it, and what was not.
-          */}
-          <section className="card">
-            <div className="card__head">
-              <h2>What could be measured</h2>
-            </div>
-            <p className="daynote">
-              {covered} of the {totals.length} nutrients this app tracks had data in
-              today&rsquo;s items.
-              {unknown.length > 0 && (
-                <> The other {unknown.length} are not zero — nothing logged today carried a
-                figure for them.</>
-              )}{" "}
-              <button className="link" onClick={p.onSeeAll}>See them all</button>
+      <div className="day-log">
+        {p.loading ? (
+          <Skeleton />
+        ) : entries.length === 0 || onlyWater ? (
+          /* One line. Not "your first food": on a day already behind you,
+             there is nothing first about it. And no button: each sitting's +
+             is right under it, and the bar's own + (the sidebar's, on a
+             desktop) is the screen's one filled action — a second "Add food"
+             here was two primary buttons doing one thing. */
+          <div className="day-empty">
+            <p>
+              {onlyWater
+                ? isToday ? "No food logged yet today." : "No food logged on this day."
+                : isToday ? "Nothing logged yet today." : "Nothing logged on this day."}
             </p>
-          </section>
-
-          {/* Not "What you ate": a supplement is not eaten and a bottle of
-              water certainly is not, and this card holds both. */}
-          {/* No heading. The switch above this screen already says "What you
-              had", and the meal names below are the structure — a card titled
-              with the words of the tab that selected it is the page telling you
-              twice where you are. The "Add food" link that sat here went with
-              it: the bottom bar carries that button on every screen now. */}
-          <section className="card day-ate">
-            {groups.map((g) => (
-              <div className="group" key={g.key}>
-                <div className="group__name">{g.label}</div>
-                <div className="rows">
-                  {g.entries
-                    .map((e) => {
-                      const b = day?.breakdowns.find((x) => x.entry_id === e.id);
-                      const ings = b?.components ?? [];
-                      // Every dish can be opened, whether or not it has a
-                      // breakdown to show: the tag editor lives in there, and a
-                      // plain reference food has no components at all. Without
-                      // this, most entries could never be tagged.
-                      const expandable = ings.length > 0 || e.source_kind !== "supplement";
-                      const isOpen = open === e.id;
-                      // One of the user's own foods carries a single component
-                      // too, but it is a statement of where its values came from
-                      // — not an ingredient. A packaged bar is not a
-                      // one-ingredient recipe and must not be described as one.
-                      const isCustom = e.source_kind === "custom";
-                      const isSupplement = e.source_kind === "supplement";
-                      const isWater = e.source_kind === "water";
-                      const noData = ings.some((c) => !c.has_data);
-                      return (
-                        <div key={e.id}>
-                          <div className="row entryrow">
-                            <button
-                              className="entryrow__main"
-                              onClick={() => expandable && setOpen(isOpen ? null : e.id)}
-                              aria-expanded={expandable ? isOpen : undefined}
-                              disabled={!expandable}
-                            >
-                              <span className="row__title">{e.description}</span>
-                              <span className="row__sub">
-                                {quantityText(e)}
-                                {/* Water is excluded alongside the other two:
-                                    a bottle has no ingredients, and "0
-                                    ingredients" beside it reads as a
-                                    measurement rather than as the category
-                                    error it is. */}
-                                {expandable && !isCustom && !isSupplement && !isWater &&
-                                  ` · ${plural(ings.length, "ingredient")}`}
-                                {noData &&
-                                  (isCustom
-                                    ? " · nothing off the pack"
-                                    : isSupplement
-                                      ? " · nothing off the panel"
-                                      : " · some unmeasured")}
-                                {tagText(e, pendingTags[e.id]) &&
-                                  ` · ${tagText(e, pendingTags[e.id])}`}
-                              </span>
-                            </button>
-                            {expandable && (
-                              <span className={`row__chev${isOpen ? " is-open" : ""}`} aria-hidden>›</span>
-                            )}
-                            <button className="iconbtn" onClick={() => remove(e.id)}
-                              aria-label={`Remove ${e.description}`}>×</button>
-                          </div>
-
-                          {isOpen && isSupplement && (
-                            <div className="breakdown">
-                              <div className="breakdown__head">What the panel says</div>
-                              {ings.map((c, i) => (
-                                <div className="breakdown__row" key={i}>
-                                  <span className={c.has_data ? "" : "no-data"}>{c.description}</span>
-                                </div>
-                              ))}
-                              <p className="breakdown__note">
-                                Counted per dose rather than by weight, so it adds to the day's
-                                nutrients without changing how well your food is measured.
-                              </p>
-                            </div>
-                          )}
-
-                          {isOpen && isCustom && (
-                            <div className="breakdown">
-                              <div className="breakdown__head">Where its values come from</div>
-                              {ings.map((c, i) => (
-                                <div className="breakdown__row" key={i}>
-                                  <span className={c.has_data ? "" : "no-data"}>{c.description}</span>
-                                </div>
-                              ))}
-                              {noData && (
-                                <p className="breakdown__note">
-                                  Nothing is measured for this food, so it counts towards the day as
-                                  unmeasured rather than as zero — which is why some nutrients above
-                                  read “—”.
-                                </p>
-                              )}
-                            </div>
-                          )}
-
-                          {isOpen && !isCustom && !isSupplement && ings.length > 0 && (
-                            <div className="breakdown">
-                              <div className="breakdown__head">
-                                What went into it
-                                {/* The yield is what makes the portion legible
-                                    — it is the number the breakdown was divided
-                                    by. The servings count is a separate,
-                                    optional clause: since a recipe need not
-                                    carry one, requiring it here would have
-                                    silently dropped this whole sentence from
-                                    every entry logged afterwards. */}
-                                {b?.recipe_yield_g && e.grams !== null ? (
-                                  <span>
-                                    {" "}— {Math.round(e.grams)} g of a{" "}
-                                    {Math.round(b.recipe_yield_g).toLocaleString()} g batch
-                                    {b.recipe_servings !== null &&
-                                      ` (${b.recipe_servings} servings)`}
-                                  </span>
-                                ) : null}
-                              </div>
-                              {ings.map((c, i) => (
-                                <div className="breakdown__row" key={i}>
-                                  <span className={c.has_data ? "" : "no-data"}>
-                                    {c.description}
-                                    {!c.has_data && <span className="breakdown__flag"> no composition data</span>}
-                                  </span>
-                                  <span className="tnum">
-                                    {c.grams === null ? "—" : `${c.grams.toFixed(c.grams < 10 ? 1 : 0)} g`}
-                                  </span>
-                                </div>
-                              ))}
-                              {noData && (
-                                <p className="breakdown__note">
-                                  Whatever those contribute is counted as unmeasured for the day,
-                                  not as zero — which is why some nutrients above read “—”.
-                                </p>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Neither a supplement nor a bottle is a dish, and
-                              neither has a cuisine. */}
-                          {isOpen && !isSupplement && !isWater && (
-                            <div className="breakdown">
-                              <div className="breakdown__head">Where it came from</div>
-                              <TagPicker
-                                origin={pendingTags[e.id]?.origin ?? e.origin}
-                                cuisine={pendingTags[e.id]?.cuisine ?? e.cuisine}
-                                onChange={async (origin, cuisine) => {
-                                  // Held locally first so the next change in
-                                  // this session builds on this one rather than
-                                  // on whatever the last refetch returned.
-                                  setPendingTags((t) => ({ ...t, [e.id]: { origin, cuisine } }));
-                                  await setEntryTags(e.id, origin, cuisine);
-                                  p.onRemoved();
-                                }}
-                              />
-                            </div>
-                          )}
-
-                          {/* A logged entry keeps the nutrition it had when it
-                              was logged. This is the deliberate way to fix a
-                              mistake in it — see CorrectEntry. */}
-                          {isOpen && (
-                            <div className="breakdown">
-                              <div className="breakdown__head">If something here is wrong</div>
-                              <CorrectEntry entryId={e.id} onChanged={p.onRemoved} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            ))}
-          </section>
-        </>
-      )}
-
-      {/* Outside the branch above on purpose, and last on purpose.
-
-          Outside, because a day with nothing logged is a day you may well have
-          something to say about — a fast, a day away, a day you gave up
-          weighing — and the empty state is exactly when the arithmetic has
-          least to offer. Last, because it is a footnote to the day and not a
-          headline: the screen still opens on what was eaten. */}
-      {/* Outside the branch for the note's reason: a day with nothing eaten
-          on it can still have had a walk in it. Before the note, because what
-          was done is a fact about the day and the note is a footnote to it. */}
-      <ActivityCard date={p.date} canAdd onAdd={p.onAddActivity} onOpen={p.onOpenActivity} />
-
-      <DayNote date={p.date} />
-
-      <UndoToast last={q.last} onUndo={q.undo} />
-    </div>
-  );
-}
-
-/**
- * How far back the date strip reaches: twelve weeks, ending on today.
- *
- * A reach and not a page size. The strip shows seven days at a time and scrolls
- * a week per swipe, so this is how many swipes there are — twelve, about a
- * quarter. Beyond that the Days calendar is the right instrument: it draws a
- * month at a time with its month named, and jumping four months back through a
- * seven-day window would be sixteen swipes past dates you cannot identify.
- */
-const STRIP_WEEKS = 12;
-const STRIP_DAYS = STRIP_WEEKS * 7;
-
-/**
- * How many days sit to the RIGHT of the anchor day, which is what puts it in
- * the middle of its week rather than hard against the right-hand edge.
- *
- * Three, because seven days have one middle and it is the fourth.
- *
- * The strip used to end ON today, and the reasoning for that was too narrow:
- * the future holds nothing to log, so drawing it looked like drawing dead
- * cells. But the row is not only a set of buttons — it is where you are in the
- * week, and a rail that stops at today can only show what is behind you. On a
- * Thursday it said nothing about the weekend ahead; on any day it put the one
- * cell you press most into the worst place on the screen, against the edge and
- * against the scroll boundary.
- *
- * The three days ahead stay unpressable, because a day that has not happened
- * has nothing to record. They are dimmed rather than hidden, which is the
- * honest shape: they are days, they are simply not yet.
- *
- * Nothing about this is a plan or a target. There is no cell to fill and no
- * run to keep — an empty Thursday ahead looks exactly like an empty Thursday
- * behind, which is the point.
- */
-const STRIP_LEAD = 3;
-
-/**
- * The days the strip draws for a given selection, oldest first.
- *
- * Exported from module scope rather than computed inside `WeekStrip` because
- * two things need to agree about it: the strip, and the read that marks which
- * of those days hold something. One function, called once, is what makes them
- * agree — see the `stripDays` call in `Today`.
- */
-function stripDays(date: string): string[] {
-  const today = todayIso();
-  /*
-    The day the strip is built around, and the ONLY thing that moves its
-    contents.
-
-    Today, normally. The exception is a day picked out of the Days calendar
-    that twelve weeks does not reach — that day becomes the anchor instead, so
-    the day being read is on screen and centred the same way, with the daybar's
-    own Today button as the way back.
-
-    Note what this is not: it does not move when you tap a date inside the
-    strip. That was the old behaviour and it cannot survive a scroller — you
-    would scroll back to August, tap the 14th, and have the whole rail jump out
-    from under your thumb to put the 14th at the right-hand edge.
-  */
-  const anchor = date >= shiftIso(today, -(STRIP_DAYS - 1 - STRIP_LEAD)) ? today : date;
-  /*
-    The rail's last day. `anchor + 3`, so the anchor lands in the middle of the
-    final week: the rail holds `STRIP_DAYS` days ending here, and the anchor is
-    therefore the fourth of the last seven.
-  */
-  const end = shiftIso(anchor, STRIP_LEAD);
-  return Array.from({ length: STRIP_DAYS }, (_, i) => shiftIso(end, i - (STRIP_DAYS - 1)));
-}
-
-/**
- * Twelve weeks of days, seven at a time, as a strip you scroll.
- *
- * Two earlier versions of this row are worth recording, because each fixed the
- * one before it and left something behind.
- *
- * The first was `‹ Thursday 11 September ›`: two bare chevrons in icon buttons,
- * the left of which sat in the corner Back lives in, in a screen's title row,
- * pointing the way Back points. Every reader took it for a way out. It also
- * made every day a separate press — four taps to reach Monday, with the date
- * changing under you each time.
- *
- * The second was seven fixed dates ending on today. One tap to any day of the
- * past week, nothing that could be mistaken for Back — and no way at all to
- * reach the week before, which the user found on the fifth day of using the
- * app: *"the top row of dates cannot move?"* Reaching a fortnight back meant
- * the Days calendar, for a date that is four days off the edge of the screen.
- *
- * So the seven dates stay and the rail behind them grows. The gesture is the
- * one they already tried; the contents do not move when you pick a day; and
- * scrolling browses without selecting, so nothing is logged against a week you
- * merely looked at.
- *
- * Today sits in the MIDDLE of its week rather than at the end of it — see
- * `STRIP_LEAD` for why the rail stopped ending on today.
- *
- * Still deliberately NOT a progress track. The marks say a day exists in the
- * record, never how well it went, and there is nothing here to fill or beat.
- */
-function WeekStrip({
-  date, days, logged, onPick,
-}: {
-  date: string;
-  /** The strip's whole reach, oldest first. See `stripDays`. */
-  days: string[];
-  logged: ReadonlySet<string>;
-  onPick: (iso: string) => void;
-}) {
-  const today = todayIso();
-  const rail = useRef<HTMLDivElement | null>(null);
-
-  /** Which week of the rail holds the day being read. */
-  const page = Math.max(0, Math.floor(days.indexOf(date) / 7));
-
-  /*
-    Which week is on screen, which is not the same question as which day is
-    selected — the whole point of a scroller is that you can look at one week
-    while reading another. Tracked so the caption can name the month: seven
-    bare numbers are ambiguous the moment they are not this week's, and a
-    person scrolling back three weeks should not have to tap a date to find out
-    which month they are in.
-  */
-  const [shown, setShown] = useState(page);
-  useEffect(() => { setShown(page); }, [page]);
-
-  /*
-    Put the week holding the selected day on screen.
-
-    `useLayoutEffect` and not `useEffect`: this runs on mount, when the rail is
-    scrolled to its oldest week and the correct position is its newest. After
-    paint that is a visible jump from twelve weeks ago to today.
-  */
-  useLayoutEffect(() => {
-    const el = rail.current;
-    if (el === null) return;
-
-    const position = () => {
-      const w = el.clientWidth;
-      // Zero on a wide window, where `.daybar` is display:none. There is no
-      // layout to scroll and no scroll position worth overwriting.
-      if (w === 0) return;
-      const target = el.children[page] as HTMLElement | undefined;
-      if (target === undefined) return;
-      /*
-        Measured off the page itself rather than computed as `page * w`, which
-        is what this did first and what put today's own cell half off the right
-        edge of a phone.
-
-        `clientWidth` is an INTEGER and a page's real width is not: a 448.33 px
-        column reports 448, and eleven pages of that lose four pixels — enough
-        to sit a whole week's worth of rounding short of the end. It is also
-        why the fault was invisible in a 375 px browser window, where the width
-        came out a round 343 and the arithmetic happened to be exact. Asking
-        the element where it is cannot drift.
-      */
-      const want = target.getBoundingClientRect().left
-        - el.getBoundingClientRect().left
-        + el.scrollLeft;
-      /*
-        Left alone when the selected day is already on screen. Without this,
-        scrolling back to August and tapping the 14th would re-run this effect
-        and snap the rail to where it computes the week to be — which is where
-        it already is, but a half-swipe in progress would be yanked straight.
-      */
-      if (Math.abs(el.scrollLeft - want) > w / 2) el.scrollLeft = want;
-    };
-
-    position();
-
-    /*
-      And again whenever the rail changes WIDTH. A snap position is a fraction
-      of the container, so every one of them moves when the container does —
-      leaving the strip stranded between two weeks after a rotation, or after
-      any late reflow that settles the width once this effect has already run.
-
-      Width specifically, and the guard is not a micro-optimisation. A
-      ResizeObserver fires for a height change and for a sub-pixel settle as
-      readily as for a rotation, and re-positioning on one of those mid-fling
-      is a rail that jumps back under the thumb: on a phone the first swipe
-      after launch was being eaten outright, and the second worked, which is
-      exactly what an observer racing a gesture looks like.
-    */
-    let seen = el.clientWidth;
-    const ro = new ResizeObserver(() => {
-      const w = el.clientWidth;
-      if (w === seen) return;
-      seen = w;
-      position();
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [page, days.length]);
-
-  const weeks = Array.from({ length: STRIP_WEEKS }, (_, i) => days.slice(i * 7, i * 7 + 7));
-
-  return (
-    <div className="weekwrap">
-      <div className="week__caption">{monthSpan(weeks[shown] ?? [], today)}</div>
-      <div
-        className="week"
-        ref={rail}
-        role="group"
-        aria-label="Pick a day"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const w = el.clientWidth;
-          if (w > 0) setShown(Math.min(STRIP_WEEKS - 1, Math.round(el.scrollLeft / w)));
-        }}
-      >
-        {weeks.map((week, i) => (
-          <div className="week__page" key={week[0]} data-page={i}>
-            {week.map((iso) => {
-              const d = new Date(`${iso}T00:00:00`);
-              const ahead = iso > today;
-              return (
-                <button
-                  key={iso}
-                  className="week__day"
-                  onClick={() => onPick(iso)}
-                  disabled={ahead}
-                  aria-current={iso === date ? "date" : undefined}
-                  aria-label={humanDate(iso)}
-                >
-                  <span className="week__wd">
-                    {d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
-                  </span>
-                  <span className="week__n tnum">{d.getDate()}</span>
-                  <span className={logged.has(iso) ? "week__dot is-on" : "week__dot"} aria-hidden />
-                </button>
-              );
-            })}
           </div>
+        ) : (
+          <DayFigure day={day!} isToday={isToday} middle={middle} onOpen={daySheet.show} />
+        )}
+
+        {!p.loading && MEALS.map((m) => (
+          <MealGroup
+            key={m}
+            meal={m}
+            date={p.date}
+            entries={entries.filter((e) => e.meal === m)}
+            breakdown={breakdown}
+            subtotal={day?.meals.find((x) => x.meal === m)?.energy ?? null}
+            usual={usual[m] ?? []}
+            onOpen={entrySheet.show}
+            onAdd={p.onAddFood}
+            onChanged={onChanged}
+          />
         ))}
       </div>
+
+      <div className="day-side">
+        {!p.loading && (
+          <DayWater date={p.date} entries={water} onOpen={entrySheet.show}
+            onAdd={p.onAddWater} onChanged={onChanged} />
+        )}
+        {/* Outside the empty branch on purpose: a day with nothing eaten on it
+            can still have had a walk in it. */}
+        <ActivityCard date={p.date} canAdd onAdd={p.onAddActivity} onOpen={p.onOpenActivity} />
+        {/* Last, because it is a footnote to the day and not a headline; and
+            there on an empty day too, which is exactly when there may be most
+            to say — a fast, a day away, a day you gave up weighing. */}
+        <DayNote date={p.date} />
+      </div>
+
+      <EntrySheet day={day} id={entrySheet.value} onClose={entrySheet.hide} onChanged={onChanged} />
+      <DaySheet day={day} label={p.label} open={daySheet.open} onClose={daySheet.hide}
+        onOpenProfile={p.onOpenProfile} />
     </div>
   );
 }
 
 /**
- * The month the visible week sits in, or both months when it straddles two.
+ * What the day came to: its energy, and where that energy came from.
  *
- * The year is named only when it is not this one. A strip reaching twelve weeks
- * back crosses New Year for a quarter of the year, and "January" next to a
- * December day is worse than useless — but printing 2026 beside every week for
- * the other nine months is noise nobody reads.
+ * This was the anchor of the app once: a 52px serif figure over a green bar
+ * filling toward a target, over "498 left of 2,240". The bar here is not
+ * that bar. It is a share of a whole — how the day's protein, carbohydrate
+ * and fat split the energy they carry (`energyShares`) — so it says what the
+ * day was made of and has nothing to fill. The figure beside the energy is
+ * the month's middle day, the one Trends opens on, never a target: a day is
+ * a noisy sample, and the period is what it is read against.
+ *
+ * Each figure reads in the three states. A day only partly measured says "≥",
+ * one with no figure "—", and never 0. They are read over what was EATEN: the
+ * backend leaves water out of them, and a pill that states none of them, so
+ * the day is the sum of its sittings and a litre of water cannot pass a day
+ * of unmeasured food off as a measured one. With any of the three unmeasured
+ * there is no bar, rather than a split of the other two.
  */
-function monthSpan(week: string[], today: string): string {
-  if (week.length === 0) return "";
-  const thisYear = today.slice(0, 4);
-  const name = (iso: string) => {
-    const d = new Date(`${iso}T00:00:00`);
-    const month = d.toLocaleDateString(undefined, { month: "long" });
-    return iso.slice(0, 4) === thisYear ? month : `${month} ${iso.slice(0, 4)}`;
-  };
-  const first = name(week[0]);
-  const last = name(week[week.length - 1]);
-  return first === last ? first : `${first} – ${last}`;
+function DayFigure({ day, isToday, middle, onOpen }: {
+  day: DayView;
+  isToday: boolean;
+  middle: number | null;
+  onOpen: () => void;
+}) {
+  const t = (id: number) => day.totals.find((x) => x.id === id)?.total;
+  const kcal = dayFigure(t(1008));
+  const shares = energyShares(t(1003), t(1005), t(1004));
+  const parts = [
+    { key: "protein", name: "Protein", grams: dayFigure(t(1003)), share: shares?.protein },
+    { key: "carbs", name: "Carbs", grams: dayFigure(t(1005)), share: shares?.carbs },
+    { key: "fat", name: "Fat", grams: dayFigure(t(1004)), share: shares?.fat },
+  ];
+  const sub = [
+    isToday ? "so far today" : null,
+    middle !== null ? `middle day of the last 30: ${Math.round(middle).toLocaleString()}` : null,
+  ].filter(Boolean).join(", ");
+  return (
+    <div className="dayfig">
+      <button className="dayfig__open" onClick={onOpen} aria-haspopup="dialog"
+        aria-label={`Every nutrient for the day: ${kcal} kcal, ${parts.map((x) => `${x.name.toLowerCase()} ${x.grams} grams`).join(", ")}`}>
+        <span className="dayfig__kcal tnum">{kcal}<span className="dayfig__unit">kcal</span></span>
+        {sub && <span className="dayfig__sub">{sub}</span>}
+        {shares && (
+          <span className="share" aria-hidden>
+            {parts.map((x) => <i key={x.key} className={`share__${x.key}`} style={{ flexGrow: x.share }} />)}
+          </span>
+        )}
+        <span className="share__key tnum">
+          {parts.map((x) => (
+            <span key={x.key}>
+              {shares && <b className={`share__${x.key}`} aria-hidden />}
+              {x.name} {x.grams} g{shares && <em> {x.share}%</em>}
+            </span>
+          ))}
+        </span>
+      </button>
+      <Info title="How the day's energy is counted">
+        <p>
+          Added up from every entry, the same way each row's figure is, from the values each entry
+          was frozen with. Water is not in it, and nor is a supplement whose label states none of
+          protein, carbohydrate and fat.
+        </p>
+        <p>
+          Where at least four-fifths of what was eaten, by weight, has a figure, the day reads as a
+          figure, and the day's sheet says how much of it was measured. Where less does, it reads
+          “≥” — at least this much — and where nothing could be measured, “—”. Neither is counted
+          as zero.
+        </p>
+        <p>
+          The bar is how protein, carbohydrate and fat split the energy the three of them carry, at
+          4, 4 and 9 kcal a gram, over what is accounted for of each. It is a share of the day, not
+          progress toward anything, and it is left out when any of the three has no figure.
+        </p>
+        <p>
+          The middle day is the one Trends shows for the last 30 days: half the days logged came to
+          less, half to more. Activity is not taken off either figure.
+        </p>
+      </Info>
+    </div>
+  );
 }
 
 /**
- * The day in the user's own words.
+ * One sitting: its name, a + that opens Add on it, what it came to, and its
+ * entries — or, when nothing has been had at it yet, what usually is.
  *
- * Everything else on this screen is arithmetic, and arithmetic cannot hold the
- * reasons: that the sambar could not be weighed because it was somebody else's
- * pot, that a day was a fast, that the numbers look odd because of a flight.
- * Those are facts about the day that belong beside it, and there was nowhere to
- * put them. The user asked for somewhere.
+ * All four are always drawn, because "nothing at lunch" is part of the day,
+ * and an empty one is one line. Its usual foods are one tap each, through the
+ * same path as Add's own "Had it before": the weight is printed on the chip
+ * before it is pressed, and the app's bar says what was written with a way
+ * back. They go the moment the sitting has something in it.
  *
- * It is NOT nutrition and nothing reads it as any — see the `day_notes` comment
- * in store.rs. No figure on this screen moves because of what is typed here,
- * which is exactly what makes it safe to write freely in.
- *
- * Saved by itself, on a pause and on losing focus, because a note nobody
- * pressed a button for is a note that has to survive the thumb that reaches
- * for the bottom bar. The screen unmounts when you leave it, so the last write
- * happens from the cleanup below.
+ * Still a shortcut, and drawn as one: no count on a chip, no rank, no
+ * "favourites" — a tally beside a food name is a leaderboard of your own
+ * eating. "Usually" is the whole of what it says about why these two, so the
+ * backend offers only a food had at this sitting on more than one day.
  */
-function DayNote({ date }: { date: string }) {
-  /** null while the note for `date` has not come back yet. */
-  const [draft, setDraft] = useState<string | null>(null);
-  const [status, setStatus] = useState<"idle" | "saving" | "kept">("idle");
-  const [error, setError] = useState<string | null>(null);
-
-  /*
-    What the database holds, and the day it holds it for. Both in refs, because
-    the only reader is `flush`, which runs from a cleanup — after `date` has
-    already changed in props and before this component has rendered for the new
-    one. A note typed on Tuesday must not be written to Wednesday because the
-    user tapped Wednesday first, and the date that travels with the text is the
-    only thing that can prevent it.
-  */
-  const stored = useRef<{ date: string; body: string } | null>(null);
-  const draftRef = useRef<string | null>(null);
-  useEffect(() => { draftRef.current = draft; }, [draft]);
-
-  const flush = useCallback(async () => {
-    const at = stored.current;
-    const body = draftRef.current;
-    if (at === null || body === null) return;
-    if (body.trim() === at.body.trim()) return;
-    setStatus("saving");
-    try {
-      await setDayNote(at.date, body);
-      /*
-        Only if the day has not moved underneath this write. The day being
-        left is saved from a cleanup, and by the time it lands `stored` may
-        already describe the day arrived at — writing the old body there would
-        make the new day's note look already-saved and lose the next edit.
-      */
-      if (stored.current?.date !== at.date) return;
-      stored.current = { date: at.date, body };
-      setStatus("kept");
-      setError(null);
-    } catch (e) {
-      if (stored.current?.date !== at.date) return;
-      setStatus("idle");
-      setError(String(e));
-    }
-  }, []);
-
-  /* Read the day arrived at, and write the day being left. */
-  useEffect(() => {
-    let live = true;
-    setStatus("idle");
-    setError(null);
-    getDayNote(date)
-      .then((body) => {
-        if (!live) return;
-        stored.current = { date, body: body ?? "" };
-        // Only if nothing has been typed in the meantime. The read is a
-        // single-row lookup and wins this race every time in practice, but
-        // losing it would silently delete a sentence.
-        setDraft((d) => (d === null ? body ?? "" : d));
-      })
-      .catch((e) => { if (live) setError(String(e)); });
-    return () => {
-      live = false;
-      void flush();
-      setDraft(null);
-    };
-  }, [date, flush]);
-
-  /*
-    A pause is a save. Long enough that it is not a write per keystroke, short
-    enough that putting the phone down mid-sentence keeps the sentence.
-  */
-  useEffect(() => {
-    if (draft === null || stored.current === null) return;
-    if (draft.trim() === stored.current.body.trim()) return;
-    const t = setTimeout(() => { void flush(); }, 700);
-    return () => clearTimeout(t);
-  }, [draft, flush]);
-
+function MealGroup(p: {
+  meal: Meal;
+  date: string;
+  entries: LogEntry[];
+  breakdown: (e: LogEntry) => EntryBreakdown | undefined;
+  /**
+   * Null for a sitting with nothing, or nothing but a tablet: no subtotal,
+   * never 0. Read by the day's rule (`mealFigure`), so a sitting of nothing
+   * but softgels has none either.
+   */
+  subtotal: NonNullable<EntryBreakdown["energy"]> | null;
+  usual: FrequentFood[];
+  onOpen: (id: string) => void;
+  onAdd: (meal: Meal) => void;
+  onChanged: () => void;
+}) {
+  const q = useQuickLog(p.date, p.meal, p.onChanged);
+  // Capitalised here rather than by CSS: the heading is sentence case, so
+  // "breakfast" would print as the meal's id.
+  const name = p.meal.charAt(0).toUpperCase() + p.meal.slice(1);
+  const id = `meal-${p.meal}`;
+  const fig = mealFigure(p.subtotal);
   return (
-    <section className="card day-note">
-      <div className="card__head">
-        <h2>Note</h2>
-        {status !== "idle" && (
-          <span className="card__note">{status === "saving" ? "Saving…" : "Saved"}</span>
-        )}
+    <section className="day-sec meal" aria-labelledby={id}>
+      <div className="day-sec__head">
+        <span className="meal__glyph"><Glyph name={p.meal} size={18} /></span>
+        <h2 id={id}>{name}</h2>
+        <button className="day-add" onClick={() => p.onAdd(p.meal)} aria-label={`Add to ${p.meal}`}>
+          <PlusGlyph />
+        </button>
+        {/* A dash alone, not "— kcal": a unit beside no figure reads as a figure. */}
+        {fig !== null && <span className="day-sec__fig tnum">{fig === "—" ? fig : `${fig} kcal`}</span>}
       </div>
 
-      <textarea
-        className="field day-note__field"
-        rows={3}
-        maxLength={2000}
-        value={draft ?? ""}
-        placeholder="Anything worth writing down about this day."
-        aria-label={`Note for ${humanDate(date)}`}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => void flush()}
-      />
+      {p.entries.length > 0 ? (
+        <div className="tiles">
+          {p.entries.map((e) => <EntryTile key={e.id} e={e} b={p.breakdown(e)} onOpen={p.onOpen} />)}
+        </div>
+      ) : p.usual.length > 0 ? (
+        <div className="usual">
+          <span className="usual__label">Usually</span>
+          {/* Their own box, so a chip that wraps lines up under the first
+              chip rather than under the word. */}
+          <div className="usual__chips">
+            {p.usual.map((f) => (
+              <button
+                key={f.key}
+                className="usual__chip"
+                onClick={() => q.log(f)}
+                disabled={q.pending !== null}
+                aria-busy={q.pending === f.key}
+                aria-label={`Log ${f.description}, ${f.last_amount_label}, to ${p.meal}`}
+              >
+                <PlusGlyph />
+                <span className="usual__name">{f.description}</span>
+                <span className="usual__amt tnum">{f.last_amount_label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
-      {error && <p className="alert" role="alert">{error}</p>}
-
-      <div className="card__foot">
-        Yours, and not part of the arithmetic. Nothing here is read as food and nothing in it
-        changes a figure on this screen — which is the point: it is for what the numbers cannot
-        hold.
-      </div>
+      {q.error && <p className="alert" role="alert">{q.error}</p>}
     </section>
   );
 }
 
 /**
- * How much of it, in the unit the thing is actually measured in.
+ * One entry, as its own tile: a mark of where it came from, what it was, a
+ * quiet line of how much and what is not known about it, and its energy on
+ * the right. No chevron and no ×: the tile is the target, and removing is one
+ * of the things its sheet does — with an Undo.
  *
- * A supplement has no mass this app knows, so it is never given one — "0 g" on
- * a tablet is the same class of lie as a nutrient rendered as 0.
+ * Tiles rather than ruled rows: each food a white cell 2px from the next, the
+ * run of them rounder at its ends, so a meal reads as one group without a
+ * line drawn between every pair of foods.
  */
-function quantityText(e: LogEntry): string {
-  if (e.source_kind === "supplement") {
-    const n = e.units ?? 0;
-    const rounded = Math.round(n * 100) / 100;
-    return `${rounded} ${rounded === 1 ? "dose" : "doses"}`;
-  }
-  // Water is drunk by volume and weighed by mass. The scale gave grams; the
-  // bottle says what that comes to, and that is the number to show — nobody
-  // thinks about their day in grams of water.
-  if (e.water) return describeVolume(e.water.ml);
-  return e.grams === null ? "weight not recorded" : `${Math.round(e.grams)} g`;
+function EntryTile({ e, b, onOpen }: {
+  e: LogEntry;
+  b: EntryBreakdown | undefined;
+  onOpen: (id: string) => void;
+}) {
+  return (
+    <button className="tile entry" onClick={() => onOpen(e.id)} aria-haspopup="dialog">
+      <Lead e={e} />
+      <span className="row__main">
+        <span className="row__title">{e.description}</span>
+        <span className="row__sub entry__sub">{rowSub(e, b)}</span>
+      </span>
+      <span className="entry__fig tnum">{rowFigure(b?.energy ?? null)}</span>
+    </button>
+  );
 }
 
-/** The tags, when the user has given them. Silence stays silent. */
-function tagText(e: LogEntry, pending?: { origin: Origin | null; cuisine: string | null }): string {
-  const origin = pending?.origin ?? e.origin;
-  const cuisine = pending?.cuisine ?? e.cuisine;
-  const bits = [origin ? ORIGIN_LABEL[origin].toLowerCase() : null, cuisine].filter(Boolean);
-  return bits.join(", ");
+/** The mark a tile leads with. Decoration to a screen reader: the sheet says it in words. */
+function Lead({ e }: { e: LogEntry }) {
+  const l = leadOf(e);
+  return (
+    <span className={`lead lead--${l.kind}`} aria-hidden>
+      {"initials" in l ? l.initials : <Glyph name={l.glyph} size={20} />}
+    </span>
+  );
 }
 
 function Skeleton() {
   return (
     <div aria-busy="true" aria-label="Loading the day">
-      <div className="skel" style={{ height: 72, width: 220, marginBottom: "var(--s5)" }} />
-      <div className="card">
-        {[0, 1, 2, 3].map((i) => (
-          <div className="skel skel--row" key={i} style={{ width: `${90 - i * 12}%` }} />
-        ))}
-      </div>
+      <div className="skel" style={{ height: 24, width: 260, marginBottom: "var(--s5)" }} />
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div className="skel skel--row" key={i} style={{ width: `${90 - i * 10}%` }} />
+      ))}
     </div>
   );
 }

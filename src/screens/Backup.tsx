@@ -152,7 +152,7 @@ export default function Backup(p: Props) {
   if (s !== null && !s.supported) {
     return (
       <div className="screen">
-        <ScreenHead title="Backup" sub="an Android feature" onBack={back} />
+        <ScreenHead title="Backup" onBack={back} />
         <section className="card">
           <p className="note">
             Encrypting the log and backing it up through Google are Android features. This
@@ -167,11 +167,7 @@ export default function Backup(p: Props) {
 
   return (
     <div className="screen">
-      <ScreenHead
-        title="Backup"
-        sub="one sealed file, and what Google can and cannot do with it"
-        onBack={back}
-      />
+      <ScreenHead title="Backup" onBack={back} />
 
       {error && <p className="alert" role="alert">{error}</p>}
 

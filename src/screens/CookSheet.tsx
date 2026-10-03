@@ -360,7 +360,6 @@ export default function CookSheet(p: Props) {
     <div className="screen">
       <ScreenHead
         title={cook.name}
-        sub={p.cookId ? "cooked · adjust what went in" : "cooking · adjust as you go"}
         action={
           <>
             <button
@@ -381,7 +380,7 @@ export default function CookSheet(p: Props) {
       />
 
       {restored && (
-        <p className="rangenote" style={{ marginTop: "calc(var(--s5) * -1)" }}>
+        <p className="rangenote" style={{ marginTop: "calc(var(--s4) * -1)" }}>
           Picked up where you left off — this pot was still unsaved.
         </p>
       )}

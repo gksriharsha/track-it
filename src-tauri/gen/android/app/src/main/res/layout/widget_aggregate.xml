@@ -17,13 +17,12 @@
     would have to take. Only LinearLayout and TextView appear, both of which
     RemoteViews supports.
 
-    The serif is on the amounts and nowhere else, which is the app's own
-    typography rule — Newsreader marks what is worth dwelling on, and a single
-    day's numbers stay in the sans. It resolves to Noto Serif here rather than to
-    Newsreader: the app fetches that face from Google's CDN (src/styles.css) and
-    RemoteViews cannot use a downloadable font, so this lands on the last item of
-    the same fallback chain the CSS declares. A deliberate near-miss rather than a
-    silent one.
+    The amounts are set heavier than the labels around them, which is the app's
+    own typography rule: an aggregate is the figure worth dwelling on. In the app
+    that is Archivo set wide (src/styles.css); RemoteViews can use neither a
+    bundled font nor a width axis, so the widget takes the system sans at medium
+    weight. It used to be the system serif, standing in for Newsreader, which the
+    app no longer uses.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_agg_root"
@@ -87,7 +86,7 @@
                 android:id="@+id/widget_agg_value0"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:fontFamily="serif"
+                android:fontFamily="sans-serif-medium"
                 android:textSize="@dimen/widget_amount"
                 android:textColor="@color/widget_ink"
                 android:maxLines="1"
@@ -132,7 +131,7 @@
                 android:id="@+id/widget_agg_value1"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:fontFamily="serif"
+                android:fontFamily="sans-serif-medium"
                 android:textSize="@dimen/widget_amount"
                 android:textColor="@color/widget_ink"
                 android:maxLines="1"
