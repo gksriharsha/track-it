@@ -3,6 +3,16 @@
 import { invoke } from "./lib/bridge";
 import type { ExportKind } from "./lib/exportSheet";
 import type {
+  Container,
+  ContainerEventKind,
+  ContainerInput,
+  ContainerStretch,
+  ContainerUnit,
+  Density,
+  FoodRef,
+  FoodTasteFactor,
+  FoodUsage,
+  Pantry,
   BarcodeScan,
   CustomFood,
   CustomFoodDetail,
@@ -669,6 +679,102 @@ export const logWholeBottle = (loggedOn: string, bottleId: string) =>
  */
 export const logBottleShare = (loggedOn: string, bottleId: string, share: number) =>
   invoke<string>("log_bottle_share", { loggedOn, bottleId, share });
+
+/* ── kitchen containers ───────────────────────────────────────────────── */
+
+export const listContainers = () => invoke<Container[]>("list_containers");
+export const getContainer = (id: string) => invoke<Container>("get_container", { id });
+
+/** Each food with what its containers have shown over the period, then the containers. */
+export const getPantry = (from: string, to: string) => invoke<Pantry>("pantry", { from, to });
+
+/** The weight per ml a container of this food would start with, and its source. */
+export const suggestDensity = (food: FoodRef) =>
+  invoke<Density | null>("suggest_density", { fdcId: food.fdc_id, customFoodId: food.custom_food_id });
+
+/**
+ * Add a container (no `id`) or change one. The weight per ml is resolved by
+ * the backend from the pack or the reference food, unless `weighedCupG` (a
+ * cupful the owner weighed) is given. `pouredIn` is the first pack, tipped in
+ * today, saved with the container.
+ */
+export const saveContainer = (
+  container: ContainerInput,
+  opts: { weighedCupG?: number | null; pouredIn?: number | null; pouredUnit?: ContainerUnit | null } = {},
+  id: string | null = null,
+) =>
+  invoke<string>("save_container", {
+    id,
+    container,
+    weighedCupG: opts.weighedCupG ?? null,
+    pouredIn: opts.pouredIn ?? null,
+    pouredUnit: opts.pouredUnit ?? null,
+  });
+
+export const deleteContainer = (id: string) => invoke<void>("delete_container", { id });
+
+/**
+ * Record a pack poured in, a reading (g or kg on the scale; ml, l or cups off
+ * the marks; `spilled` after an accident) or the container finished (an
+ * optional last reading of what was thrown out). Returns the container as it
+ * now reads.
+ */
+export const addContainerEvent = (
+  containerId: string,
+  kind: ContainerEventKind,
+  happenedOn: string,
+  amount: number | null,
+  unit: ContainerUnit | null,
+  spilled = false,
+  note: string | null = null,
+) =>
+  invoke<Container>("add_container_event", { containerId, kind, happenedOn, amount, unit, spilled, note });
+
+/** What a reading not yet saved would close: "230 ml used since 28 Sep". */
+export const previewContainerEvent = (
+  containerId: string,
+  kind: ContainerEventKind,
+  amount: number | null,
+  unit: ContainerUnit | null,
+  spilled = false,
+) =>
+  invoke<ContainerStretch | null>("preview_container_event", { containerId, kind, amount, unit, spilled });
+
+export const deleteContainerEvent = (id: string) => invoke<void>("delete_container_event", { id });
+
+/** Each tracked food's to-taste correction as it stands. */
+export const tasteFactors = () => invoke<FoodTasteFactor[]>("taste_factors");
+
+/** Kitchen use per tracked food over an inclusive date range. Aggregate views only. */
+export const containerUsage = (from: string, to: string) =>
+  invoke<FoodUsage[]>("container_usage", { from, to });
+
+/**
+ * Add a container's food to a plate. With `toTaste`, `grams` is the amount the
+ * person would write and the entry gets it times the current correction;
+ * otherwise `grams` is what was measured.
+ */
+export const logContainerUse = (
+  loggedOn: string,
+  meal: string,
+  food: { fdcId: number | null; customFoodId: string | null },
+  description: string,
+  grams: number,
+  toTaste: boolean,
+  origin: string | null = null,
+  cuisine: string | null = null,
+) =>
+  invoke<string>("log_container_use", {
+    loggedOn,
+    meal,
+    fdcId: food.fdcId,
+    customFoodId: food.customFoodId,
+    description,
+    grams,
+    toTaste,
+    origin,
+    cuisine,
+  });
 
 /* ── spreadsheet import ───────────────────────────────────────────────── */
 

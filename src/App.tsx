@@ -10,6 +10,9 @@ import Library from "./screens/Library";
 import You from "./screens/You";
 import Vessels from "./screens/Vessels";
 import Bottles from "./screens/Bottles";
+import Pantry from "./screens/Pantry";
+import ContainerHistory from "./screens/ContainerHistory";
+import ContainerEditor from "./screens/ContainerEditor";
 import CustomFoods from "./screens/CustomFoods";
 import CustomFoodEditor from "./screens/CustomFoodEditor";
 import Supplements from "./screens/Supplements";
@@ -90,6 +93,7 @@ const BAR_IDS: readonly string[] = [...BAR_LEFT, ...BAR_RIGHT].map((t) => t.id);
 const BAR_HIDDEN: readonly string[] = [
   "foods",
   "custom-food",
+  "container-edit",
   "supplement",
   "cook",
   "import",
@@ -186,6 +190,12 @@ const NAV_ICON: Record<string, ReactNode> = {
       <path d="M4.5 9h15" strokeLinecap="round" />
     </>
   ),
+  pantry: (
+    <>
+      <path d="M8 3.8h8v2.8H8z" strokeLinejoin="round" />
+      <path d="M8.6 6.6C7 7.6 6 9 6 11v7.2A1.8 1.8 0 0 0 7.8 20h8.4a1.8 1.8 0 0 0 1.8-1.8V11c0-2-1-3.4-2.6-4.4" strokeLinejoin="round" />
+    </>
+  ),
   bottles: (
     <>
       <path d="M10 3h4v3.2l2 2.6V20a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8.8l2-2.6z" strokeLinejoin="round" />
@@ -266,6 +276,7 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
     items: [
       { id: "recipes", label: "Recipes" },
       { id: "custom-foods", label: "Foods you added" },
+      { id: "pantry", label: "Pantry" },
       { id: "supplements", label: "Supplements" },
       { id: "vessels", label: "Bowls & plates" },
       { id: "bottles", label: "Water bottles" },
@@ -304,6 +315,9 @@ const ASIDES = [
   "cook",
   "vessels",
   "bottles",
+  "pantry",
+  "container",
+  "container-edit",
   "custom-foods",
   "custom-food",
   "supplements",
@@ -340,6 +354,9 @@ const ASIDE_HOME: Record<string, Tab> = {
   cook: "recipes",
   vessels: "foods",
   bottles: "foods",
+  pantry: "library",
+  container: "pantry",
+  "container-edit": "pantry",
   "custom-foods": "foods",
   "custom-food": "custom-foods",
   supplements: "foods",
@@ -746,7 +763,7 @@ function Shell() {
    */
   const showBar = !BAR_HIDDEN.includes(tab);
   /** Lights "More" while you are on one of the places it leads to. */
-  const inDrawer = DRAWER_IDS.includes(tab);
+  const inDrawer = DRAWER_IDS.includes(tab) || tab === "container" || tab === "container-edit";
 
   // Shared by Today's own props and the desktop toolbar's date-stepper, so
   // the two surfaces can never disagree about what "today" or "forward" mean.
@@ -791,6 +808,7 @@ function Shell() {
     { id: "sups", label: "Supplements", hint: "taken by count, not by weight", group: "Library", run: () => go("supplements", { from: "library" }) },
     { id: "vessels", label: "Bowls & plates", hint: "weighed empty once", group: "Library", run: () => go("vessels", { from: "library" }) },
     { id: "bottles", label: "Water bottles", hint: "weighed full once", group: "Library", run: () => go("bottles", { from: "library" }) },
+    { id: "pantry", label: "Pantry", hint: "salt, oil and the rest, read by the jar", group: "Library", run: () => go("pantry", { from: "library" }) },
     { id: "new-own", label: "Transcribe a new food", hint: "from the pack in front of you", group: "Library", run: () => go("custom-food", { from: "custom-foods" }) },
     { id: "profile", label: "About you", hint: "who the figures are for", group: "Settings", run: () => go("profile", { from: "you" }) },
     { id: "targets", label: "Targets & goals", hint: "what every figure is read against", group: "Settings", run: () => go("settings", { from: "you" }) },
@@ -1184,6 +1202,7 @@ function Shell() {
             onOpenSupplements={() => go("supplements", { from: "library" })}
             onOpenVessels={() => go("vessels", { from: "library" })}
             onOpenBottles={() => go("bottles", { from: "library" })}
+            onOpenPantry={() => go("pantry", { from: "library" })}
           />
         )}
 
@@ -1290,6 +1309,36 @@ function Shell() {
 
         {tab === "bottles" && (
           <Bottles onBack={() => go(route.from ?? "foods", { id: route.id })} />
+        )}
+
+        {tab === "pantry" && (
+          <Pantry
+            onBack={() => go(route.from ?? "library")}
+            onOpen={(id) => go("container", { id, from: "pantry" })}
+            onAdd={() => go("container-edit", { from: "pantry" })}
+          />
+        )}
+
+        {tab === "container" && route.id && (
+          <ContainerHistory
+            key={route.id}
+            id={route.id}
+            onBack={() => go("pantry")}
+            onEdit={(id) => go("container-edit", { id, from: "container" })}
+          />
+        )}
+
+        {/* Saving replaces the editor's own history entry, so Back from the
+            container it lands on goes to the pantry rather than into a form
+            that has already been saved. */}
+        {tab === "container-edit" && (
+          <ContainerEditor
+            key={route.id ?? "new"}
+            id={route.id}
+            onDone={(id) => go("container", { id, from: "pantry", replace: true })}
+            onCancel={() => (route.id ? go("container", { id: route.id, replace: true }) : go("pantry", { replace: true }))}
+            onDeleted={() => go("pantry", { replace: true })}
+          />
         )}
 
         {tab === "custom-foods" && (

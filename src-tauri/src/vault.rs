@@ -427,6 +427,8 @@ fn fingerprint(conn: &Connection) -> Result<String, String> {
            ||'.'|| (SELECT COUNT(*) FROM supplements)
            ||'.'|| (SELECT COUNT(*) FROM vessels)
            ||'.'|| (SELECT COUNT(*) FROM bottles)
+           ||'.'|| (SELECT COUNT(*) FROM containers)
+           ||'.'|| (SELECT COUNT(*) FROM container_events)
            ||'.'|| (SELECT COALESCE(MAX(changed_at),'-') FROM row_version)
            ||'.'|| (SELECT COALESCE(MAX(created_at),'-') FROM log_entries)
            ||'.'|| (SELECT COALESCE(MAX(corrected_at),'-') FROM entry_snapshots)",
@@ -1442,6 +1444,7 @@ mod tests {
     fn the_fingerprint_moves_when_something_is_logged_and_not_when_nothing_is() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(crate::store::SCHEMA).unwrap();
+        conn.execute_batch(crate::containers::SCHEMA).unwrap();
         crate::store::ensure_device_identity(&conn).unwrap();
         let before = fingerprint(&conn).unwrap();
         assert_eq!(before, fingerprint(&conn).unwrap());
@@ -1466,6 +1469,7 @@ mod tests {
     fn the_fingerprint_moves_when_a_vessel_is_added() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(crate::store::SCHEMA).unwrap();
+        conn.execute_batch(crate::containers::SCHEMA).unwrap();
         crate::store::ensure_device_identity(&conn).unwrap();
         let before = fingerprint(&conn).unwrap();
         crate::store::save_vessel(&conn, None, "katori", 48.0).unwrap();

@@ -59,6 +59,13 @@ import type {
   Recipe,
   Supplement,
   Vessel,
+  Container,
+  ContainerEvent,
+  ContainerStretch,
+  ContainerSummary,
+  FoodTasteFactor,
+  Pantry,
+  PantryFood,
 } from "../types";
 
 /* ── the nutrients this fixture knows about ─────────────────────────────── */
@@ -540,6 +547,117 @@ function meta(): NutrientMeta[] {
   }));
 }
 
+/* ── the pantry ─────────────────────────────────────────────────────────── */
+
+/** A date `n` days before today, local. */
+function back(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  const p2 = (x: number) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
+const ev = (id: string, kind: ContainerEvent["kind"], daysBack: number, amount: number | null, unit: "g" | "ml" | null, spilled = false): ContainerEvent => ({
+  id, kind, happened_on: back(daysBack), happened_at: `${back(daysBack)}T12:00:00Z`, amount, unit, spilled, note: null,
+});
+
+/**
+ * Three containers: the salt jar on the scale with a spill in its history,
+ * the oil dispenser read by its marks, and the ghee tin still waiting for its
+ * empty weight. Figures are the backend's own arithmetic, done by hand.
+ */
+const CONTAINERS: Container[] = [
+  {
+    id: "salt", name: "Salt jar", food: { fdc_id: 173468, custom_food_id: null }, description: "Salt, table",
+    read_by: "scale", empty_g: null, capacity_ml: null, cup_ml: 240, density: { g_per_ml: 1.2173, source: "reference", note: "USDA: 1 tbsp is 18 g" },
+    events: [ev("s1", "poured_in", 34, 1000, "g"), ev("s2", "reading", 34, 1182, "g"), ev("s3", "reading", 19, 1031, "g"),
+      ev("s4", "reading", 14, 940, "g", true), ev("s5", "reading", 3, 862, "g")],
+    stretches: [
+      { from_on: back(34), to_on: back(19), status: "counted", used_g: 151, used_ml: 124, discarded_g: null, days: 15 },
+      { from_on: back(19), to_on: back(14), status: "spilled", used_g: 91, used_ml: 75, discarded_g: null, days: 5 },
+      { from_on: back(14), to_on: back(3), status: "counted", used_g: 78, used_ml: 64, discarded_g: null, days: 11 },
+      { from_on: back(3), to_on: null, status: "open", used_g: null, used_ml: null, discarded_g: null, days: null },
+    ],
+    finished: false,
+  },
+  {
+    id: "oil", name: "Oil dispenser", food: { fdc_id: 171017, custom_food_id: null }, description: "Sunflower oil",
+    read_by: "marks", empty_g: null, capacity_ml: 1000, cup_ml: 240, density: { g_per_ml: 0.9197, source: "reference", note: "USDA: 1 tbsp is 13.6 g" },
+    events: [ev("o1", "poured_in", 21, 1000, "ml"), ev("o2", "reading", 12, 820, "ml"), ev("o3", "reading", 5, 640, "ml")],
+    stretches: [
+      { from_on: back(21), to_on: back(12), status: "counted", used_g: 166, used_ml: 180, discarded_g: null, days: 9 },
+      { from_on: back(12), to_on: back(5), status: "counted", used_g: 166, used_ml: 180, discarded_g: null, days: 7 },
+      { from_on: back(5), to_on: null, status: "open", used_g: null, used_ml: null, discarded_g: null, days: null },
+    ],
+    finished: false,
+  },
+  {
+    id: "ghee", name: "Ghee tin", food: { fdc_id: null, custom_food_id: "amul-ghee" }, description: "Amul ghee",
+    read_by: "scale", empty_g: null, capacity_ml: null, cup_ml: 240, density: { g_per_ml: 0.905, source: "label", note: "The pack: 1000 ml is 905 g" },
+    events: [ev("g1", "poured_in", 16, 905, "g"), ev("g2", "reading", 8, 1214, "g")],
+    stretches: [
+      { from_on: back(16), to_on: back(8), status: "awaiting_tare", used_g: null, used_ml: null, discarded_g: null, days: 8 },
+      { from_on: back(8), to_on: null, status: "open", used_g: null, used_ml: null, discarded_g: null, days: null },
+    ],
+    finished: false,
+  },
+  {
+    id: "sesame", name: "Sesame oil bottle", food: { fdc_id: 171016, custom_food_id: null }, description: "Sesame oil",
+    read_by: "marks", empty_g: null, capacity_ml: 500, cup_ml: 240, density: null,
+    events: [ev("e1", "poured_in", 60, 500, "ml"), ev("e2", "emptied", 13, null, null)],
+    stretches: [{ from_on: back(60), to_on: back(13), status: "awaiting_density", used_g: null, used_ml: 500, discarded_g: null, days: 47 }],
+    finished: true,
+  },
+];
+
+const FACTORS: FoodTasteFactor[] = [
+  { food: { fdc_id: 173468, custom_food_id: null }, description: "Salt, table", factor: { factor: 1.24, stretches: 2, by_feel_g: 186, written_g: 150 }, typical_written_g: 5 },
+  { food: { fdc_id: 171017, custom_food_id: null }, description: "Sunflower oil", factor: { factor: 1.38, stretches: 2, by_feel_g: 450, written_g: 326 }, typical_written_g: 15 },
+  { food: { fdc_id: null, custom_food_id: "amul-ghee" }, description: "Amul ghee", factor: { factor: 1, stretches: 0, by_feel_g: 0, written_g: 0 }, typical_written_g: 10 },
+];
+
+const pantryRow = (c: Container): ContainerSummary => {
+  const last = [...c.events].reverse().find((e) => e.kind === "reading") ?? c.events.find((e) => e.kind === "poured_in");
+  return {
+    id: c.id, name: c.name, read_by: c.read_by, cup_ml: c.cup_ml,
+    last: last && last.amount !== null && last.unit !== null ? { kind: last.kind as "reading" | "poured_in", amount: last.amount, unit: last.unit, on: last.happened_on } : null,
+    waiting: c.id === "ghee" ? "tare" : null,
+  };
+};
+
+function pantry(): Pantry {
+  const usage = (food: Container["food"], description: string, days: number, g: number | null, ml: number | null): PantryFood["usage"] =>
+    ({ food, description, days, used_per_day_g: g, used_per_day_ml: ml, recorded_per_day_g: g === null ? null : g * 0.8 });
+  const [salt, oil, ghee, sesame] = CONTAINERS;
+  return {
+    foods: [
+      { food: salt.food, description: "Salt", factor: FACTORS[0].factor, typical_written_g: 5, usage: usage(salt.food, "Salt", 26, 8.8, null), waiting: null, containers: [pantryRow(salt)] },
+      { food: oil.food, description: "Sunflower oil", factor: FACTORS[1].factor, typical_written_g: 15, usage: usage(oil.food, "Sunflower oil", 16, 20.7, 22.5), waiting: null, containers: [pantryRow(oil)] },
+      { food: ghee.food, description: "Amul ghee", factor: FACTORS[2].factor, typical_written_g: 10, usage: usage(ghee.food, "Amul ghee", 0, null, null), waiting: "tare", containers: [pantryRow(ghee)] },
+    ],
+    finished: [pantryRow(sesame)],
+  };
+}
+
+/** What the sheet would say, worked against the fixture's last reading. */
+function previewEvent(a: Record<string, unknown>): ContainerStretch | null {
+  const c = CONTAINERS.find((x) => x.id === a.containerId);
+  if (!c || a.kind === "poured_in") return null;
+  const amount = typeof a.amount === "number" ? a.amount : null;
+  const unit = String(a.unit ?? "");
+  const last = [...c.events].reverse().find((e) => e.kind === "reading");
+  if (!last || last.amount === null || amount === null) return null;
+  const typed = unit === "cup" ? amount * c.cup_ml : unit === "l" ? amount * 1000 : unit === "kg" ? amount * 1000 : amount;
+  const asMl = unit === "ml" || unit === "l" || unit === "cup";
+  const sameUnit = (last.unit === "ml") === asMl;
+  if (!sameUnit) return null;
+  const usedRaw = last.amount - typed;
+  return {
+    from_on: last.happened_on, to_on: today(), status: a.spilled ? "spilled" : usedRaw < 0 ? "inconsistent" : "counted",
+    used_g: asMl ? usedRaw * (c.density?.g_per_ml ?? 1) : usedRaw, used_ml: asMl ? usedRaw : null, discarded_g: null, days: 5,
+  };
+}
+
 /* ── dates ──────────────────────────────────────────────────────────────── */
 
 /**
@@ -828,6 +946,17 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   // A copy: logging from a bottle moves its `last_used_at`, and handing back
   // the same array would let React skip the re-render that shows it.
   list_bottles: () => structuredClone(BOTTLES),
+  list_containers: () => CONTAINERS,
+  get_container: (a) => CONTAINERS.find((c) => c.id === a.id) ?? CONTAINERS[0],
+  pantry: () => pantry(),
+  taste_factors: () => FACTORS,
+  container_usage: () => [],
+  suggest_density: () => ({ g_per_ml: 0.9197, source: "reference", note: "USDA: 1 tbsp is 13.6 g" }),
+  preview_container_event: (a) => previewEvent(a),
+  add_container_event: (a) => CONTAINERS.find((c) => c.id === a.containerId) ?? CONTAINERS[0],
+  save_container: () => "salt",
+  delete_container: () => undefined,
+  delete_container_event: () => undefined,
   list_recipes: () => RECIPES,
   list_open_cooks: () => COOKS,
   list_supplements: () => SUPPLEMENTS,

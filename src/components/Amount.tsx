@@ -390,7 +390,7 @@ export function Dose(p: {
  * the unlit ones faintly there, as on the instrument. One dark column between
  * characters; the point takes one column of its own.
  */
-function Dots({ text, faint }: { text: string; faint: boolean }) {
+export function Dots({ text, faint }: { text: string; faint: boolean }) {
   const PITCH = 10;
   const R = 3.9;
   const on: [number, number][] = [];

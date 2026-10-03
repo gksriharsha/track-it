@@ -15,6 +15,7 @@ pub mod activity;
 pub mod aggregate;
 pub mod dri;
 pub mod barcode;
+pub mod container;
 pub mod ingredients;
 pub mod label;
 pub mod panel;

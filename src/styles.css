@@ -1493,6 +1493,10 @@ b, strong, th { font-weight: 600; }
 .ing-opt {
   font-size: var(--t-cap); line-height: var(--t-cap-lh); padding: 4px var(--s2);
 }
+/* Two per-line flags in the one column: what may be skipped, and what goes in
+   by feel. Stacked, so the row keeps its four columns. */
+.ing-flags { display: flex; flex-direction: column; gap: var(--s1); }
+.ing-flags .ing-opt { min-height: 28px; }
 /* The column headings, in the group heading's voice rather than capitals. */
 .ing-head {
   color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh);
@@ -2976,7 +2980,7 @@ b, strong, th { font-weight: 600; }
    starting edge as every other screen, so moving between them
    does not shift where the eye has to begin. */
 @media (min-width: 1080px) {
-  .screen--list { max-width: 760px; }
+  .screen--list, .screen--form { max-width: 760px; }
 }
 
 /* ═════════════════════════════════════════════════════════════
@@ -3920,4 +3924,98 @@ b, strong, th { font-weight: 600; }
   }
   .amount-sheet .amount__servings::-webkit-scrollbar,
   .amount-sheet .amount__vessels::-webkit-scrollbar { display: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   The pantry — kitchen containers, read now and then.
+
+   By food, figures first: each food's period figure leads its
+   group, set wide as every aggregate is (.fig), and its
+   containers follow as tiles, each with a + beside it the way
+   water's row has one. The reading sheet borrows the portion's
+   scale window and keypad whole.
+   ───────────────────────────────────────────────────────────── */
+.pfood { display: flex; flex-direction: column; gap: var(--s2); }
+.pfood__name { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600; }
+.pfood__figs { display: flex; flex-direction: column; gap: 2px; }
+.pfood__fig { display: flex; align-items: baseline; gap: var(--s2); margin: 0; }
+.pfood__n { font-size: var(--t-fig); line-height: var(--t-fig-lh); color: var(--ink); }
+.pfood__u { font-size: var(--t-body); color: var(--ink-2); }
+.pfood__alt { font-size: var(--t-sm); color: var(--ink-3); margin-left: var(--s1); }
+.pfood__k { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); }
+.pfood__t { margin: var(--s1) 0 0; font-size: var(--t-body); color: var(--ink); }
+.pfood__wait { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); max-width: var(--measure); }
+.pfood .tiles { margin-top: var(--s2); }
+
+/* The foods, one after another on a phone. On a desktop each food is its
+   own figure and its own containers, so two columns of them halve the
+   scroll and keep a reading beside the name it belongs to. */
+.pantry__foods { display: flex; flex-direction: column; gap: var(--s5); }
+@media (min-width: 1080px) {
+  .pantry__foods { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--s7); row-gap: var(--s6); align-items: start; }
+}
+
+/* A container: the tile opens its history, the + beside it records a reading. */
+.pantry__row { display: flex; align-items: center; gap: var(--s2); }
+.pantry__open { flex: 1; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; }
+.tiles > .pantry__open:only-child { border-radius: var(--r-md); }
+.pantry__row .pantry__open { border-radius: var(--r-md); }
+.pantry__fig { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; font-weight: 600; }
+.pantry__when { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); font-weight: 400; margin-top: 2px; }
+.pantry__add {
+  flex: none; display: grid; place-items: center;
+  width: 48px; height: 48px; border-radius: var(--r-pill);
+  background: var(--accent-wash); color: var(--accent-ink);
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+.pantry__add .plus { width: 18px; height: 18px; }
+@media (hover: hover) { .pantry__add:hover { background: var(--accent); color: var(--on-accent); } }
+.pantry__event, .pantry__toggle { grid-template-columns: minmax(0, 1fr) auto; }
+.pantry__confirm { display: flex; gap: var(--s2); }
+
+/* A stretch's mark says how it stands at a glance, with the words beside it
+   saying the same: solid when counted, hatched for a spill, an outline while
+   open or waiting. Never a colour judging the amount. */
+.stretch { grid-template-columns: auto minmax(0, 1fr) auto; }
+.stretch__mark { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); }
+.stretch--spilled .stretch__mark { background: repeating-linear-gradient(135deg, var(--ink-3) 0 2px, transparent 2px 4px); box-shadow: inset 0 0 0 1px var(--ink-3); }
+.stretch--open .stretch__mark,
+.stretch--awaiting_tare .stretch__mark,
+.stretch--awaiting_density .stretch__mark,
+.stretch--inconsistent .stretch__mark { background: none; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.stretch--spilled .stretch__used { color: var(--ink-3); text-decoration: line-through; font-weight: 400; }
+
+.pcta { position: sticky; bottom: calc(var(--bar-h) + var(--s3) + var(--safe-bottom)); z-index: 5; }
+.pcta__btn { width: 100%; min-height: 52px; box-shadow: var(--lift-hi); }
+@media (min-width: 721px) {
+  .pcta { position: static; }
+  .pcta__btn { width: auto; min-height: 0; box-shadow: none; }
+}
+
+/* The reading sheet's body, inside the shared Sheet. */
+.rsheet { display: flex; flex-direction: column; gap: var(--s3); }
+.rsheet__sub { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); }
+.rsheet__note { margin: 0; min-height: 20px; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); }
+.rsheet__switch { display: flex; align-items: center; gap: var(--s3); min-height: var(--tap); font-size: var(--t-body); color: var(--ink); }
+.rsheet__switch input { width: 20px; height: 20px; accent-color: var(--accent); }
+.rsheet__save { min-height: 52px; }
+
+/* Adding or changing a container, on one screen. */
+.cform { display: flex; flex-direction: column; gap: var(--s4); }
+.cform__field { display: flex; flex-direction: column; gap: var(--s2); }
+.cform__l { font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600; color: var(--ink-2); }
+.cform__l em { font-style: normal; font-weight: 400; color: var(--ink-3); margin-left: var(--s1); }
+.cform__unit { display: flex; align-items: center; gap: var(--s2); }
+.cform__unit .field { flex: 1; min-width: 0; }
+.cform__unit > span:last-child { color: var(--ink-2); font-size: var(--t-sm); }
+.cform__food { display: flex; align-items: center; gap: var(--s3); }
+.cform__tag { padding: var(--s2) var(--s3); border-radius: var(--r-md); background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; font-size: var(--t-sm); }
+.cform__dens { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--sunken); }
+.cform__dens .cform__unit { width: 100%; flex-wrap: wrap; }
+.cform__dv { margin: 0; font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600; color: var(--ink); }
+.cform__ds { margin: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); color: var(--ink-2); }
+.cform__save { align-self: flex-start; min-height: 48px; }
+.cform__del p { margin: 0 0 var(--s3); font-size: var(--t-sm); color: var(--ink-2); max-width: var(--measure); }
+@media (max-width: 720px) {
+  .cform__save { align-self: stretch; }
 }

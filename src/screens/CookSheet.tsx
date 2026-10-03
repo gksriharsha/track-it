@@ -207,6 +207,12 @@ export default function CookSheet(p: Props) {
         // A line still sitting on its planned amount follows the batch. One
         // the user has moved — including one they left out — keeps what they
         // gave it: that is a decision about this pot, not a number to rescale.
+        // A to-taste line keeps its correction: the pot gets the new written
+        // amount times the same factor the containers gave it.
+        if (r.to_taste) {
+          const ratio = r.planned_g > 0 ? r.raw_g / r.planned_g : 1;
+          return { ...r, planned_g: planned, raw_g: r.raw_g === 0 ? 0 : planned * ratio };
+        }
         const untouched = Math.abs(r.raw_g - r.planned_g) < 0.05;
         if (!untouched) return { ...r, planned_g: planned };
         return { ...r, planned_g: planned, raw_g: roundHalf(planned) };
@@ -254,6 +260,8 @@ export default function CookSheet(p: Props) {
               // still say what the dish was meant to have, not what the last
               // substitute was.
               substituted_for: r.substituted_for ?? r.description,
+              // A different food has a different correction; saving finds it.
+              taste_factor: r.to_taste ? null : r.taste_factor,
             }
           : r,
       ),
@@ -437,11 +445,13 @@ export default function CookSheet(p: Props) {
                       : r.fdc_id === null
                         ? "no composition data · "
                         : ""}
-                    {!out && rawInG > 0
-                      ? `${pct(r.raw_g / rawInG)} of what goes in`
-                      : out
-                        ? "left out"
-                        : ""}
+                    {out
+                      ? "left out"
+                      : r.to_taste
+                        ? `to taste, about ${fmtG(r.raw_g)} g`
+                        : rawInG > 0
+                          ? `${pct(r.raw_g / rawInG)} of what goes in`
+                          : ""}
                   </span>
                 </span>
 
@@ -451,7 +461,9 @@ export default function CookSheet(p: Props) {
                   min="0"
                   inputMode="decimal"
                   value={fmtG(r.raw_g)}
-                  disabled={out}
+                  // By feel: the amount is the written one times what the
+                  // pantry has shown, so there is nothing here to weigh.
+                  disabled={out || r.to_taste === true}
                   onChange={(e) => setRaw(i, Math.max(0, Number(e.target.value) || 0))}
                   aria-label={`Raw grams of ${r.description}`}
                 />
@@ -470,7 +482,7 @@ export default function CookSheet(p: Props) {
                 </span>
               </div>
 
-              {!out && (
+              {!out && !r.to_taste && (
                 <div className="cook-row__dial">
                   <IngredientDial
                     plannedG={r.planned_g > 0 ? r.planned_g : r.raw_g}
