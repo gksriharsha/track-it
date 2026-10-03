@@ -825,6 +825,7 @@ mod tests {
             brand: None,
             last_grams: 150.0,
             last_ml: None,
+            last_pieces: None,
             last_amount_label: "150 g".into(),
         }
     }

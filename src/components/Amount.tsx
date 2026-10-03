@@ -7,6 +7,7 @@ import type { Key, Readout } from "../lib/amount";
 import { rowFigure } from "../lib/energy";
 import { stateOf } from "../lib/nutrient";
 import { useKeepAwake } from "../lib/awake";
+import { nounFor, pluralNoun } from "../lib/pieces";
 import TagPicker from "./TagPicker";
 import Glyph from "./Glyph";
 
@@ -51,6 +52,16 @@ interface Props {
    */
   unit?: ServingUnit;
   /**
+   * A pack that counts its serving — "2 figs (57 g)": what one piece is
+   * called, and how much of `unit` one is, the pack's own share of its
+   * serving. With it the window can count pieces rather than weigh.
+   */
+  piece?: { noun: string; each: number };
+  /** The window is counting pieces now, not reading `unit`. */
+  counting?: boolean;
+  /** Count pieces, or go back to the food's own unit. */
+  onCounting?: (counting: boolean) => void;
+  /**
    * The food per 100 of `unit`, for the line under the window; undefined
    * while it is read.
    */
@@ -90,6 +101,9 @@ export default function Amount(p: Props) {
   const { readout: r, setReadout: setR, setTicked } = p;
   const unit = p.unit ?? "g";
   const measured = unit === "ml";
+  /* Pieces off a pack that counts its serving are counted, never weighed:
+     nothing is under them, and the window says how many. */
+  const counting = !!p.piece && !!p.counting;
   const [showVessels, setShowVessels] = useState(false);
   const [showTags, setShowTags] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -156,8 +170,11 @@ export default function Amount(p: Props) {
         ? `${g(reading)} g on the scale is no more than ${off} (${g(tare)} g)`
         : `${g(reading)} g on the scale, less ${off} (${g(tare)} g)`;
 
-  const energy = net !== null && p.per100 ? atGrams(p.per100.energy, net) : null;
-  const protein = net !== null && p.per100 ? atGrams(p.per100.protein, net) : null;
+  // A count is valued as that many of the pack's shares of its serving, in
+  // the unit the food's figures per 100 are in.
+  const amountOf = net === null ? null : counting && p.piece ? net * p.piece.each : net;
+  const energy = amountOf !== null && p.per100 ? atGrams(p.per100.energy, amountOf) : null;
+  const protein = amountOf !== null && p.per100 ? atGrams(p.per100.protein, amountOf) : null;
 
   const origin = p.origin ? ORIGIN_LABEL[p.origin] : null;
   const tagLine = [origin, p.cuisine].filter(Boolean).join(", ");
@@ -177,7 +194,9 @@ export default function Amount(p: Props) {
         <div className="readout__win">
           <Dots text={shown === "" ? "0" : shown} faint={faint} />
           {focused && <span className="readout__caret" aria-hidden />}
-          <span className="readout__u" aria-hidden>{unit}</span>
+          <span className="readout__u" aria-hidden>
+            {counting && p.piece ? nounFor(Number(shown) || 0, p.piece.noun) : unit}
+          </span>
           {/* The keyboard's way in, laid over the window. Its own value is
               only ever what the keys made, for a screen reader to read out;
               where the keypad is drawn it asks the phone for no keyboard. */}
@@ -194,12 +213,27 @@ export default function Amount(p: Props) {
             enterKeyHint="done"
             autoComplete="off"
             aria-label={tared ? "What the scale reads, bowl and all, in grams"
+              : counting && p.piece ? `How many ${pluralNoun(p.piece.noun)}`
               : measured ? "Millilitres" : "Grams of food"}
           />
         </div>
-        {/* A volume is poured or drunk from the can, never weighed, so there
-            is no bowl under it to take off. */}
-        {!measured && (
+        {/* Counted or weighed, for a pack that counts its serving: what the
+            pack says a serving is, or what the scale says. */}
+        {p.piece && (
+          <div className="chips readout__units" role="group" aria-label="Count or weigh">
+            <button type="button" className="chip" aria-pressed={counting}
+              onClick={() => p.onCounting?.(true)}>
+              {pluralNoun(p.piece.noun)}
+            </button>
+            <button type="button" className="chip" aria-pressed={!counting}
+              onClick={() => p.onCounting?.(false)}>
+              {unit}
+            </button>
+          </div>
+        )}
+        {/* A volume is poured or drunk from the can, and pieces are counted:
+            neither is weighed, so there is no bowl under them to take off. */}
+        {!measured && !counting && (
           <button type="button" className="readout__tare" aria-expanded={showVessels || tared}
             onClick={() => setShowVessels((s) => !s)}>
             <Glyph name="bowl" size={18} />
@@ -213,7 +247,7 @@ export default function Amount(p: Props) {
         )}
       </div>
 
-      {!measured && (showVessels || tared) && (
+      {!measured && !counting && (showVessels || tared) && (
         p.vessels.length === 0 ? (
           <p className="amount__note">
             No bowls weighed yet.{" "}

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { addLogEntry, addMeasuredLogEntry, deleteLogEntry, recallTags } from "../api";
+import { addCountedLogEntry, addLogEntry, addMeasuredLogEntry, deleteLogEntry, recallTags } from "../api";
 import type { FrequentFood, Meal } from "../types";
 import { useAnnounce } from "./UndoBar";
 
@@ -59,10 +59,13 @@ export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
         const tags = await recallTags(source).catch(() => ({ origin: null, cuisine: null }));
         // A drink last had by the can comes back by the can: measured in ml,
         // as the button says, rather than as the grams its sums ran on.
+        // And three figs come back as three figs.
         const entryId =
-          f.last_ml !== null && f.custom_food_id !== null
-            ? await addMeasuredLogEntry(date, meal, f.custom_food_id, f.description, f.last_ml, tags)
-            : await addLogEntry(date, meal, source, f.description, f.last_grams, tags);
+          f.last_pieces !== null && f.custom_food_id !== null
+            ? await addCountedLogEntry(date, meal, f.custom_food_id, f.description, f.last_pieces, tags)
+            : f.last_ml !== null && f.custom_food_id !== null
+              ? await addMeasuredLogEntry(date, meal, f.custom_food_id, f.description, f.last_ml, tags)
+              : await addLogEntry(date, meal, source, f.description, f.last_grams, tags);
         onLoggedRef.current();
         announce({
           // In the words the button carried before it was pressed.

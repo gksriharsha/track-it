@@ -33,6 +33,7 @@ import {
   localIso,
   localToday,
   OWN_KCAL_100,
+  OWN_PIECE,
 } from "./mockDay";
 import type {
   BackupStatus,
@@ -312,6 +313,7 @@ const FREQUENT: FrequentFood[] = [
     brand: null,
     last_grams: 85,
     last_ml: null,
+    last_pieces: null,
     last_amount_label: "85 g",
   },
   {
@@ -323,6 +325,7 @@ const FREQUENT: FrequentFood[] = [
     brand: null,
     last_grams: 60,
     last_ml: null,
+    last_pieces: null,
     last_amount_label: "60 g",
   },
   {
@@ -334,6 +337,7 @@ const FREQUENT: FrequentFood[] = [
     brand: null,
     last_grams: 1200,
     last_ml: null,
+    last_pieces: null,
     last_amount_label: "1,200 g",
   },
   {
@@ -345,6 +349,7 @@ const FREQUENT: FrequentFood[] = [
     brand: null,
     last_grams: 12,
     last_ml: null,
+    last_pieces: null,
     last_amount_label: "12 g",
   },
   {
@@ -356,6 +361,7 @@ const FREQUENT: FrequentFood[] = [
     brand: null,
     last_grams: 150,
     last_ml: null,
+    last_pieces: null,
     last_amount_label: "150 g",
   },
 ];
@@ -437,7 +443,8 @@ const SUPPLEMENTS: Supplement[] = [
 const CUSTOM: CustomFood[] = [
   {
     id: "c1", name: "Roasted chana, salted", brand: "Haldiram's", overrides_fdc_id: null,
-    serving_g: 30, serving_ml: null, serving_label: "1 pack (30 g)", ingredients: null, barcode: null,
+    serving_g: 30, serving_ml: null, serving_pieces: null, piece_noun: null,
+    serving_label: "1 pack (30 g)", ingredients: null, barcode: null,
     photo_label: null, photo_ingredients: null, import_only: false,
     nutrients: [{ nutrient_id: 1008, kind: "measured", amount: 123, upper: null }],
   },
@@ -459,6 +466,9 @@ function saveOwn(food: CustomFood, id: string | null): string {
   else CUSTOM.push(saved);
   const energy = saved.nutrients.find((n) => n.nutrient_id === 1008);
   OWN_KCAL_100[saved.id] = energy?.amount != null ? (energy.amount * 100) / saved.serving_g : null;
+  OWN_PIECE[saved.id] = saved.serving_pieces != null && saved.piece_noun
+    ? { each: saved.serving_g / saved.serving_pieces, noun: saved.piece_noun.trim() }
+    : undefined;
   return saved.id;
 }
 

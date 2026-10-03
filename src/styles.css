@@ -1711,6 +1711,8 @@ b, strong, th { font-weight: 600; }
 .vform__amt .field { flex: 1; min-width: 0; }
 .vform__units { flex: none; flex-wrap: nowrap; }
 .vform__units .chip { min-width: 44px; }
+/* A count beside a name: the count needs only a few digits. */
+.vform__amt .vform__count { flex: 0 0 5.5em; text-align: right; }
 .vform__go { white-space: nowrap; }
 
 .vrow { grid-template-columns: minmax(0, 1fr) auto auto; }
@@ -3840,6 +3842,10 @@ b, strong, th { font-weight: 600; }
   font-size: var(--t-sm); line-height: var(--t-sm-lh);
 }
 .readout__tare .glyph { flex: none; color: var(--area-ink); }
+/* Counted or weighed, for a pack that counts its serving: just under the
+   window, before the bowl line that only weighing has. */
+.readout__units { margin-top: var(--s2); flex-wrap: nowrap; }
+.readout__units .chip { min-width: 52px; }
 @media (hover: hover) { .readout__tare:hover { background: var(--sunken); color: var(--ink); } }
 .amount__vessels { align-items: center; }
 .amount__vessels .chip, .amount__vessels .link { flex: none; white-space: nowrap; }

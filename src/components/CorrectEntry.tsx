@@ -25,6 +25,7 @@ import type {
   NutrientValue,
 } from "../types";
 import { provenanceText } from "../lib/entryText";
+import { nounFor } from "../lib/pieces";
 
 /** The recorded value in words, so the user can see what they are replacing. */
 function said(v: NutrientValue | undefined, magnitude: string): string {
@@ -91,7 +92,7 @@ export default function CorrectEntry({
       setSnap(s);
       // A drink is corrected in the millilitres it was measured in; the grams
       // beside them are only what its sums ran on, and move with them.
-      setAmount(String(s.ml ?? s.grams ?? s.units ?? ""));
+      setAmount(String(s.ml ?? s.pieces ?? s.grams ?? s.units ?? ""));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -108,7 +109,14 @@ export default function CorrectEntry({
 
   const counted = snap.units != null;
   const measured = snap.ml != null;
-  const noun = counted ? (snap.unit_noun ?? "unit") : measured ? "ml" : "g";
+  // Pieces off a pack that counts its serving are corrected as a count, in
+  // the name the piece had when they were logged.
+  const pieced = snap.pieces != null && !!snap.piece_noun;
+  const noun = counted
+    ? (snap.unit_noun ?? "unit")
+    : pieced
+      ? nounFor(Number(amount) || 0, snap.piece_noun ?? "")
+      : measured ? "ml" : "g";
   const chosen = snap.parts[part];
   // Values are stored on the basis their part is measured in, and a person
   // typing a figure has to be told which. Getting this wrong by a factor of the
@@ -139,7 +147,7 @@ export default function CorrectEntry({
 
       <div className="correct__block">
         <label className="correct__label" htmlFor={`amt-${entryId}`}>
-          How much {counted ? "was taken" : measured ? "was had" : "was eaten"}
+          How much {counted ? "was taken" : measured || pieced ? "was had" : "was eaten"}
         </label>
         <div className="correct__row">
           <input
@@ -160,9 +168,10 @@ export default function CorrectEntry({
                 if (!Number.isFinite(n) || n <= 0) throw new Error("that needs to be a positive number");
                 await correctEntryAmount(
                   entryId,
-                  counted || measured ? null : n,
+                  counted || measured || pieced ? null : n,
                   counted ? n : null,
                   measured ? n : null,
+                  pieced ? n : null,
                 );
               })
             }

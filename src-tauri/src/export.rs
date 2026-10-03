@@ -732,6 +732,8 @@ mod tests {
             overrides_fdc_id: None,
             serving_g: BAR,
             serving_ml: None,
+            serving_pieces: None,
+            piece_noun: None,
             serving_label: Some("1 bar (43 g)".into()),
             ingredients: None,
             barcode: None,

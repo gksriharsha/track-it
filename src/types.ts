@@ -122,6 +122,14 @@ export interface LogEntry {
    * water, whose volume comes from its bottle (`water`).
    */
   ml: number | null;
+  /**
+   * How many pieces were had, for one of the user's own foods whose pack
+   * counts its serving — "3 figs" — and what a piece was called then. `grams`
+   * is set beside them as their share of the pack's serving. Null together for
+   * everything weighed, measured or dosed.
+   */
+  pieces: number | null;
+  piece_noun: string | null;
   /** What the scale read with the vessels on it, or null if weighed directly. */
   gross_g: number | null;
   /** What came off. Null exactly when `gross_g` is. */
@@ -529,7 +537,9 @@ export interface FrequentFood {
    * this rather than `last_grams`, so it comes back as the volume it was.
    */
   last_ml: number | null;
-  /** The last amount already written out, e.g. "150 g", or "330 ml". */
+  /** The last count, where that helping was counted in pieces: a repeat logs it. */
+  last_pieces: number | null;
+  /** The last amount already written out, e.g. "150 g", "330 ml" or "3 figs". */
   last_amount_label: string;
 }
 
@@ -600,6 +610,14 @@ export interface CustomFood {
    * whose serving is a weight. Where it is set the food is logged in ml.
    */
   serving_ml: number | null;
+  /**
+   * The serving counted in pieces, where the pack counts it — "2 figs (57 g)"
+   * is 2 — and what one piece is called, singular: "fig". Null together for a
+   * pack that does not count its serving; where set, the food can be logged by
+   * the piece, each one the pack's own share of its serving.
+   */
+  serving_pieces: number | null;
+  piece_noun: string | null;
   /** The pack's own wording, e.g. "1 bar (43 g)". */
   serving_label: string | null;
   ingredients: string | null;
@@ -1481,6 +1499,9 @@ export interface EntrySnapshotView {
   units: number | null;
   /** Set where the amount was measured in ml, which a correction then changes. */
   ml: number | null;
+  /** Set where the amount was counted in pieces, which a correction then changes. */
+  pieces: number | null;
+  piece_noun: string | null;
   /** A supplement's own word for one of itself — "tablet", "gummy". */
   unit_noun: string | null;
   recipe_name: string | null;

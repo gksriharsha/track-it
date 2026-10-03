@@ -417,6 +417,8 @@ fn add_log_entry(
     cuisine: Option<String>,
     // Optional so a caller from before volumes existed still deserialises.
     ml: Option<f64>,
+    // Likewise for a count of pieces.
+    pieces: Option<f64>,
     app: AppHandle,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
@@ -448,6 +450,28 @@ fn add_log_entry(
     };
 
     let tags = store::Tags { origin, cuisine };
+
+    // Pieces are counted and never weighed: two figs off a pack that counts
+    // its serving. No scale reading, so no tare.
+    if let Some(n) = pieces {
+        if grams.is_some() || gross_g.is_some() || units.is_some() || ml.is_some() {
+            return Err("pieces counted are logged by their count alone".into());
+        }
+        return after_write(
+            &app,
+            add_frozen(
+                &refconn,
+                &mut conn,
+                &logged_on,
+                Some(&meal),
+                source,
+                &description,
+                store::Quantity::Pieces(n),
+                None,
+                &tags,
+            ),
+        );
+    }
 
     // A volume is measured and never weighed either: a drink whose pack is
     // per ml, poured or drunk from the can. No scale reading, so no tare.
@@ -1492,6 +1516,8 @@ fn import_one_row(
         overrides_fdc_id: None,
         serving_g: 100.0,
         serving_ml: None,
+        serving_pieces: None,
+        piece_noun: None,
         serving_label: None,
         ingredients: None,
         barcode: None,
@@ -2923,6 +2949,10 @@ pub struct EntrySnapshotView {
     /// Set where the amount was measured in millilitres, which is then the
     /// figure a correction changes; `grams` beside it moves with it.
     pub ml: Option<f64>,
+    /// Set where the amount was counted in pieces, with what a piece is
+    /// called, and then the count is what a correction changes.
+    pub pieces: Option<f64>,
+    pub piece_noun: Option<String>,
     pub unit_noun: Option<String>,
     pub recipe_name: Option<String>,
     pub parts: Vec<EntryPartView>,
@@ -2967,6 +2997,8 @@ fn get_entry_snapshot(
         grams: entry.grams,
         units: entry.units,
         ml: entry.ml,
+        pieces: entry.pieces,
+        piece_noun: entry.piece_noun.clone(),
         unit_noun,
         recipe_name: snap.recipe.as_ref().map(|r| r.name.clone()),
         parts: snap
@@ -3007,16 +3039,20 @@ fn correct_entry_amount(
     units: Option<f64>,
     // Optional so a caller from before volumes existed still deserialises.
     ml: Option<f64>,
+    // Likewise for a count of pieces.
+    pieces: Option<f64>,
     app: AppHandle,
     user: State<'_, store::Store>,
 ) -> Result<(), String> {
-    let quantity = match (grams, units, ml) {
-        (Some(g), None, None) => store::Quantity::Grams(g),
-        (None, Some(u), None) => store::Quantity::Units(u),
-        (None, None, Some(v)) => store::Quantity::Millilitres(v),
+    let quantity = match (grams, units, ml, pieces) {
+        (Some(g), None, None, None) => store::Quantity::Grams(g),
+        (None, Some(u), None, None) => store::Quantity::Units(u),
+        (None, None, Some(v), None) => store::Quantity::Millilitres(v),
+        (None, None, None, Some(n)) => store::Quantity::Pieces(n),
         _ => {
             return Err(
-                "a correction sets one of a weight, a count or a volume, and only one".into(),
+                "a correction sets one of a weight, a dose, a volume or a count, and only one"
+                    .into(),
             )
         }
     };
@@ -3129,6 +3165,17 @@ fn resolve_contribution(
         (store::Quantity::Millilitres(_), _) => {
             return Err(
                 "only one of your own foods whose pack is per ml is measured in ml".into(),
+            )
+        }
+        // Counted: valued at the pieces' share of the serving the pack counts,
+        // which is the serving its figures are per.
+        (store::Quantity::Pieces(n), store::Source::Custom(cid)) => {
+            Some(store::mass_of_pieces(uconn, cid, n)?.0)
+        }
+        (store::Quantity::Pieces(_), _) => {
+            return Err(
+                "only one of your own foods whose pack counts its serving is counted in pieces"
+                    .into(),
             )
         }
     };
@@ -5153,6 +5200,8 @@ mod tests {
             overrides_fdc_id: overrides,
             serving_g: BAR,
             serving_ml: None,
+            serving_pieces: None,
+            piece_noun: None,
             serving_label: Some("1 bar (43 g)".into()),
             ingredients: Some("Sugar, milk, chocolate".into()),
             barcode: None,
@@ -8022,6 +8071,8 @@ mod tests {
                 overrides_fdc_id: None,
                 serving_g: CAN,
                 serving_ml: Some(CAN),
+                serving_pieces: None,
+                piece_noun: None,
                 serving_label: Some("1 can (330 ml)".into()),
                 ingredients: None,
                 barcode: None,
@@ -8112,6 +8163,47 @@ mod tests {
             let n: i64 = uc.query_row("SELECT COUNT(*) FROM log_entries", [], |r| r.get(0)).unwrap();
             assert_eq!(n, 0, "nothing was written for either");
         }
+
+        /// A fig bar pack: "2 figs (57 g)", 200 kcal and 2 g of protein a serving.
+        fn fig_bars() -> store::CustomFood {
+            store::CustomFood {
+                name: "Fig bars".into(),
+                serving_g: 57.0,
+                serving_ml: None,
+                serving_pieces: Some(2.0),
+                piece_noun: Some("fig".into()),
+                serving_label: Some("2 figs (57 g)".into()),
+                nutrients: vec![
+                    nutrient(ENERGY_ID, "measured", Some(200.0), None),
+                    nutrient(1003, "measured", Some(2.0), None),
+                ],
+                ..cola()
+            }
+        }
+
+        #[test]
+        fn a_fig_is_valued_as_its_share_of_the_serving_and_corrected_as_a_count() {
+            let Some(rc) = refdb() else { return };
+            let mut uc = user_db();
+            let id = store::save_custom_food(&mut uc, None, &fig_bars()).unwrap();
+            let three = add_frozen(&rc, &mut uc, DAY, Some("lunch"), store::Source::Custom(&id), "Fig bars",
+                store::Quantity::Pieces(3.0), None, &store::Tags::default()).unwrap();
+            let (e, energy, mut uc) = energy_of(&rc, uc, "Fig bars");
+            assert_eq!((e.pieces, e.piece_noun.as_deref(), e.grams), (Some(3.0), Some("fig"), Some(85.5)));
+            assert!(close(energy.lower, 300.0), "three figs are a serving and a half: {energy:?}");
+
+            let err = store::correct_amount(&mut uc, &three, store::Quantity::Grams(30.0)).unwrap_err();
+            assert!(err.contains("pieces"), "a count is corrected as a count: {err}");
+            store::correct_amount(&mut uc, &three, store::Quantity::Pieces(1.0)).unwrap();
+            let (e, energy, mut uc) = energy_of(&rc, uc, "Fig bars");
+            assert_eq!((e.pieces, e.grams), (Some(1.0), Some(28.5)));
+            assert!(close(energy.lower, 100.0), "{energy:?}");
+
+            let bar_id = store::save_custom_food(&mut uc, None, &bar(None)).unwrap();
+            let err = add_frozen(&rc, &mut uc, DAY, Some("lunch"), store::Source::Custom(&bar_id),
+                "Milk chocolate bar", store::Quantity::Pieces(1.0), None, &store::Tags::default()).unwrap_err();
+            assert!(err.contains("count"), "a bar that does not count its serving: {err}");
+        }
     }
 
     /// The two Android home-screen widgets, tested where their figures are
@@ -8135,6 +8227,8 @@ mod tests {
                 overrides_fdc_id: None,
                 serving_g: 100.0,
                 serving_ml: None,
+                serving_pieces: None,
+                piece_noun: None,
                 serving_label: None,
                 ingredients: None,
                 barcode: None,
