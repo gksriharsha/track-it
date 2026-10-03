@@ -1,8 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- The outer edge is one true circle (r 13.5); the weight grows inward, so
-       the width step reads as a shoulder and the silhouette never breaks.
-       Butt caps: on a circular arc a butt cap is radial, so both caps meet on
-       the same radius line. -->
-  <path d="M 16 5 A 11 11 0 1 1 6.474 21.5" fill="none" stroke="#4a7c59" stroke-width="5" stroke-linecap="butt"/>
-  <path d="M 5.261 22.2 A 12.4 12.4 0 0 1 16 3.6" fill="none" stroke="#4a7c59" stroke-width="2.2" stroke-linecap="butt"/>
+  <!-- The app's icon at a browser tab's size: the T in two tiles, white on the
+       teal, in the rounded square the Mac draws it in. The hairline between the
+       two tiles is a little wider here than in the icon, so it survives 16 px.
+       See design/logo for the drawing it comes from. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#14907f"/><stop offset="1" stop-color="#085650"/></linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7.2" fill="url(#bg)"/>
+  <path d="M7.711 7.95h16.578a1.35 1.35 0 0 1 1.35 1.35v1.257a1.35 1.35 0 0 1 -1.35 1.35h-16.578a1.35 1.35 0 0 1 -1.35 -1.35v-1.257a1.35 1.35 0 0 1 1.35 -1.35z" fill="#ffffff"/>
+  <path d="M13.989 13.107h4.022a0.45 0.45 0 0 1 0.45 0.45v9.643a1.35 1.35 0 0 1 -1.35 1.35h-2.222a1.35 1.35 0 0 1 -1.35 -1.35v-9.643a0.45 0.45 0 0 1 0.45 -0.45z" fill="#ffffff"/>
 </svg>
