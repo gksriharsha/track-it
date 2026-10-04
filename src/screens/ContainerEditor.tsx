@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { deleteContainer, getContainer, saveContainer, searchFoods, suggestDensity } from "../api";
+import FormChips from "../components/FormChips";
 import ScreenHead from "../components/ScreenHead";
-import type { ContainerUnit, Density, FoodHit, FoodRef, ReadBy } from "../types";
+import { displayName, familyOf, ingredientOf, rawFirst } from "../lib/foodForms";
+import type { ContainerUnit, Density, FoodFamily, FoodHit, FoodRef, ReadBy } from "../types";
 
 interface Props {
   /** The container being changed, or null to add one. */
@@ -32,6 +34,12 @@ export default function ContainerEditor(p: Props) {
   const [name, setName] = useState("");
   const [food, setFood] = useState<FoodRef | null>(null);
   const [foodName, setFoodName] = useState("");
+  /**
+   * The forms of the food picked on this visit, from its hit, for the chips
+   * under it. Null for a container opened as it was: the form in it was
+   * chosen when it was made, and is not offered again.
+   */
+  const [pickedFamily, setPickedFamily] = useState<FoodFamily | null>(null);
   const [readBy, setReadBy] = useState<ReadBy>("scale");
   const [cupMl, setCupMl] = useState(240);
   const [capacity, setCapacity] = useState("");
@@ -79,8 +87,9 @@ export default function ContainerEditor(p: Props) {
     if (q.length < 2) { setHits([]); return; }
     const mine = ++seq.current;
     const t = setTimeout(() => {
-      searchFoods(q, 12)
-        .then((r) => { if (mine === seq.current) setHits(r.slice(0, 8)); })
+      searchFoods(q, 8)
+        // A food with a form as bought comes before one only ever cooked.
+        .then((r) => { if (mine === seq.current) setHits(rawFirst(r)); })
         .catch((e) => setError(String(e)));
     }, 160);
     return () => clearTimeout(t);
@@ -104,9 +113,14 @@ export default function ContainerEditor(p: Props) {
   }
 
   function pick(h: FoodHit) {
-    if (h.fdc_id === null && h.custom_food_id === null) return;
-    setFood({ fdc_id: h.fdc_id, custom_food_id: h.custom_food_id });
-    setFoodName(h.description);
+    // What goes in a jar or a bottle goes in as it was bought: the uncooked
+    // form of a food that comes in several, unless the words typed named
+    // another, kept by its full description. Its other forms stay a tap away.
+    const { fdcId, ownId, description } = ingredientOf(h, query);
+    if (fdcId === null && ownId === null) return;
+    setFood({ fdc_id: fdcId, custom_food_id: ownId });
+    setFoodName(description);
+    setPickedFamily(familyOf(h));
     setQuery("");
     setHits([]);
   }
@@ -185,10 +199,16 @@ export default function ContainerEditor(p: Props) {
         <div className="cform__field">
           <span className="cform__l">What's in it</span>
           {food ? (
-            <div className="cform__food">
-              <span className="cform__tag">{foodName}</span>
-              <button className="link" onClick={() => { setFood(null); setFoodName(""); setDensity(null); }}>change</button>
-            </div>
+            <>
+              <div className="cform__food">
+                <span className="cform__tag">{foodName}</span>
+                <button className="link" onClick={() => { setFood(null); setFoodName(""); setDensity(null); }}>change</button>
+              </div>
+              {pickedFamily !== null && food.fdc_id !== null && (
+                <FormChips fdcId={food.fdc_id} known={pickedFamily} small className="cform__forms"
+                  onForm={(f) => { setFood({ fdc_id: f.fdc_id, custom_food_id: null }); setFoodName(f.description); }} />
+              )}
+            </>
           ) : (
             <>
               <input className="field" value={query} onChange={(e) => setQuery(e.target.value)} data-results-below
@@ -198,7 +218,7 @@ export default function ContainerEditor(p: Props) {
                   {hits.map((h) => (
                     <li key={h.custom_food_id ?? h.fdc_id ?? h.description}>
                       <button className="row hit" onClick={() => pick(h)}>
-                        <span className="row__main"><span className="row__title">{h.description}</span></span>
+                        <span className="row__main"><span className="row__title">{displayName(h)}</span></span>
                         <span className="hit__src">{h.custom_food_id !== null ? "yours" : ""}</span>
                       </button>
                     </li>

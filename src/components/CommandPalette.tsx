@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { searchFoods } from "../api";
 import type { FoodHit } from "../types";
 import { MOD } from "../lib/desktop";
+import { displayName, familyOf, formsLine } from "../lib/foodForms";
 
 /** One thing the palette can do. Destinations and actions are the same shape. */
 export interface Command {
@@ -116,6 +117,11 @@ export default function CommandPalette(p: Props) {
       if (!row) return;
       p.onClose();
       if (row.kind === "cmd") row.cmd.run();
+      // Seeds the full description of the form the row opens on, never the
+      // name it shows: a short name may carry words no description has
+      // (", survey"), and the search ANDs every word, so it would find
+      // nothing. The description is found again, and folded back into the
+      // same one row.
       else p.onSearchFood(row.hit.description);
     },
     [rows, p],
@@ -212,10 +218,11 @@ export default function CommandPalette(p: Props) {
                       </>
                     ) : (
                       <>
-                        <span className="pal__label">{row.hit.description}</span>
+                        <span className="pal__label">{displayName(row.hit)}</span>
                         <span className="pal__hint">
                           {row.hit.note ??
-                            (row.hit.kind === "custom" ? "your own food" : row.hit.data_type)}
+                            (row.hit.kind === "custom" ? "your own food"
+                              : formsLine(familyOf(row.hit)?.forms ?? []) || row.hit.data_type)}
                         </span>
                       </>
                     )}

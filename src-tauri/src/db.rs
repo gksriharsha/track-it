@@ -39,6 +39,36 @@ pub struct FoodHit {
     pub note: Option<String>,
     /// True when an exact alias matched, so the UI can mark why this is first.
     pub matched_alias: bool,
+    /// What the row is called on screen: the family name ("Mungo beans") for a
+    /// food in several forms, the tidied name of a single food ("Spinach,
+    /// baby"), `None` for a custom food. `description` stays the full USDA
+    /// wording, which is what the amount panel shows and what an entry logs.
+    pub name: Option<String>,
+    /// This food's forms in form order: uncooked first, then cooked, then fat
+    /// stated, canned, frozen, other, with a salted form right after its
+    /// unsalted twin. Empty unless the food comes in two or more forms; the
+    /// form is then chosen once, on the amount panel, rather than by telling
+    /// near-identical search rows apart.
+    pub forms: Vec<FoodForm>,
+}
+
+/// One form of a food that USDA files as several rows.
+#[derive(Debug, Serialize, Clone)]
+pub struct FoodForm {
+    pub fdc_id: i64,
+    /// The words that tell this form from its siblings, lower-case: "raw",
+    /// "boiled", "boiled, salted", "canned, drained".
+    pub label: String,
+    /// The full USDA description, as logged.
+    pub description: String,
+}
+
+/// A food and every form it comes in, for an amount panel opened on any one of
+/// them.
+#[derive(Debug, Serialize)]
+pub struct FoodFamily {
+    pub name: String,
+    pub forms: Vec<FoodForm>,
 }
 
 impl FoodHit {
@@ -61,6 +91,8 @@ impl FoodHit {
             data_type,
             note,
             matched_alias,
+            name: None,
+            forms: Vec::new(),
         }
     }
 }

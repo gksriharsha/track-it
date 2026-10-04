@@ -104,9 +104,32 @@ function logged(entry: LogEntry, parts: Part[], recipe: Logged["recipe"] = null)
 }
 
 /** A plain reference food: one measured component, and no breakdown rows. */
-function plain(id: string, meal: Meal, description: string, grams: number, kcal: number, t: Tags = {}): Logged {
-  const e = { ...blank(id, meal, description), fdc_id: 168874, grams, origin: t.origin ?? null, cuisine: t.cuisine ?? null };
-  return logged(e, [measured(description, 168874, grams, kcal)]);
+function plain(
+  id: string, meal: Meal, description: string, grams: number, kcal: number, t: Tags = {}, fdc = 168874,
+): Logged {
+  const e = { ...blank(id, meal, description), fdc_id: fdc, grams, origin: t.origin ?? null, cuisine: t.cuisine ?? null };
+  return logged(e, [measured(description, fdc, grams, kcal)]);
+}
+
+/**
+ * The short names the backend gives the reference foods this fixture logs
+ * (`Index::entry_name`), each held against the row's description as the
+ * dataset has it. An entry carrying other words keeps them, as a past day
+ * does once a dataset has reworded its row.
+ */
+const SHORT_NAMES: Record<number, [description: string, name: string]> = {
+  172427: ["Mungo beans, mature seeds, cooked, boiled, without salt", "Mungo beans, boiled"],
+  174259: ["Mungo beans, mature seeds, raw", "Mungo beans, raw"],
+};
+
+function shortName(fdc: number | null, description: string): string | null {
+  const known = fdc === null ? undefined : SHORT_NAMES[fdc];
+  return known !== undefined && known[0] === description ? known[1] : null;
+}
+
+/** Only a plain reference food is renamed; everything else keeps the name it was logged under. */
+function named(e: LogEntry): LogEntry {
+  return { ...e, name: e.source_kind === "food" ? shortName(e.fdc_id, e.description) : null };
 }
 
 /** A dish portioned out of a recipe or, with `pot`, out of a pot that was cooked. */
@@ -191,7 +214,7 @@ const LOG: Logged[] = [
   // Mostly measured: the ghee line has no data, which is 12 g of 219. Out of a
   // pot nobody weighed, so the portion was divided by the recipe's estimate.
   dish("e4", "lunch", "Dal tadka (urad and toor)", 285, { name: "Dal tadka", yield_g: 1140, servings: null, weighed: false }, [
-    measured("Lentils, urad, raw", 172421, 62, 211),
+    measured("Mungo beans, mature seeds, raw", 174259, 62, 211),
     measured("Lentils, toor, raw", 172420, 38, 130),
     measured("Onions, raw", 170000, 45, 18),
     measured("Tomatoes, red, ripe", 170457, 60, 11),
@@ -209,6 +232,10 @@ const LOG: Logged[] = [
   ),
   plain("e9", "dinner", "Vegetable pulao", 320, 352, { cuisine: "North Indian", origin: "ordered_in" }),
   plain("e10", "dinner", "Paneer butter masala", 190, 380, { cuisine: "North Indian", origin: "ordered_in" }),
+  // Urad, boiled: its row reads "Mungo beans, boiled", and its sheet keeps
+  // the USDA wording it was logged under.
+  plain("e11", "dinner", "Mungo beans, mature seeds, cooked, boiled, without salt", 150, 158,
+    { cuisine: "North Indian", origin: "home" }, 172427),
   // Two bottles and no meal: water is drunk across the day. One weighed, one
   // from the uncalibrated bottle, so both readings of a volume are on show.
   water(BOTTLES[0], 884, null, "w1"),
@@ -233,7 +260,7 @@ function backfilled(l: Logged): Logged {
 const live = (iso: string) => LOG.filter((l) => l.removedAt === null && l.entry.logged_on === iso);
 
 export function dayEntries(iso: string): LogEntry[] {
-  return live(iso).map((l) => ({ ...l.entry }));
+  return live(iso).map((l) => named(l.entry));
 }
 
 /**
@@ -258,6 +285,7 @@ export function dayBreakdowns(iso: string): EntryBreakdown[] {
         ? []
         : l.parts.map<Component>((p) => ({
             description: p.description,
+            name: shortName(p.fdc_id, p.description),
             fdc_id: p.fdc_id,
             grams: p.grams,
             has_data: p.has_data,
@@ -330,6 +358,7 @@ function snapshot(l: Logged): EntrySnapshotView {
       return {
         ordinal,
         description: p.description,
+        name: shortName(p.fdc_id, p.description),
         fdc_id: p.fdc_id,
         grams: p.grams,
         servings: p.grams === null ? l.entry.units : null,
@@ -380,7 +409,11 @@ function logBottle(a: Record<string, unknown>, share: number | null): string {
 }
 
 /** Energy per 100 g of the foods offered one tap, roughly as the reference has them. */
-const KCAL_100G: Record<number, number> = { 168874: 365, 172421: 352, 171287: 61, 171705: 876, 170554: 23 };
+const KCAL_100G: Record<number, number> = {
+  168874: 365, 172421: 352, 171287: 61, 171705: 876, 170554: 23,
+  // Mungo beans raw and boiled, so a change of form moves the line under the window.
+  174259: 341, 172427: 105,
+};
 
 /** What a write or a valuation names: one of a food, your own food, a recipe or a pot. */
 interface Weighable {

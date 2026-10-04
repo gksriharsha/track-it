@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { draftCook, getCook, listVessels, saveCook, searchFoods } from "../api";
+import FormChips from "../components/FormChips";
 import IngredientDial from "../components/IngredientDial";
 import TagPicker from "../components/TagPicker";
 import WeightField, { type Weighed } from "../components/WeightField";
 import { useKeepAwake } from "../lib/awake";
+import { displayName, ingredientOf, rawFirst } from "../lib/foodForms";
 import { pct, plural } from "../lib/nutrient";
-import { SOURCE_LABEL } from "../types";
-import type { Cook, CookIngredient, FoodHit, Origin, Vessel } from "../types";
+import type { Cook, CookIngredient, FoodForm, FoodHit, Origin, Vessel } from "../types";
 import ScreenHead from "../components/ScreenHead";
 
 /**
@@ -178,13 +179,14 @@ export default function CookSheet(p: Props) {
     if (q.length < 2) { setHits([]); return; }
     const mine = ++seq.current;
     const t = setTimeout(() => {
-      searchFoods(q, 24)
+      searchFoods(q, 6)
         .then((r) => {
           if (mine !== seq.current) return;
           // Own foods included, and ranked first by the backend. A swap at
           // the stove is exactly where the brand actually in the fridge beats
-          // the generic entry the recipe was written against.
-          setHits(r.slice(0, 6));
+          // the generic entry the recipe was written against. A food with a
+          // form to weigh raw comes before one only ever cooked.
+          setHits(rawFirst(r));
         })
         .catch((e) => setError(String(e)));
     }, 160);
@@ -245,7 +247,10 @@ export default function CookSheet(p: Props) {
   }
 
   function swapIn(i: number, h: FoodHit) {
-    if (h.fdc_id === null && h.custom_food_id === null) return;
+    // A food in several forms comes in as its uncooked one, or the one the
+    // words typed name: every line here is weighed raw.
+    const food = ingredientOf(h, query);
+    if (food.fdcId === null && food.ownId === null) return;
     setRows((rs) =>
       rs.map((r, j) =>
         j === i
@@ -253,9 +258,9 @@ export default function CookSheet(p: Props) {
               ...r,
               // One or the other, always cleared together: a line left holding
               // both would be two claims about what was eaten.
-              fdc_id: h.fdc_id,
-              custom_food_id: h.custom_food_id,
-              description: h.description,
+              fdc_id: food.fdcId,
+              custom_food_id: food.ownId,
+              description: food.description,
               // Keep the first thing this line ever was. Swapping twice must
               // still say what the dish was meant to have, not what the last
               // substitute was.
@@ -270,18 +275,46 @@ export default function CookSheet(p: Props) {
   }
 
   function addLine(h: FoodHit) {
-    if (h.fdc_id === null && h.custom_food_id === null) return;
+    // Raw, as every line is: the uncooked form of a food in several, unless
+    // the words typed named another.
+    const food = ingredientOf(h, query);
+    if (food.fdcId === null && food.ownId === null) return;
     setRows((rs) => [
       ...rs,
       {
-        id: "", position: rs.length, fdc_id: h.fdc_id,
-        custom_food_id: h.custom_food_id, description: h.description,
+        id: "", position: rs.length, fdc_id: food.fdcId,
+        custom_food_id: food.ownId, description: food.description,
         // The recipe never called for this, so there is nothing to be centred
         // on. The dial falls back to half-gram notches, which is right for a
         // line whose "as written" amount is genuinely zero.
         planned_g: 0, raw_g: 10, substituted_for: null,
       },
     ]);
+    setSwapping(null); setQuery(""); setHits([]);
+  }
+
+  /**
+   * Another form of the food on a line: canned chickpeas where the recipe
+   * says dry. The grams stay — they are what went in — and it is a swap like
+   * any other, said against what the recipe wrote, unless it goes back to
+   * exactly that; a line added at the stove had nothing written to be
+   * instead of.
+   */
+  function switchForm(i: number, f: FoodForm) {
+    setRows((rs) =>
+      rs.map((r, j) => {
+        if (j !== i || r.fdc_id === f.fdc_id) return r;
+        const written = r.substituted_for ?? (r.planned_g > 0 ? r.description : null);
+        return {
+          ...r,
+          fdc_id: f.fdc_id,
+          custom_food_id: null,
+          description: f.description,
+          substituted_for: written === f.description ? null : written,
+          taste_factor: r.to_taste ? null : r.taste_factor,
+        };
+      }),
+    );
     setSwapping(null); setQuery(""); setHits([]);
   }
 
@@ -497,6 +530,12 @@ export default function CookSheet(p: Props) {
 
               {swapping === i && (
                 <div style={{ marginTop: "var(--s3)" }}>
+                  {/* The same food in another form, one tap; something else
+                      altogether, searched for under it. */}
+                  {r.fdc_id !== null && (
+                    <FormChips fdcId={r.fdc_id} small className="cook-row__forms"
+                      onForm={(f) => switchForm(i, f)} />
+                  )}
                   <input
                     className="field"
                     autoFocus
@@ -505,24 +544,7 @@ export default function CookSheet(p: Props) {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />
-                  {hits.length > 0 && (
-                    <ul className="hits">
-                      {hits.map((h) => (
-                        <li key={h.fdc_id ?? h.description}>
-                          <button className="row hit" onClick={() => swapIn(i, h)}>
-                            <span className="row__main">
-                              <span className="row__title">{h.description}</span>
-                            </span>
-                            <span className="hit__src">
-                              {h.custom_food_id !== null
-                                ? "yours"
-                                : SOURCE_LABEL[h.data_type] ?? h.data_type}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  {hits.length > 0 && <Hits hits={hits} onPick={(h) => swapIn(i, h)} />}
                 </div>
               )}
             </div>
@@ -537,24 +559,7 @@ export default function CookSheet(p: Props) {
             <div style={{ marginTop: "var(--s3)" }}>
               <input className="field" autoFocus data-results-below placeholder="Search an ingredient"
                 value={query} onChange={(e) => setQuery(e.target.value)} />
-              {hits.length > 0 && (
-                <ul className="hits">
-                  {hits.map((h) => (
-                    <li key={h.fdc_id ?? h.description}>
-                      <button className="row hit" onClick={() => addLine(h)}>
-                        <span className="row__main">
-                          <span className="row__title">{h.description}</span>
-                        </span>
-                        <span className="hit__src">
-                              {h.custom_food_id !== null
-                                ? "yours"
-                                : SOURCE_LABEL[h.data_type] ?? h.data_type}
-                            </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {hits.length > 0 && <Hits hits={hits} onPick={addLine} />}
             </div>
           )}
         </div>
@@ -622,6 +627,29 @@ export default function CookSheet(p: Props) {
         />
       </section>
     </div>
+  );
+}
+
+/**
+ * What a swap or an extra line could be: one row a food, by its short name —
+ * a food in several forms goes in raw, and its other forms are on the line's
+ * swap, once it is in — and "yours" on the user's own, the one thing about a
+ * row worth saying at the stove. The dataset a reference row came from is not.
+ */
+function Hits({ hits, onPick }: { hits: FoodHit[]; onPick: (h: FoodHit) => void }) {
+  return (
+    <ul className="hits">
+      {hits.map((h) => (
+        <li key={h.fdc_id ?? h.custom_food_id ?? h.description}>
+          <button className="row hit" onClick={() => onPick(h)}>
+            <span className="row__main">
+              <span className="row__title">{displayName(h)}</span>
+            </span>
+            <span className="hit__src">{h.custom_food_id !== null ? "yours" : ""}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

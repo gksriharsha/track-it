@@ -107,6 +107,16 @@ export interface LogEntry {
   bottle_id: string | null;
   description: string;
   /**
+   * What a reference food entry is called on screen: the short name search
+   * gives it, "Mungo beans, boiled", while `description` keeps the full USDA
+   * wording it was logged with. Worked out each time the day is read, and
+   * only while that wording is still the dataset's, so a past day never
+   * changes under it. Null for the user's own foods, dishes, pots,
+   * supplements and water, which keep their own names. Show it through
+   * `displayName`.
+   */
+  name?: string | null;
+  /**
    * What was eaten, in grams. Null for a supplement, which is counted rather
    * than weighed. Never write `?? 0`: a dose rendered as "0 g" is the same
    * class of lie as a nutrient rendered as 0.
@@ -429,6 +439,8 @@ export function describeVolume(ml: number): string {
 /** One resolved component of an entry: the food, or one recipe ingredient. */
 export interface Component {
   description: string;
+  /** A reference ingredient's short name, as on `LogEntry`; null for anything else. */
+  name?: string | null;
   fdc_id: number | null;
   /** Null for a supplement, which contributed a dose and no mass. */
   grams: number | null;
@@ -651,6 +663,41 @@ export interface FoodHit {
   note: string | null;
   /** True when an Indian-name alias matched, so this hit is ranked first. */
   matched_alias: boolean;
+  /**
+   * What the row is called on screen: the family name ("Mungo beans") for a
+   * food in several forms, the tidied name of a single food ("Spinach,
+   * baby"), null for a custom food. `description` stays the full USDA name,
+   * which is what is logged. Optional so the fixture and older shapes still
+   * read: missing is null (`displayName`).
+   */
+  name?: string | null;
+  /**
+   * The food's forms in form order — uncooked first, then cooked, then fat
+   * stated, canned, frozen, other; a salted form right after its unsalted
+   * twin. Empty unless the food comes in two or more, and then this entry IS
+   * the food: search returns one entry per food, `fdc_id` is the form the
+   * amount panel opens on, and the form is chosen there. Missing is empty.
+   */
+  forms?: FoodForm[];
+}
+
+/** One form of a food that comes in several: one USDA row. */
+export interface FoodForm {
+  fdc_id: number;
+  /** The words that tell this form from its siblings, lower-case: "raw", "boiled, salted". */
+  label: string;
+  /** The full USDA description, as logged. */
+  description: string;
+}
+
+/**
+ * A reference food's forms under the name they share, for a panel reached
+ * without a search hit to carry them (`food_forms`). `forms` is empty when the
+ * food comes in only one.
+ */
+export interface FoodFamily {
+  name: string;
+  forms: FoodForm[];
 }
 
 /**
@@ -697,6 +744,12 @@ export interface FrequentFood {
    * another.
    */
   description: string;
+  /**
+   * A reference food's short name, as search gives it ("Mungo beans,
+   * boiled"): what the chip says. `description` is still what a tap logs.
+   * Null for one of the user's own foods.
+   */
+  name?: string | null;
   brand: string | null;
   /**
    * The last net weight, to open the portion step on. Never null, and never
@@ -1707,6 +1760,8 @@ export interface EntryValueView {
 export interface EntryPartView {
   ordinal: number;
   description: string;
+  /** A reference part's short name, as on `Component`. */
+  name?: string | null;
   fdc_id: number | null;
   grams: number | null;
   servings: number | null;

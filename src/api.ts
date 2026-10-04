@@ -20,6 +20,7 @@ import type {
   DayView,
   ExportLog,
   FoodDetail,
+  FoodFamily,
   FoodHit,
   FrequentFood,
   ImportRowInput,
@@ -103,12 +104,25 @@ const tagArgs = (t: EntryTags = {}) => ({
  * `includeOverridden` turns that substitution off, which is what choosing the
  * entry a food replaces needs: the entry has to stay pickable, or a food's own
  * base could never be re-picked once set.
+ *
+ * A food that comes in several forms is ONE entry carrying them (`forms`),
+ * and `limit` counts entries, not USDA rows — ask for as many as are shown.
+ * `flat` turns the grouping off, each form its own entry named with its label
+ * ("Mungo beans, raw"): for the picker where the form is the decision itself.
  */
-export const searchFoods = (query: string, limit = 40, includeOverridden = false) =>
-  invoke<FoodHit[]>("search_foods", { query, limit, includeOverridden });
+export const searchFoods = (query: string, limit = 40, includeOverridden = false, flat = false) =>
+  invoke<FoodHit[]>("search_foods", { query, limit, includeOverridden, flat });
 
 export const getFoodDetail = (fdcId: number) =>
   invoke<FoodDetail>("get_food_detail", { fdcId });
+
+/**
+ * The forms of any reference food, for a panel reached without a search hit
+ * to carry them — a widget, a saved recipe line. `forms` is empty when the
+ * food comes in only one; an unknown food is not an error.
+ */
+export const getFoodForms = (fdcId: number) =>
+  invoke<FoodFamily>("food_forms", { fdcId });
 
 /** Something weighed to value per 100 g: never a supplement, which is counted. */
 export type WeighedSource =

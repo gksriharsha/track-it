@@ -101,12 +101,7 @@ export default function Recipes(p: Props) {
       ) : list.length === 0 ? (
         <div className="empty">
           <h3>No recipes yet</h3>
-          <p>
-            A recipe is ingredients in proportion — no servings to commit to, because you cook
-            for however many are eating. Weigh each ingredient raw, say once what the dish comes
-            out at cooked, and every batch afterwards starts from it. That one cooked weight is
-            what keeps a katori of rajma from counting three times over.
-          </p>
+          <p>Save a dish you cook often, and log a katori of it without weighing each ingredient.</p>
           <button className="btn" onClick={builder.show}>Build your first recipe</button>
         </div>
       ) : (

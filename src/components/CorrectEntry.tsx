@@ -25,6 +25,7 @@ import type {
   NutrientValue,
 } from "../types";
 import { provenanceText } from "../lib/entryText";
+import { displayName } from "../lib/foodForms";
 import { nounFor } from "../lib/pieces";
 
 /** The recorded value in words, so the user can see what they are replacing. */
@@ -196,7 +197,7 @@ export default function CorrectEntry({
           >
             {snap.parts.map((p, i) => (
               <option key={p.ordinal} value={i}>
-                {p.description}
+                {displayName(p)}
               </option>
             ))}
           </select>

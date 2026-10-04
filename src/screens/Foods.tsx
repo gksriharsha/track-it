@@ -7,6 +7,7 @@ import {
   addWeighedLogEntry,
   getCustomFoodDetail,
   getFoodDetail,
+  getFoodForms,
   listBottles,
   listRecipes,
   listOpenCooks,
@@ -30,6 +31,7 @@ import type {
   CustomFoodDetail,
   CustomNutrientRow,
   FoodDetail,
+  FoodFamily,
   FoodHit,
   FrequentFood,
   Meal,
@@ -46,6 +48,8 @@ import { fmtAmount } from "../lib/nutrient";
 import { digitsOf, weighing } from "../lib/amount";
 import { pieceText } from "../lib/pieces";
 import type { Readout } from "../lib/amount";
+import { displayName, familyOf, familyTitle, formsLine, readoutOnSwitch } from "../lib/foodForms";
+import type { NamedServing } from "../lib/foodForms";
 import Amount, { AmountTitle, Dose } from "../components/Amount";
 import type { Serving } from "../components/Amount";
 import { useQuickLog } from "../components/QuickLog";
@@ -250,6 +254,28 @@ export default function Foods(p: Props) {
   }
   const [busy, setBusy] = useState(false);
   const [picked, setPicked] = useState<FoodDetail | null>(null);
+  /**
+   * The forms of the picked reference food, where it comes in several, under
+   * the name they share: the chips under the panel's title. From the search
+   * hit when it was picked from the list, and asked for (`getFoodForms`) when
+   * it arrived any other way. Read only while it holds `picked`, so a family
+   * left behind by a pick that went another way can never be drawn.
+   */
+  const [family, setFamily] = useState<FoodFamily | null>(null);
+  /**
+   * Moved on whenever what is picked is put down or replaced, so a late answer
+   * about the food before — its forms, a form switched to — is dropped rather
+   * than landing on the next one. Mirrored in state as the amount panel's
+   * key: a new pick is a new panel, while its chips arriving or a change of
+   * form is the same panel, with whatever the person had open left open.
+   */
+  const pickGen = useRef(0);
+  const [pickSerial, setPickSerial] = useState(0);
+  function nextPick() {
+    pickGen.current += 1;
+    setPickSerial(pickGen.current);
+  }
+  const switchSeq = useRef(0);
   /** The user's own food, picked. Never set at the same time as `picked`. */
   const [pickedCustom, setPickedCustom] = useState<CustomFoodDetail | null>(null);
   const [showPanel, setShowPanel] = useState(false);
@@ -417,10 +443,14 @@ export default function Foods(p: Props) {
     dinner" — read again when the meal changes, since breakfast's usual foods
     are not dinner's.
   */
+  // The list runs off the main thread, so a meal changed while it is read
+  // could otherwise be answered by the meal before it.
+  const quickSeq = useRef(0);
   const loadQuick = useCallback(() => {
+    const mine = ++quickSeq.current;
     frequentFoods(4, p.meal)
-      .then(setQuick)
-      .catch(() => setQuick([]));
+      .then((f) => { if (mine === quickSeq.current) setQuick(f); })
+      .catch(() => { if (mine === quickSeq.current) setQuick([]); });
   }, [p.meal]);
 
   useEffect(() => { loadQuick(); }, [loadQuick]);
@@ -477,7 +507,8 @@ export default function Foods(p: Props) {
     seedTaken.current = q;
     setTab("foods");
     setQuery(q);
-    setPicked(null); setPickedCustom(null); setPickedRecipe(null);
+    nextPick();
+    setPicked(null); setFamily(null); setPickedCustom(null); setPickedRecipe(null);
     setPickedCook(null); setPickedSupplement(null); setTicked([]);
     runSearch(q);
     searchRef.current?.focus();
@@ -518,6 +549,8 @@ export default function Foods(p: Props) {
     pickTaken.current = p.preselect ?? null;
     let live = true;
     setError(null);
+    nextPick();
+    setFamily(null);
     setPickedRecipe(null); setPickedCook(null); setPickedSupplement(null); setTicked([]);
 
     if (target.kind === "water") {
@@ -555,8 +588,11 @@ export default function Foods(p: Props) {
           if (!live) return;
           setPickedCustom(null);
           setPicked(d);
-          setNet(d.portions[0] ? String(round(d.portions[0].gram_weight)) : "100");
+          setNet(String(startGrams(d)));
           openAmount();
+          // A widget names one USDA row, not the food it is a form of. Its
+          // forms are asked for beside the panel rather than before it.
+          loadForms(fdc);
           await recall({ fdcId: fdc });
         }
       } catch {
@@ -570,8 +606,9 @@ export default function Foods(p: Props) {
       }
     })();
     return () => { live = false; };
-    // `recall` is stable and `setNet` is a plain function on this component;
-    // re-running this for either would defeat the point of keying on the token.
+    // `recall` is stable, and `setNet` and `loadForms` are plain functions on
+    // this component; re-running this for any of them would defeat the point
+    // of keying on the token.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.preselect, p.active]);
 
@@ -638,7 +675,10 @@ export default function Foods(p: Props) {
         const d = await getFoodDetail(hit.fdc_id);
         setPickedCustom(null);
         setPicked(d);
-        setNet(d.portions[0] ? String(round(d.portions[0].gram_weight)) : "100");
+        // One row for a food in several forms: it opens on the form the
+        // backend chose (`hit.fdc_id`), and its forms go with it to the panel.
+        setFamily(familyOf(hit));
+        setNet(String(startGrams(d)));
         openAmount();
         await recall({ fdcId: hit.fdc_id });
       }
@@ -648,8 +688,49 @@ export default function Foods(p: Props) {
   /** Only one thing is ever picked: each card beside the list commits its own. */
   function clearPicks() {
     setError(null);
-    setPicked(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
+    nextPick();
+    setPicked(null); setFamily(null); setPickedCustom(null); setPickedRecipe(null); setPickedCook(null);
     setPickedSupplement(null); setTicked([]); setCounting(false);
+  }
+
+  /**
+   * The forms of a reference food that reached the panel without a search hit
+   * to carry them. Never waited for: the panel opens on the food at once, and
+   * the chips join it when they come, or never, if the call fails — they
+   * were not asked for, so a failure says nothing.
+   */
+  function loadForms(fdcId: number) {
+    const gen = pickGen.current;
+    getFoodForms(fdcId)
+      .then((f) => { if (gen === pickGen.current && f.forms.length >= 2) setFamily(f); })
+      .catch(() => { /* the panel stands without its chips */ });
+  }
+
+  /**
+   * Another form of the picked food, chosen at the scale.
+   *
+   * In place, and nothing like `pick`: the sheet stays up, a reading typed or
+   * kept stays with the bowls ticked under it, a serving follows its own name
+   * to the new form (`readoutOnSwitch`), and tags the person chose stay. Only
+   * tags that were merely recalled, or none at all, are looked up again for
+   * the new row. The detail is read FIRST and the swap made in one go, so the
+   * panel never stands empty between the two forms. What is logged is then
+   * the new form's own id and full description, as with any pick.
+   */
+  async function switchForm(fdcId: number) {
+    const was = picked;
+    const gen = pickGen.current;
+    // Taken before the check below, so going back to the form on screen also
+    // drops a change still on its way.
+    const mine = ++switchSeq.current;
+    if (was === null || was.fdc_id === fdcId) return;
+    try {
+      const d = await getFoodDetail(fdcId);
+      if (gen !== pickGen.current || mine !== switchSeq.current) return;
+      setReadout((r) => readoutOnSwitch(r, servingsOf(was), servingsOf(d), startGrams(d)));
+      setPicked(d);
+      if (recalled || (origin === null && cuisine === null)) await recall({ fdcId });
+    } catch (e) { setError(String(e)); }
   }
 
   /**
@@ -897,7 +978,7 @@ export default function Foods(p: Props) {
         await addLogEntry(p.date, p.meal, { fdcId: picked.fdc_id }, picked.description, g,
           { origin, cuisine });
       }
-      setPicked(null); setQuery(""); setHits([]); setTicked([]);
+      setPicked(null); setFamily(null); setQuery(""); setHits([]); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
       loadQuick();
       p.onLogged();
@@ -1071,10 +1152,15 @@ export default function Foods(p: Props) {
   const recalledNote = recalled ? "From the last time you logged this — change it if today was different." : null;
   const weigh = (lead: React.ReactNode, name: string, sub: React.ReactNode, servings: Serving[],
     onCommit: () => void, foot: React.ReactNode, note: string | null = recalledNote,
-    unit: ServingUnit = "g", piece?: { noun: string; each: number }) => ({
+    unit: ServingUnit = "g", piece?: { noun: string; each: number }, forms: FoodFamily | null = null) => ({
     title: <AmountTitle lead={lead} name={name} sub={sub} />,
     body: (
-      <Amount key={pickedKey ?? "none"} lead={lead} name={name} sub={sub} head={wide}
+      /* Keyed by the pick, so a change of form, or a food's forms arriving
+         after it, is the same panel with another row under it: the tags and
+         bowls left open stay open. Anything else picked is a new panel. */
+      <Amount key={`pick:${pickSerial}`}
+        lead={lead} name={name} sub={sub} head={wide}
+        forms={forms?.forms} form={picked?.fdc_id} onForm={(f) => void switchForm(f)}
         onClose={wide ? clearPicks : undefined}
         readout={readout} setReadout={setReadout}
         ticked={unit === "ml" || (piece && counting) ? NO_VESSELS : ticked} setTicked={setTicked}
@@ -1158,16 +1244,32 @@ export default function Foods(p: Props) {
         )}
       </>, recalledNote, unit, piece);
   } else if (picked) {
-    panel = weigh(<span className="lead lead--ref" aria-hidden>{initials(picked.description)}</span>,
-      picked.description, "From the USDA",
+    // A food in several forms is titled by the name they share, with its
+    // forms as chips under it; its full USDA name, the one the day will
+    // carry, is said once at the foot. A food in one form is titled by that,
+    // and so is a form whose family is named by one form's description: the
+    // title then follows the form chosen, and says all the foot would.
+    const form = family?.forms.find((f) => f.fdc_id === picked.fdc_id);
+    const forms = family !== null && form !== undefined ? family : null;
+    const name = forms !== null && form !== undefined ? familyTitle(forms, form) : picked.description;
+    panel = weigh(<span className="lead lead--ref" aria-hidden>{initials(name)}</span>,
+      name, "From the USDA",
       picked.portions.slice(0, 8).map((pt) => ({ label: portionLabel(pt), amount: round(pt.gram_weight) })),
       commit,
-      unmeasured > 0 ? (
-        <p className="amount__note">
-          {unmeasured} of {picked.nutrients.length} nutrients have no measured value for this food,
-          and count as unmeasured rather than as zero.
-        </p>
-      ) : null);
+      forms !== null || unmeasured > 0 ? (
+        <>
+          {forms !== null && name !== picked.description && (
+            <p className="amount__note">Added as “{picked.description}”</p>
+          )}
+          {unmeasured > 0 && (
+            <p className="amount__note">
+              {unmeasured} of {picked.nutrients.length} nutrients have no measured value for this food,
+              and count as unmeasured rather than as zero.
+            </p>
+          )}
+        </>
+      ) : null,
+      recalledNote, "g", undefined, forms);
   } else if (pickedSupplement) {
     const s = pickedSupplement;
     const title = <AmountTitle lead={doseLead} name={supplementLabel(s)} sub="Your supplement" />;
@@ -1349,10 +1451,10 @@ export default function Foods(p: Props) {
                             onClick={() => void qlog.log(f)}
                             disabled={qlog.pending !== null}
                             aria-busy={qlog.pending === f.key}
-                            aria-label={`Log ${f.description}, ${f.last_amount_label}, to ${p.meal}`}
+                            aria-label={`Log ${displayName(f)}, ${f.last_amount_label}, to ${p.meal}`}
                           >
                             <PlusGlyph />
-                            <span className="usual__name">{f.description}</span>
+                            <span className="usual__name">{displayName(f)}</span>
                             <span className="usual__amt tnum">{f.last_amount_label}</span>
                           </button>
                         ))}
@@ -1455,9 +1557,18 @@ export default function Foods(p: Props) {
                     <section className="food__sec" aria-label="From the USDA">
                       <h2 className="food__h">From the USDA</h2>
                       <div className="tiles">
-                        {refHits.map((h, i) => row(`r-${h.fdc_id}`, yoursCount + i,
-                          <span className="lead lead--ref" aria-hidden>{initials(h.description)}</span>,
-                          h.description, h.note, chev, () => void pick(h)))}
+                        {/* One row a food. A food in several forms leads
+                            with a stacked tile and names its forms under
+                            its name — unless an alias note has more to
+                            say — and its form is chosen at the scale. */}
+                        {refHits.map((h, i) => {
+                          const fam = familyOf(h);
+                          return row(`r-${h.fdc_id}`, yoursCount + i,
+                            <span className={`lead lead--ref${fam ? " lead--stack" : ""}`} aria-hidden>
+                              {initials(displayName(h))}
+                            </span>,
+                            displayName(h), h.note ?? (fam ? formsLine(fam.forms) : null), chev, () => void pick(h));
+                        })}
                       </div>
                     </section>
                   )}
@@ -1704,13 +1815,36 @@ function defaultPortion(r: Recipe): number {
  * useful: what it weighs.
  */
 function portionLabel(pt: Portion): string {
+  const name = portionName(pt);
+  // A portion of so many grams is said once: "100 g", not "100 g · 100 g".
+  return name === null ? `${round(pt.gram_weight)} g` : `${name} · ${round(pt.gram_weight)} g`;
+}
+
+/** What a portion is called with its weight left off — "1 cup" — or null for one that is only a weight. */
+function portionName(pt: Portion): string | null {
   const named = [pt.description, pt.unit].find(
     (v): v is string => typeof v === "string" && /\p{L}/u.test(v),
   );
-  // A portion of so many grams is said once: "100 g", not "100 g · 100 g".
-  if (named === undefined || /^g(rams?)?$/i.test(named.trim())) return `${round(pt.gram_weight)} g`;
+  if (named === undefined || /^g(rams?)?$/i.test(named.trim())) return null;
   const qty = pt.amount === 1 ? "" : `${trim(pt.amount)} `;
-  return `${qty}${named.trim()} · ${round(pt.gram_weight)} g`;
+  return `${qty}${named.trim()}`;
+}
+
+/**
+ * A reference food's serving chips as a change of form matches them, by name:
+ * a cup of one form is the cup of the next, whatever each weighs. One that is
+ * only a weight is matched by that weight.
+ */
+function servingsOf(d: FoodDetail): NamedServing[] {
+  return d.portions.slice(0, 8).map((pt) => ({
+    name: portionName(pt) ?? `${round(pt.gram_weight)} g`,
+    amount: round(pt.gram_weight),
+  }));
+}
+
+/** What a reference food opens on: its first portion, or 100 g where it has none. */
+function startGrams(d: FoodDetail): number {
+  return d.portions[0] ? round(d.portions[0].gram_weight) : 100;
 }
 
 /** No vessels: what a volume has under it. One array, so a render does not make a new one. */

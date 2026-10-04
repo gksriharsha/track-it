@@ -46,6 +46,8 @@ import type {
   EnergyTarget,
   ExportLog,
   FoodDetail,
+  FoodFamily,
+  FoodForm,
   FoodHit,
   FrequentFood,
   GoalsView,
@@ -211,7 +213,7 @@ function day(iso: string): DayView {
 /* ── search ─────────────────────────────────────────────────────────────── */
 
 const CATALOGUE: FoodHit[] = [
-  hit(172421, "Lentils, mature seeds, raw", "SR Legacy", "urad dal — matched on an Indian-name alias", true),
+  hit(172421, "Lentils, mature seeds, raw", "SR Legacy", null, false),
   hit(172420, "Lentils, pink or red, mature seeds, raw", "SR Legacy", "masoor dal", true),
   hit(174288, "Chickpea flour (besan)", "SR Legacy", "besan", true),
   hit(168874, "Rice, white, long-grain, regular, raw", "SR Legacy", null, false),
@@ -243,7 +245,61 @@ function hit(fdc: number, description: string, dataType: string, note: string | 
     data_type: dataType,
     note,
     matched_alias: alias,
+    name: null,
+    forms: [],
   };
+}
+
+/*
+  One food in two forms, as the bundled data has it: the raw seeds, and the
+  boiled ones every urad alias points at. The salted twin is left out, as the
+  backend hides it from anyone who has not typed "salt" or logged it. The note
+  is the alias table's own, word for word.
+*/
+const MUNGO: FoodForm[] = [
+  { fdc_id: 174259, label: "raw", description: "Mungo beans, mature seeds, raw" },
+  { fdc_id: 172427, label: "boiled", description: "Mungo beans, mature seeds, cooked, boiled, without salt" },
+];
+const URAD_NOTE = "USDA files urad dal under its botanical name, Mungo beans";
+/** The real portions, so a serving chip visibly follows a change of form: a cup is 207 g raw, 180 g boiled. */
+const MUNGO_PORTIONS: Record<number, FoodDetail["portions"]> = {
+  174259: [{ amount: 1, unit: "cup", description: null, gram_weight: 207 }],
+  172427: [
+    { amount: 1, unit: "cup", description: null, gram_weight: 180 },
+    { amount: 1, unit: "oz dry, yield after cooking", description: null, gram_weight: 69 },
+  ],
+};
+
+/** The bundled alias table's urad rows, word for word: each Indian name and the row it means. */
+const URAD_ALIASES: Record<string, number> = { "urad": 172427, "urad dal": 172427, "urad dal raw": 174259 };
+
+/**
+ * The family as search returns it: one entry, opened on the form the typed
+ * Indian name means and otherwise on the first; or, `flat`, one entry a form.
+ * A name matches when every word typed starts the alias's word in its place
+ * ("urad d" is "urad dal"); only an alias typed in full says which form.
+ */
+function mungo(q: string, flat: boolean): FoodHit[] {
+  const typed = q.split(/\s+/);
+  const aliases = Object.keys(URAD_ALIASES).filter((a) => {
+    const words = a.split(" ");
+    return typed.length <= words.length && typed.every((t, i) => words[i].startsWith(t));
+  });
+  const alias = aliases.length > 0;
+  if (!alias && !MUNGO.some((f) => f.description.toLowerCase().includes(q))) return [];
+  // Opened on the exact alias's row; a name only begun opens on the first form.
+  const target = URAD_ALIASES[q] ?? MUNGO[0].fdc_id;
+  const entry = (f: FoodForm, name: string, forms: FoodForm[]): FoodHit => ({
+    ...hit(f.fdc_id, f.description, "SR Legacy", alias ? URAD_NOTE : null, alias), name, forms,
+  });
+  if (flat) return MUNGO.map((f) => entry(f, `Mungo beans, ${f.label}`, []));
+  return [entry(MUNGO.find((f) => f.fdc_id === target) ?? MUNGO[0], "Mungo beans", MUNGO)];
+}
+
+/** `food_forms`: the family of a form, or a food on its own. */
+function familyOf(fdcId: number): FoodFamily {
+  if (MUNGO.some((f) => f.fdc_id === fdcId)) return { name: "Mungo beans", forms: MUNGO };
+  return { name: detail(fdcId).description, forms: [] };
 }
 
 const OWN: FoodHit[] = [
@@ -256,10 +312,12 @@ const OWN: FoodHit[] = [
     data_type: "custom",
     note: "replaces the generic roasted chickpea entry",
     matched_alias: false,
+    name: null,
+    forms: [],
   },
 ];
 
-function search(query: string, limit: number): FoodHit[] {
+function search(query: string, limit: number, flat: boolean): FoodHit[] {
   const q = query.trim().toLowerCase();
   if (q.length < 2) return [];
   const matches = (h: FoodHit) =>
@@ -269,17 +327,24 @@ function search(query: string, limit: number): FoodHit[] {
   // The user's own foods first, the same order the real backend returns.
   const saved: FoodHit[] = CUSTOM.filter((f) => !OWN.some((h) => h.custom_food_id === f.id)).map((f) => ({
     kind: "custom", fdc_id: null, custom_food_id: f.id, description: f.name, brand: f.brand,
-    data_type: "custom", note: null, matched_alias: false,
+    data_type: "custom", note: null, matched_alias: false, name: null, forms: [],
   }));
-  return [...OWN.filter(matches), ...saved.filter(matches), ...CATALOGUE.filter(matches)].slice(0, limit);
+  // An alias match leads the reference foods, as it does in the backend.
+  const family = mungo(q, flat);
+  const lead = family.some((h) => h.matched_alias);
+  return [
+    ...OWN.filter(matches), ...saved.filter(matches),
+    ...(lead ? family : []), ...CATALOGUE.filter(matches), ...(lead ? [] : family),
+  ].slice(0, limit);
 }
 
 function detail(fdcId: number): FoodDetail {
+  const form = MUNGO.find((f) => f.fdc_id === fdcId);
   const found = CATALOGUE.find((h) => h.fdc_id === fdcId) ?? CATALOGUE[0];
   return {
     fdc_id: fdcId,
-    description: found.description,
-    data_type: found.data_type,
+    description: form?.description ?? found.description,
+    data_type: form ? "SR Legacy" : found.data_type,
     // A realistic mix: most lines measured, a handful genuinely absent.
     nutrients: SPECS.map((s, i) => ({
       id: s.id,
@@ -292,7 +357,7 @@ function detail(fdcId: number): FoodDetail {
           ? { kind: "absent" as const }
           : { kind: "measured" as const, amount: Math.round(s.lower / 3.2 * 100) / 100 },
     })),
-    portions: [
+    portions: MUNGO_PORTIONS[fdcId] ?? [
       { amount: 1, unit: "cup", description: null, gram_weight: 185 },
       { amount: 1, unit: "tbsp", description: null, gram_weight: 12 },
       { amount: 100, unit: "g", description: null, gram_weight: 100 },
@@ -336,6 +401,21 @@ const FREQUENT: FrequentFood[] = [
     last_ml: null,
     last_pieces: null,
     last_amount_label: "60 g",
+  },
+  {
+    source_kind: "food",
+    key: "food:172427",
+    fdc_id: 172427,
+    custom_food_id: null,
+    description: "Mungo beans, mature seeds, cooked, boiled, without salt",
+    // What search calls it, and so what the chip says; a tap still logs the
+    // description.
+    name: "Mungo beans, boiled",
+    brand: null,
+    last_grams: 150,
+    last_ml: null,
+    last_pieces: null,
+    last_amount_label: "150 g",
   },
   {
     source_kind: "food",
@@ -385,7 +465,7 @@ const FREQUENT: FrequentFood[] = [
  */
 const FREQUENT_AT: Record<Meal, [key: string, grams: number][]> = {
   breakfast: [["food:171287", 150]],
-  lunch: [["food:172421", 60], ["food:168874", 120], ["food:170554", 90]],
+  lunch: [["food:172427", 150], ["food:172421", 60], ["food:168874", 120], ["food:170554", 90]],
   dinner: [["food:168874", 85], ["food:171287", 200], ["food:171705", 12]],
   snack: [],
 };
@@ -962,8 +1042,9 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   // so — which is also the state a cancelled panel leaves the real app in, and
   // therefore the one worth being able to look at here.
   save_exported_file: () => null,
-  search_foods: (a) => search(String(a.query ?? ""), Number(a.limit ?? 30)),
+  search_foods: (a) => search(String(a.query ?? ""), Number(a.limit ?? 40), a.flat === true),
   get_food_detail: (a) => detail(Number(a.fdcId)),
+  food_forms: (a) => familyOf(Number(a.fdcId)),
   frequent_foods: (a) => frequent(Number(a.limit ?? 6), (a.meal as Meal | null | undefined) ?? null),
   logged_dates: (a) => {
     const since = String(a.since ?? "");

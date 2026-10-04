@@ -1068,6 +1068,11 @@ b, strong, th { font-weight: 600; }
 .lead--bought { box-shadow: inset 0 0 0 1.5px var(--line); color: var(--ink-2); }
 .lead--water { background: var(--water-wash); color: var(--water-ink); }
 .lead--act { background: var(--act-wash); color: var(--act-ink); }
+/* One row for a food that comes in several forms: a second tile's edge
+   behind the first, up and to the right, parted from it by a hairline of the
+   row's own white. Drawn as shadows, which follow the radius and sit outside
+   the tile, so nothing covers the initials. */
+.lead--stack { box-shadow: 1.5px -1.5px 0 var(--surface), 4px -4px 0 var(--sunken); }
 
 /* One entry: what it was, a quiet line, and its energy on the right. The
    line may take a second line before it is cut: a pot that was never
@@ -2490,6 +2495,8 @@ b, strong, th { font-weight: 600; }
 .cook-row__planned { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
 .cook-row__sub { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); margin-top: 2px; }
 .cook-row__dial { margin-top: var(--s2); }
+/* A swap's first offer: the same food in its other forms, over the search. */
+.cook-row__forms { margin-bottom: var(--s3); }
 @media (max-width: 720px) {
   .cook-row__head { grid-template-columns: 1fr 76px auto; }
   .cook-row__acts { grid-column: 1 / -1; display: flex; gap: var(--s2); }
@@ -2617,7 +2624,7 @@ b, strong, th { font-weight: 600; }
 
 .pal__label {
   flex: 1; min-width: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 500;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .pal__hint {
   flex: none; max-width: 46%; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh);
@@ -3731,6 +3738,11 @@ b, strong, th { font-weight: 600; }
   font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600;
 }
 .food__row { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* A search result's name is the whole of what tells it from its neighbours,
+   and USDA puts the difference last: "…cooked, boiled, with salt" and
+   "…without salt" cut to the same ellipsis. So a hit's name wraps, at the
+   cost of a taller row, where every other list keeps its titles to one line. */
+.food__row .row__title, .hit .row__title { white-space: normal; overflow-wrap: anywhere; }
 /* The keyboard's highlight, where there is a keyboard and a pointer: ↑ and ↓
    walk the list. On a phone it would read as a selection nobody made. */
 /* A ring rather than a fill: the reference foods' tiles are the sunken grey
@@ -3883,6 +3895,9 @@ b, strong, th { font-weight: 600; }
 
 .amount__servings { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .amount__servings .chip { flex: none; white-space: nowrap; }
+/* The food's forms, first under its name: chips like the servings, and on a
+   phone one sideways-scrolling line like them (below). */
+.amount__forms .chip { flex: none; white-space: nowrap; }
 
 .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
 .keypad__key {
@@ -3936,12 +3951,13 @@ b, strong, th { font-weight: 600; }
   /* Servings, and the vessels to take off, each in one line that scrolls
      sideways to the sheet's edges: three rows of bowls would push the button
      off a phone's screen. */
-  .amount-sheet .amount__servings, .amount-sheet .amount__vessels {
+  .amount-sheet .amount__servings, .amount-sheet .amount__vessels, .amount-sheet .amount__forms {
     flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
     margin: 0 calc(var(--s4) * -1); padding: 2px var(--s4);
   }
   .amount-sheet .amount__servings::-webkit-scrollbar,
-  .amount-sheet .amount__vessels::-webkit-scrollbar { display: none; }
+  .amount-sheet .amount__vessels::-webkit-scrollbar,
+  .amount-sheet .amount__forms::-webkit-scrollbar { display: none; }
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -4028,6 +4044,8 @@ b, strong, th { font-weight: 600; }
 .cform__unit > span:last-child { color: var(--ink-2); font-size: var(--t-sm); }
 .cform__food { display: flex; align-items: center; gap: var(--s3); }
 .cform__tag { padding: var(--s2) var(--s3); border-radius: var(--r-md); background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; font-size: var(--t-sm); }
+/* The other forms of the food just picked: as bought is the default, not the only choice. */
+.cform__forms { margin-top: var(--s2); }
 .cform__dens { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--sunken); }
 .cform__dens .cform__unit { width: 100%; flex-wrap: wrap; }
 .cform__dv { margin: 0; font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600; color: var(--ink); }
@@ -4037,3 +4055,44 @@ b, strong, th { font-weight: 600; }
 @media (max-width: 720px) {
   .cform__save { align-self: stretch; }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   New recipe: headed runs of tiles, like the pantry and the Food screen.
+   Why a field is asked for sits behind the (i) beside its heading.
+   ───────────────────────────────────────────────────────────── */
+.rb { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.rb__head { display: flex; align-items: center; gap: var(--s2); min-height: 32px; }
+.rb__h { margin: 0; font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 600; }
+.rb__fig { margin-left: auto; color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); white-space: nowrap; }
+.rb__note { margin: calc(var(--s3) * -1) 0 0; color: var(--ink-3); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.rb__name { font-size: var(--t-head); line-height: var(--t-head-lh); font-weight: 500; }
+.rb__line { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.rb__u { color: var(--ink-2); margin-right: var(--s2); }
+.rb__plabel { flex: 1 1 140px; min-width: 0; max-width: 240px; }
+.rb__untracked, .rb__discard { align-self: flex-start; }
+.rb__discard { color: var(--ink-3); margin-top: var(--s2); }
+
+/* An ingredient: tap the name for its flags; the raw weight is always there,
+   in the right-hand column where every figure in the app lines up. */
+.rb-ing { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--s2); padding-left: 0; }
+.rb-ing__tap {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: var(--s3);
+  min-height: 44px; padding-left: 14px; text-align: left; border-radius: var(--r-in);
+}
+.rb-ing .row__title { white-space: normal; overflow-wrap: anywhere; }
+.rb-ing__nodata { color: var(--over); }
+.rb-ing__w { display: flex; align-items: center; gap: var(--s1); }
+.rb-ing__w .field { width: 76px; text-align: right; padding: var(--s2) var(--s3); }
+.rb-ing__u { color: var(--ink-2); font-size: var(--t-sm); }
+.rb-ing__more {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s2);
+  padding-left: calc(14px + 40px + var(--s3));
+}
+.rb-ing__rm { margin-left: auto; color: var(--over); }
+/* Its forms, over the flags, under the name they change. */
+.rb-ing__forms { grid-column: 1 / -1; padding-left: calc(14px + 40px + var(--s3)); }
+
+.rb-por { grid-template-columns: minmax(0, 1fr) auto auto; min-height: 56px; }
+/* Here the tags have a heading of their own, so not the rule that sets them
+   off from a log sheet's amount. */
+.rb .tags { margin-top: 0; padding-top: 0; border-top: none; }
