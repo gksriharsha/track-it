@@ -1,5 +1,6 @@
 import type { EntryBreakdown, LogEntry, Origin, SnapshotBasis } from "../types";
 import { ORIGIN_LABEL, PART_BOTTLE_NOTE, WHOLE_BOTTLE_NOTE, describeVolume } from "../types";
+import { displayName } from "./foodForms";
 import { pieceText } from "./pieces";
 
 /*
@@ -207,7 +208,9 @@ export function leadOf(e: LogEntry): Lead {
   if (e.source_kind === "cook" || e.source_kind === "recipe") return { kind: "cook", glyph: "pot" };
   if (e.source_kind === "custom") return { kind: "own", initials: initials(e.description) };
   if (e.origin === "packaged") return { kind: "bought", glyph: "tag" };
-  return { kind: "ref", initials: initials(e.description) };
+  // From the name the tile shows, so "Mungo beans, boiled" leads with MB as
+  // its search row did.
+  return { kind: "ref", initials: initials(displayName(e)) };
 }
 
 /** Words a dish's name carries that say nothing about which dish it is. */

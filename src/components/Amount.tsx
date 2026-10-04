@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import type { Meal, Origin, Per100g, ServingUnit, Vessel } from "../types";
+import type { FoodForm, Meal, Origin, Per100g, ServingUnit, Vessel } from "../types";
 import { ORIGIN_LABEL } from "../types";
 import { DOTS, KEYS, atGrams, digitsOf, pasted, press, ticking, weighing } from "../lib/amount";
 import type { Key, Readout } from "../lib/amount";
+import { formLabel } from "../lib/foodForms";
 import { rowFigure } from "../lib/energy";
 import { stateOf } from "../lib/nutrient";
 import { useKeepAwake } from "../lib/awake";
@@ -62,6 +63,15 @@ interface Props {
   /** Count pieces, or go back to the food's own unit. */
   onCounting?: (counting: boolean) => void;
   /**
+   * The food's forms, where it comes in several — raw, boiled — and the one
+   * the window is for. Search shows such a food as one row, so this is the
+   * one place the form is chosen, once, beside the grams; changing it keeps
+   * what the window reads (see `readoutOnSwitch`).
+   */
+  forms?: FoodForm[];
+  form?: number;
+  onForm?: (fdcId: number) => void;
+  /**
    * The food per 100 of `unit`, for the line under the window; undefined
    * while it is read.
    */
@@ -108,6 +118,7 @@ export default function Amount(p: Props) {
   const [showTags, setShowTags] = useState(false);
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const formsRef = useRef<HTMLDivElement>(null);
 
   const w = weighing(r, p.ticked, p.vessels);
   const sel = p.vessels.filter((v) => w.vesselIds.includes(v.id));
@@ -123,6 +134,25 @@ export default function Amount(p: Props) {
     // On arrival only: a later focus would pull the keyboard from wherever it is.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* On a phone the forms are one line that scrolls sideways, and the panel
+     may open on any of them — the one logged last, the one an Indian name
+     means. The chosen chip is brought into that line's view, on arrival and
+     on every change, so the form about to be logged is always one the person
+     can see. Only the line scrolls: the sheet stays where it is. */
+  const formCount = p.forms?.length ?? 0;
+  useEffect(() => {
+    const row = formsRef.current;
+    const chip = row?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!row || !chip || row.scrollWidth <= row.clientWidth) return;
+    const pad = parseFloat(getComputedStyle(row).paddingLeft) || 0;
+    const r = row.getBoundingClientRect();
+    const c = chip.getBoundingClientRect();
+    // Its start wins over its end: a chip wider than the line still shows
+    // where its words begin.
+    if (c.right > r.right - pad) row.scrollLeft += Math.min(c.right - r.right + pad, c.left - r.left - pad);
+    else if (c.left < r.left + pad) row.scrollLeft += c.left - r.left - pad;
+  }, [p.form, formCount]);
 
   const key = (k: Key) => setR((x) => press(x, k));
 
@@ -188,6 +218,19 @@ export default function Amount(p: Props) {
             <button type="button" className="sheet__close" aria-label="Close" onClick={p.onClose}>×</button>
           )}
         </header>
+      )}
+
+      {/* Which form, under the title the forms share: the food is named
+          once, and what tells its rows apart is chosen here. */}
+      {p.forms && p.forms.length >= 2 && (
+        <div className="chips amount__forms" role="group" aria-label="Form" ref={formsRef}>
+          {p.forms.map((f) => (
+            <button type="button" key={f.fdc_id} className="chip" aria-pressed={f.fdc_id === p.form}
+              onClick={() => p.onForm?.(f.fdc_id)}>
+              {formLabel(f)}
+            </button>
+          ))}
+        </div>
       )}
 
       <div className={`readout${focused ? " is-focused" : ""}`}>

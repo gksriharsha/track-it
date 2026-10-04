@@ -6,6 +6,7 @@ import { stateOf } from "../lib/nutrient";
 import {
   densityNote, gapText, portionText, potNote, provenanceText, tagText, vesselText, waterNote,
 } from "../lib/entryText";
+import { displayName } from "../lib/foodForms";
 import CorrectEntry from "./CorrectEntry";
 import Info from "./Info";
 import Sheet from "./Sheet";
@@ -46,7 +47,7 @@ export default function EntrySheet(p: {
   const entry = p.id === null ? undefined : p.day?.entries.find((e) => e.id === p.id);
   const breakdown = entry ? p.day?.breakdowns.find((b) => b.entry_id === entry.id) : undefined;
   return (
-    <Sheet open={entry !== undefined} onClose={p.onClose} title={entry?.description ?? ""}>
+    <Sheet open={entry !== undefined} onClose={p.onClose} title={entry ? displayName(entry) : ""}>
       {/* Keyed, so a sheet moved to another entry starts with nothing of the
           last one's — a half-chosen tag, an open correction form, an error. */}
       {entry && (
@@ -104,7 +105,7 @@ function Body({ e, b, onClose, onChanged }: {
     onChanged();
     const id = e.id;
     announce({
-      message: `Removed ${e.description}`,
+      message: `Removed ${displayName(e)}`,
       // The same entry back — its id, its place in the day, and the values
       // frozen when it was first logged — never a second log of the food,
       // which would value it against whatever the food says today.
@@ -202,7 +203,7 @@ function Body({ e, b, onClose, onChanged }: {
           </h3>
           {parts.map((c, i) => (
             <div className="breakdown__row" key={i}>
-              <span className={c.has_data ? "" : "no-data"}>{c.description}</span>
+              <span className={c.has_data ? "" : "no-data"}>{displayName(c)}</span>
             </div>
           ))}
         </section>
@@ -223,7 +224,7 @@ function Body({ e, b, onClose, onChanged }: {
           </h3>
           {parts.map((c, i) => (
             <div className="breakdown__row" key={i}>
-              <span className={c.has_data ? "" : "no-data"}>{c.description}</span>
+              <span className={c.has_data ? "" : "no-data"}>{displayName(c)}</span>
             </div>
           ))}
         </section>
@@ -246,7 +247,7 @@ function Body({ e, b, onClose, onChanged }: {
           {parts.map((c, i) => (
             <div className="breakdown__row" key={i}>
               <span className={c.has_data ? "" : "no-data"}>
-                {c.description}
+                {displayName(c)}
                 {!c.has_data && <span className="breakdown__flag"> (no data)</span>}
               </span>
               <span className="tnum">
@@ -255,6 +256,13 @@ function Body({ e, b, onClose, onChanged }: {
             </div>
           ))}
         </section>
+      )}
+
+      {/* Titled by the short name search gives the food; the full USDA name it
+          was logged under is said once, quietly, as the amount panel's foot
+          said it before it was added. */}
+      {displayName(e) !== e.description && (
+        <p className="amount__note">Logged as “{e.description}”</p>
       )}
 
       {/* A logged entry keeps the nutrition it had when it was logged. This is

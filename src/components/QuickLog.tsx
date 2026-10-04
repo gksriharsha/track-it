@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { addCountedLogEntry, addLogEntry, addMeasuredLogEntry, deleteLogEntry, recallTags } from "../api";
 import type { FrequentFood, Meal } from "../types";
+import { displayName } from "../lib/foodForms";
 import { useAnnounce } from "./UndoBar";
 
 /**
@@ -69,7 +70,7 @@ export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
         onLoggedRef.current();
         announce({
           // In the words the button carried before it was pressed.
-          message: `${f.description}, ${f.last_amount_label} added to ${meal}`,
+          message: `${displayName(f)}, ${f.last_amount_label} added to ${meal}`,
           // Taking back an entry written seconds ago is removing it, not
           // rewriting history: nothing else can have been built on it yet.
           undo: async () => {

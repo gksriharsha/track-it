@@ -2,10 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { saveRecipe, searchFoods } from "../api";
 import TagPicker from "../components/TagPicker";
 import { pct } from "../lib/nutrient";
+import { displayName, familyOf, formName, formsLine, ingredientOf, rawFirst } from "../lib/foodForms";
 import type { Origin } from "../types";
-import type { FoodHit, RecipeIngredient, RecipeServing } from "../types";
+import type { FoodFamily, FoodForm, FoodHit, RecipeIngredient, RecipeServing } from "../types";
 import { SOURCE_LABEL } from "../types";
 import ScreenHead from "../components/ScreenHead";
+import FormChips from "../components/FormChips";
+import Info from "../components/Info";
+import { initials } from "../lib/entryText";
 
 interface Draft {
   key: string;
@@ -13,7 +17,14 @@ interface Draft {
   fdcId: number | null;
   /** One of the user's own foods. Never set alongside `fdcId`. */
   ownId: string | null;
+  /** The full USDA description, or the food's own name: what is saved. */
   description: string;
+  /**
+   * What the tile says — "Mungo beans, raw" for one form of a food that comes
+   * in several. Absent on a draft saved before it existed, which shows the
+   * description instead.
+   */
+  name?: string;
   /** Weighed before it goes in. The only weight a line has — see below. */
   raw: string;
   source: string;
@@ -57,7 +68,7 @@ interface Draft {
  * and lands on the recipe list — and an accidental swipe unmounts it just the
  * same, which would lose an ingredient list someone just typed. The draft is
  * mirrored to sessionStorage and restored on return, which is kinder than a
- * confirmation dialog on every exit. Only Cancel, which asks first, and a
+ * confirmation dialog on every exit. Only Discard draft, which asks first, and a
  * successful save throw it away.
  *
  * The key is versioned. A draft written before ingredients could be optional
@@ -104,6 +115,8 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
   const [hits, setHits] = useState<FoodHit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** The one ingredient showing its flags and Remove. */
+  const [openKey, setOpenKey] = useState<string | null>(null);
   /**
    * What this dish usually is. A DEFAULT for the picker only — it pre-fills the
    * tags the first time the recipe is logged and is never written into an entry
@@ -136,10 +149,12 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     if (q.length < 2) { setHits([]); return; }
     const mine = ++seq.current;
     const t = setTimeout(() => {
-      searchFoods(q, 12)
+      // Eight foods, each one row however many forms it comes in, those
+      // with a form to weigh raw ahead of those only ever cooked.
+      searchFoods(q, 8)
         .then((r) => {
           if (mine !== seq.current) return;
-          setHits(r.slice(0, 8));
+          setHits(rawFirst(r));
         })
         .catch((e) => setError(String(e)));
     }, 160);
@@ -150,7 +165,6 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
   const rawInG = rows.reduce((a, r) => a + (Number(r.raw) || 0), 0);
   const yieldNum = Number(yieldG);
   const haveYield = yieldG.trim() !== "" && Number.isFinite(yieldNum) && yieldNum > 0;
-  const missing = rows.filter((r) => r.fdcId === null && r.ownId === null).length;
   /**
    * A line's share of the ingredients, which is the proportion the recipe is
    * really made of. Computed from the raw weights, because those are the
@@ -160,21 +174,23 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
    */
   const shareOf = (r: Draft): number | null =>
     rawInG > 0 ? (Number(r.raw) || 0) / rawInG : null;
-  const optionalCount = rows.filter((r) => r.optional).length;
 
   function addHit(h: FoodHit) {
     // One or the other. A hit always carries exactly one of the two, and a hit
-    // carrying neither is not a food anything could be stored for.
-    const fdcId = h.fdc_id;
-    const ownId = h.custom_food_id;
+    // carrying neither is not a food anything could be stored for. A food in
+    // several forms goes in as its uncooked one, unless the words typed named
+    // another: every line here is weighed raw. Its tile, opened, offers the
+    // others.
+    const { fdcId, ownId, description, name } = ingredientOf(h, query);
     if (fdcId === null && ownId === null) return;
     setRows((rs) => [
       ...rs,
       {
-        key: `${fdcId ?? ownId}-${rs.length}-${h.description.length}`,
+        key: `${fdcId ?? ownId}-${rs.length}-${description.length}`,
         fdcId,
         ownId,
-        description: h.description,
+        description,
+        name,
         raw: "100",
         // Said plainly rather than as a data-type code: "yours" is the fact
         // that matters about this line, and it is the reason its panel has
@@ -197,7 +213,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
       ...rs,
       {
         key: `x-${rs.length}-${label}`, fdcId: null, ownId: null, description: label,
-        raw: "10", source: "no composition data", optional: false,
+        raw: "10", source: "no nutrition data", optional: false,
       },
     ]);
     setQuery(""); setHits([]);
@@ -215,6 +231,17 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, toTaste: !r.toTaste } : r)));
   }
 
+  /**
+   * Another form of the same food, for a line that was not raw after all.
+   * The weight stays: it is what went on the scale, and the form only says
+   * what that was.
+   */
+  function switchForm(key: string, family: FoodFamily, f: FoodForm) {
+    setRows((rs) => rs.map((r) => (r.key === key
+      ? { ...r, fdcId: f.fdc_id, description: f.description, name: formName(family, f) }
+      : r)));
+  }
+
   function addServingOption() {
     const g = Number(soGrams);
     if (!soLabel.trim() || !Number.isFinite(g) || g <= 0) return;
@@ -229,11 +256,11 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     // Zero belongs on a cook, not here. A recipe line at zero is not an
     // ingredient left out — it is a recipe that does not call for it.
     const bad = rows.find((r) => !(Number(r.raw) > 0));
-    if (bad) return setError(`“${bad.description}” needs a raw weight above zero.`);
+    if (bad) return setError(`“${bad.name ?? bad.description}” needs a weight above zero.`);
     // The one cooked figure the recipe asks for, and the divisor for every
     // portion ever logged from it. Without it a helping cannot be valued at all.
     if (!haveYield) {
-      return setError("Say what the dish comes out at once it is cooked — a portion is divided by it.");
+      return setError("Add the cooked weight. Every helping is divided by it.");
     }
 
     const ingredients: RecipeIngredient[] = rows.map((r, i) => ({
@@ -259,61 +286,185 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
     }
   }
 
+  // The page keeps the fields and their state; why each one is asked for is
+  // method, and sits one tap away behind an (i) beside its heading. Printed
+  // under every field it made this the wordiest screen in the app.
   return (
     <div className="screen">
       <ScreenHead
         title="New recipe"
+        // Back keeps the draft, as the Android gesture does. Throwing it away
+        // is the quiet link at the foot, which asks first.
+        onBack={onCancel}
         action={
-          <>
-            <button
-              className="btn btn--quiet"
-              onClick={() => {
-                if (
-                  (name || rows.length) &&
-                  !window.confirm("Discard this recipe? The ingredients you added will be lost.")
-                ) return;
-                clearDraft();
-                onCancel();
-              }}
-            >
-              Cancel
-            </button>
-            <button className="btn" onClick={save} disabled={saving}>
-              {saving ? "Saving…" : "Save recipe"}
-            </button>
-          </>
+          <button className="btn" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
         }
       />
 
-      {wasRestored && (
-        <p className="rangenote" style={{ marginTop: "calc(var(--s4) * -1)" }}>
-          Picked up where you left off — this draft was still unsaved.
-        </p>
-      )}
+      {wasRestored && <p className="rb__note">Your unsaved draft is back.</p>}
 
       {error && <p className="alert" role="alert">{error}</p>}
 
-      <section className="card">
-        <div className="group__name">Name</div>
+      <input
+        className="field rb__name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Name, like Rajma chawal"
+        aria-label="Recipe name"
+        // Not over a draft that already has its name: the keyboard would
+        // cover the ingredients someone came back to finish.
+        autoFocus={!restored?.name}
+      />
+
+      <section className="rb" aria-label="Ingredients">
+        <div className="rb__head">
+          <h2 className="rb__h">Ingredients</h2>
+          <Info title="How ingredients are weighed">
+            <p>
+              Weigh each ingredient raw: it is the one state each of them can go on a scale in.
+            </p>
+            <p>
+              The weights only set the proportions. You scale the whole batch, and change any
+              line, when you cook it.
+            </p>
+            <p>
+              Your own foods come first in the search. A pack that is not in it can be added
+              under More › Foods you added, from a photo of its label.
+            </p>
+            <p>
+              An ingredient with no nutrition data stays in the dish. Days you eat it show those
+              nutrients as unmeasured, never as zero.
+            </p>
+          </Info>
+          {rawInG > 0 && (
+            <span className="rb__fig tnum">{Math.round(rawInG).toLocaleString()} g raw</span>
+          )}
+        </div>
+
+        {rows.length > 0 && (
+          <div className="tiles">
+            {rows.map((r) => {
+              const share = shareOf(r);
+              const untracked = r.fdcId === null && r.ownId === null;
+              const open = openKey === r.key;
+              const shown = r.name ?? r.description;
+              const sub = [
+                share !== null ? pct(share) : null,
+                r.optional ? "optional" : null,
+                r.toTaste ? "to taste" : null,
+              ].filter(Boolean).join(", ");
+              return (
+                <div className="tile rb-ing" key={r.key}>
+                  <button
+                    className="rb-ing__tap"
+                    aria-expanded={open}
+                    onClick={() => setOpenKey(open ? null : r.key)}
+                  >
+                    <span className={`lead ${r.ownId !== null ? "lead--own" : "lead--ref"}`} aria-hidden>
+                      {initials(shown)}
+                    </span>
+                    <span className="row__main">
+                      <span className="row__title">{shown}</span>
+                      {(sub || untracked) && (
+                        <span className="row__sub">
+                          {sub}
+                          {untracked && <span className="rb-ing__nodata">{sub ? ", " : ""}no nutrition data</span>}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                  <label className="rb-ing__w">
+                    <input className="field tnum" type="number" min="1" inputMode="decimal" value={r.raw}
+                      onChange={(e) => patch(r.key, e.target.value)}
+                      aria-label={`Raw grams of ${shown}`} />
+                    <span className="rb-ing__u" aria-hidden>g</span>
+                  </label>
+                  {/* Its forms, read when the tile is first opened. */}
+                  {open && r.fdcId !== null && (
+                    <FormChips fdcId={r.fdcId} small className="rb-ing__forms"
+                      onForm={(f, family) => switchForm(r.key, family, f)} />
+                  )}
+                  {open && (
+                    <div className="rb-ing__more">
+                      <button className="chip chip--sm" aria-pressed={r.optional}
+                        onClick={() => toggleOptional(r.key)}>
+                        Optional
+                      </button>
+                      <button className="chip chip--sm" aria-pressed={r.toTaste === true}
+                        onClick={() => toggleTaste(r.key)}>
+                        To taste
+                      </button>
+                      <button className="link rb-ing__rm"
+                        onClick={() => { setRows((rs) => rs.filter((x) => x.key !== r.key)); setOpenKey(null); }}>
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <input
           className="field"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Rajma chawal"
-          autoFocus
+          data-results-below
+          placeholder="Add an ingredient"
+          aria-label="Search for an ingredient"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
         />
+        {hits.length > 0 && (
+          <div className="tiles">
+            {hits.map((h) => {
+              // A food in several forms is one row, as on the Food screen.
+              const fam = familyOf(h);
+              const sub = h.note ?? (fam ? formsLine(fam.forms) : h.brand);
+              return (
+                <button className="tile food__row" key={h.fdc_id ?? h.custom_food_id ?? h.description}
+                  onClick={() => addHit(h)}>
+                  <span className={`lead ${h.custom_food_id !== null ? "lead--own" : "lead--ref"}${fam ? " lead--stack" : ""}`}
+                    aria-hidden>
+                    {initials(displayName(h))}
+                  </span>
+                  <span className="row__main">
+                    <span className="row__title">{displayName(h)}</span>
+                    {sub && <span className="row__sub">{sub}</span>}
+                  </span>
+                  <span className="row__chev" aria-hidden>+</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {query.trim().length >= 2 && (
+          <button className="link rb__untracked" onClick={addUntracked}>
+            Add “{query.trim()}” without nutrition data
+          </button>
+        )}
+      </section>
 
-        {/* The one cooked measurement a recipe asks for. It is a field rather
-            than a sum because it cannot be derived: the ingredients below are
-            raw, and what a pot weighs afterwards depends on how much water went
-            in and how long it sat on the heat.
-
-            Still no servings box: how many people a batch feeds is a fact about
-            an evening, not about a dish. */}
-        <div className="group__name" style={{ marginTop: "var(--s5)" }}>
-          Comes out at
+      <section className="rb" aria-label="Cooked weight">
+        <div className="rb__head">
+          <h2 className="rb__h">Cooked weight</h2>
+          <Info title="Why the cooked weight matters">
+            <p>
+              Weigh the whole pot once, the next time you make this. Every helping is divided by
+              it.
+            </p>
+            <p>
+              Dry rajma roughly triples as it cooks, so a katori read as if it were still dry
+              would count about three times over.
+            </p>
+            <p>
+              A dish that neither soaks up water nor cooks down, like a chutney, a salad or a
+              raita, weighs the same as what went in.
+            </p>
+          </Info>
         </div>
-        <div className="commit" style={{ marginTop: "var(--s2)" }}>
+        <div className="rb__line">
           <input
             className="field grams tnum"
             type="number"
@@ -324,212 +475,29 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
             onChange={(e) => setYieldG(e.target.value)}
             aria-label="What the whole dish weighs once cooked"
           />
-          <span className="rangenote" style={{ margin: 0 }}>g, cooked</span>
-          {rawInG > 0 && (
-            <button
-              className="link"
-              onClick={() => setYieldG(String(Math.round(rawInG)))}
-              title="For a dish that neither absorbs water nor cooks down — a chutney, a salad, a raita"
-            >
-              same as what goes in ({Math.round(rawInG).toLocaleString()} g)
+          <span className="rb__u">g</span>
+          {rawInG > 0 && Math.round(rawInG) !== Math.round(yieldNum) && (
+            <button className="link" onClick={() => setYieldG(String(Math.round(rawInG)))}>
+              Same as raw
             </button>
           )}
         </div>
-        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Weigh the pot once, the next time you make this. It is the only cooked weight the app
-          asks for, and every helping is divided by it — dry rajma roughly triples, and a katori
-          read as though it were still dry counts about three times over. The ingredients below
-          are weighed raw, which is the one state each of them can actually go on a scale in.
-        </p>
-
-        <div className="yieldrow" style={{ marginTop: "var(--s4)" }}>
-          <div className="yieldrow__stat">
-            <span className="group__name">Goes in, raw</span>
-            <span className="yieldrow__v tnum">
-              {rawInG > 0 ? Math.round(rawInG).toLocaleString() : "—"}
-              {rawInG > 0 && <span className="yieldrow__u"> g</span>}
-            </span>
-          </div>
-          <div className="yieldrow__stat">
-            <span className="group__name">Ingredients</span>
-            <span className="yieldrow__v tnum">
-              {rows.length > 0 ? rows.length : "—"}
-              {optionalCount > 0 && (
-                <span className="yieldrow__u"> · {optionalCount} optional</span>
-              )}
-            </span>
-          </div>
-        </div>
-        <p className="rangenote" style={{ marginTop: "var(--s2)" }}>
-          A recipe is the proportions, not the batch. These weights are only the size they happen
-          to be written at — you scale the whole thing, and adjust any line, when you actually cook
-          it.
-        </p>
       </section>
 
-      <section className="card">
-        <div className="card__head">
-          <h2>Ingredients</h2>
-          <span className="card__note">{rows.length} added</span>
+      <section className="rb" aria-label="Portions">
+        <div className="rb__head">
+          <h2 className="rb__h">Portions</h2>
+          <Info title="What a portion is for">
+            <p>
+              Name a helping, like 1 katori or 1 dosa, and log it later without weighing. A katori
+              is usually taken as 150 g.
+            </p>
+          </Info>
         </div>
-
-        {rows.length > 0 && (
-          <>
-            <div className="ing-row ing-head ing-head--wide">
-              <span>Ingredient</span>
-              <span style={{ textAlign: "right" }}>Raw g</span>
-              <span>Skippable</span>
-              <span />
-            </div>
-            {rows.map((r) => {
-              const share = shareOf(r);
-              return (
-              <div className="ing-row" key={r.key}>
-                <span className="row__main ing-name">
-                  <span className="row__title">
-                    {r.description}
-                    {/* The share is the proportion this recipe actually is.
-                        Shown beside the name rather than in a column of its
-                        own: at 390px a fourth column costs more than it says. */}
-                    {share !== null && (
-                      <span className="ing-share tnum"> · {pct(share)}</span>
-                    )}
-                  </span>
-                  <span className="row__sub" style={{
-                    color: r.fdcId === null && r.ownId === null ? "var(--over)" : undefined }}>
-                    {r.source}
-                    {r.optional && " · optional"}
-                    {r.toTaste && " · to taste"}
-                  </span>
-                </span>
-                {/* One weight, and it is the one that can be measured: what
-                    this weighs on the scale before it goes in the pot. */}
-                <label className="ing-w">
-                  <span className="ing-w__k">Raw g</span>
-                  <input className="field tnum" type="number" min="1" value={r.raw}
-                    onChange={(e) => patch(r.key, e.target.value)}
-                    aria-label={`Raw grams of ${r.description}`} />
-                </label>
-                {/* Optional says the dish is still the dish without this line.
-                    It moves no weight here — it is what the cook sheet reads
-                    to offer "leave this out" at the stove. */}
-                <span className="ing-flags">
-                  <button
-                    className="chip ing-opt"
-                    aria-pressed={r.optional}
-                    onClick={() => toggleOptional(r.key)}
-                    title={
-                      r.optional
-                        ? `${r.description} can be left out`
-                        : `Mark ${r.description} as one you can skip`
-                    }
-                  >
-                    optional
-                  </button>
-                  {/* By feel: the weight beside it is what you'd write, and a
-                      pot gets that times what the pantry has shown. */}
-                  <button
-                    className="chip ing-opt"
-                    aria-pressed={r.toTaste === true}
-                    onClick={() => toggleTaste(r.key)}
-                    title={
-                      r.toTaste
-                        ? `${r.description} goes in by feel`
-                        : `Mark ${r.description} as added by feel`
-                    }
-                  >
-                    to taste
-                  </button>
-                </span>
-                <button className="iconbtn ing-x" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}
-                  aria-label={`Remove ${r.description}`}>×</button>
-              </div>
-              );
-            })}
-          </>
-        )}
-
-        <div style={{ marginTop: "var(--s4)" }}>
-          <input
-            className="field"
-            data-results-below
-            placeholder="Search an ingredient — “urad dal”, “atta”, “ghee”"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {/* The reference data is a stranger's version of what is in your
-              kitchen — it has eight brands of tofu and not the one you buy. A
-              pack you transcribed yourself outranks all of them, so it is worth
-              saying that it can go in a dish and where it comes from. */}
-          <p className="rangenote" style={{ marginTop: "var(--s2)" }}>
-            Your own foods come first and are marked “yours”. If the pack in your kitchen is not
-            in here, add it under Library › Your foods — photograph its panel and it becomes an
-            ingredient like anything else.
-          </p>
-          {hits.length > 0 && (
-            <ul className="hits">
-              {hits.map((h) => (
-                <li key={h.fdc_id ?? h.description}>
-                  <button className="row hit" onClick={() => addHit(h)}>
-                    <span className="row__main">
-                      <span className="row__title">{h.description}</span>
-                      {h.note && <span className="hit__note">{h.note}</span>}
-                    </span>
-                    <span className="hit__src">
-                      {h.custom_food_id !== null
-                        ? "yours"
-                        : SOURCE_LABEL[h.data_type] ?? h.data_type}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {query.trim().length >= 2 && (
-            <button className="link" style={{ marginTop: "var(--s3)" }} onClick={addUntracked}>
-              Add “{query.trim()}” with no composition data
-            </button>
-          )}
-        </div>
-
-        {missing > 0 && (
-          <div className="card__foot">
-            {missing} ingredient{missing > 1 ? "s have" : " has"} no composition data. They stay in
-            the recipe and keep counting against coverage, so days using this dish report those
-            nutrients as unmeasured rather than as zero.
-          </div>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="card__head">
-          <h2>What this dish usually is</h2>
-          <span className="card__note">optional</span>
-        </div>
-        <p className="rangenote">
-          Only a starting point. It fills in the tags the first time you log this dish, and any
-          day you made it differently records what you say then — changing this later never
-          rewrites a day you already logged.
-        </p>
-        <TagPicker
-          origin={defaultOrigin}
-          cuisine={defaultCuisine}
-          onChange={(o, c) => { setDefaultOrigin(o); setDefaultCuisine(c); }}
-        />
-      </section>
-
-      <section className="card">
-        <div className="card__head">
-          <h2>Named portions</h2>
-          <span className="card__note">optional</span>
-        </div>
-        <p className="rangenote">
-          So you can log “1 katori” instead of weighing. A katori is conventionally taken as 150 g.
-        </p>
         {servingOpts.length > 0 && (
-          <div className="rows" style={{ marginTop: "var(--s3)" }}>
+          <div className="tiles">
             {servingOpts.map((s, i) => (
-              <div className="row" key={i} style={{ gridTemplateColumns: "1fr auto auto" }}>
+              <div className="tile rb-por" key={i}>
                 <span className="row__title">{s.label}</span>
                 <span className="tnum">{s.grams} g</span>
                 <button className="iconbtn" onClick={() => setServingOpts((x) => x.filter((_, j) => j !== i))}
@@ -538,14 +506,46 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
             ))}
           </div>
         )}
-        <div className="commit">
-          <input className="field" style={{ maxWidth: 220 }} placeholder="1 katori"
-            value={soLabel} onChange={(e) => setSoLabel(e.target.value)} aria-label="Serving label" />
-          <input className="field grams tnum" type="number" min="1" placeholder="150"
-            value={soGrams} onChange={(e) => setSoGrams(e.target.value)} aria-label="Serving grams" />
+        <div className="rb__line">
+          <input className="field rb__plabel" placeholder="1 katori"
+            value={soLabel} onChange={(e) => setSoLabel(e.target.value)} aria-label="Portion name" />
+          <input className="field grams tnum" type="number" min="1" inputMode="decimal" placeholder="150"
+            value={soGrams} onChange={(e) => setSoGrams(e.target.value)} aria-label="Portion grams" />
+          <span className="rb__u">g</span>
           <button className="btn btn--quiet" onClick={addServingOption}>Add</button>
         </div>
       </section>
+
+      <section className="rb" aria-label="Tags">
+        <div className="rb__head">
+          <h2 className="rb__h">Tags</h2>
+          <Info title="What the tags do">
+            <p>
+              They fill in the tags the first time you log this dish. On a day you made it
+              differently, change them then.
+            </p>
+            <p>Editing them here later never changes a day you already logged.</p>
+          </Info>
+        </div>
+        <TagPicker
+          origin={defaultOrigin}
+          cuisine={defaultCuisine}
+          onChange={(o, c) => { setDefaultOrigin(o); setDefaultCuisine(c); }}
+        />
+      </section>
+
+      {(name || rows.length > 0) && (
+        <button
+          className="link rb__discard"
+          onClick={() => {
+            if (!window.confirm("Discard this recipe? The ingredients you added will be lost.")) return;
+            clearDraft();
+            onCancel();
+          }}
+        >
+          Discard draft
+        </button>
+      )}
     </div>
   );
 }

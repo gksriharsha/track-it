@@ -860,14 +860,24 @@ function Shell() {
    */
   const [opened, setOpened] = useState(false);
 
+  /*
+    Only the last read asked for lands. `get_day` runs off the main thread,
+    so two reads can finish out of order — a date tapped while the first
+    read after launch waits for the food index, a re-read after a log racing
+    the one before it — and an earlier answer must not overwrite a later one.
+  */
+  const asked = useRef(0);
   const refresh = useCallback(async (iso: string) => {
+    const mine = ++asked.current;
     try {
-      setDay(await getDay(iso));
+      const d = await getDay(iso);
+      if (mine !== asked.current) return;
+      setDay(d);
       setError(null);
     } catch (e) {
-      setError(String(e));
+      if (mine === asked.current) setError(String(e));
     } finally {
-      setLoading(false);
+      if (mine === asked.current) setLoading(false);
     }
   }, []);
 

@@ -4,12 +4,20 @@ mod backup;
 mod container_commands;
 mod containers;
 mod db;
+#[cfg(test)]
+mod entry_name_tests;
 mod export;
+mod family;
+#[cfg(test)]
+mod family_choice_tests;
+#[cfg(test)]
+mod family_tests;
 mod keystore;
 #[cfg(test)]
 mod percent_tests;
 mod store;
 mod sync;
+mod tidy;
 mod vault;
 mod vision;
 mod widgets;
@@ -96,6 +104,10 @@ pub struct SupplementDetail {
 #[derive(Debug, Serialize, Clone)]
 pub struct Component {
     pub description: String,
+    /// The short name search gives a reference ingredient ("Mungo beans,
+    /// raw"), shown in place of `description` while that is still the
+    /// dataset's wording; `None` for anything else (see `name_day`).
+    pub name: Option<String>,
     pub fdc_id: Option<i64>,
     /// The mass this component contributed, or `None` for a supplement, which
     /// contributed a dose and no mass at all. Never read this as `0`.
@@ -226,29 +238,114 @@ fn base_description(conn: &rusqlite::Connection, fdc_id: i64) -> Option<String> 
 /// The result stays a flat `Vec<FoodHit>` with `kind` on each hit, so callers
 /// that only want reference foods (a recipe ingredient, which has nowhere to
 /// put a custom food) can filter rather than learn a new shape.
+///
+/// A reference food USDA files in several forms is ONE hit, carrying its forms
+/// for the amount panel to choose between (see `family.rs`), and `limit` counts
+/// hits, not USDA rows. `flat` lists every form as a hit of its own instead —
+/// for the picker that asks which generic entry a food replaces, where the form
+/// is the very thing being chosen.
 #[tauri::command]
 fn search_foods(
     query: String,
     limit: Option<u32>,
     include_overridden: Option<bool>,
+    flat: Option<bool>,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<Vec<db::FoodHit>, String> {
-    let limit = limit.unwrap_or(40);
+    let opts = (include_overridden.unwrap_or(false), flat.unwrap_or(false));
+    search_foods_in(&refdb, &user, &query, limit.unwrap_or(40), opts)
+}
+
+/// [`search_foods`], with the databases as the app holds them.
+fn search_foods_in(
+    refdb: &db::Db,
+    user: &store::Store,
+    query: &str,
+    limit: u32,
+    (include_overridden, flat): (bool, bool),
+) -> Result<Vec<db::FoodHit>, String> {
+    await_family_index(refdb)?;
     let conn = refdb.0.lock().map_err(|e| e.to_string())?;
     let uc = user.0.lock().map_err(|e| e.to_string())?;
 
-    let own = store::search_custom_foods(&uc, &query, limit)?;
+    let own = store::search_custom_foods(&uc, query, limit)?;
     let overridden = store::overridden_fdc_ids(&uc)?;
-    merge_hits(
+    merge_hits_shaped(
         &conn,
         &uc,
-        &query,
+        query,
         own,
         &overridden,
-        include_overridden.unwrap_or(false),
+        include_overridden,
         limit,
+        flat,
     )
+}
+
+/// Waits for the food-family index while holding neither database's lock.
+///
+/// The index is built once, on a thread of its own at launch, and a search
+/// typed straight after launch has to wait for it (0.4 s in a desktop release
+/// build). Waiting while holding the reference or the user
+/// database's lock would stall every other command that needs one — the day
+/// view, logging, the kitchen, the energy line beside the panel — for as long
+/// as the build runs. So the wait happens here, before either lock is taken,
+/// and the search that follows finds the index ready.
+fn await_family_index(refdb: &db::Db) -> Result<(), String> {
+    let path = {
+        let conn = refdb.0.lock().map_err(|e| e.to_string())?;
+        conn.path().filter(|p| !p.is_empty()).map(str::to_string)
+    };
+    // A database with no file behind it is indexed when it is searched.
+    match path {
+        Some(p) => family::index_at(&p).map(|_| ()),
+        None => Ok(()),
+    }
+}
+
+/// The food-family index, waited for the way [`await_family_index`] waits, for
+/// a command that names entries rather than searching. Taken before the
+/// command locks anything of its own, so naming never changes the order its
+/// locks are taken in.
+///
+/// `None` when the index cannot be built. A short name is a nicety beside the
+/// stored description, so a day, a quick-add list or a correction sheet is
+/// drawn with full descriptions then, rather than refused over it.
+fn family_index(refdb: &db::Db) -> Option<std::sync::Arc<family::Index>> {
+    let index = await_family_index(refdb).and_then(|()| {
+        let conn = refdb.0.lock().map_err(|e| e.to_string())?;
+        family::index(&conn)
+    });
+    index
+        .inspect_err(|e| eprintln!("entries keep their full descriptions: {e}"))
+        .ok()
+}
+
+/// Gives each reference food on a day, and each reference ingredient of a dish
+/// on it, the short name search gives that food (`Index::entry_name`), so
+/// Today says "Mungo beans, boiled" where it used to cut USDA's wording off.
+/// Display only: the log keeps the full description and the exact fdc_id it
+/// was written with, nothing here is stored, and an export never sees it.
+fn name_day(
+    index: &family::Index,
+    entries: &mut [store::LogEntry],
+    breakdowns: &mut [EntryBreakdown],
+) {
+    for e in entries.iter_mut() {
+        // Only a plain reference food. A dish, a pot, a pack, a dose and a
+        // bottle are logged under names of their own.
+        e.name = match (e.source_kind.as_str(), e.fdc_id) {
+            ("food", Some(f)) => index.entry_name(f, &e.description),
+            _ => None,
+        };
+    }
+    // A pack's or a dose's one line has no fdc_id, and a pot's line for a
+    // substitute names what it replaced, which no dataset row says; both keep
+    // their wording.
+    for c in breakdowns.iter_mut().flat_map(|b| b.components.iter_mut()) {
+        c.name = c.fdc_id.and_then(|f| index.entry_name(f, &c.description));
+    }
 }
 
 /// One of the user's own foods as a search hit.
@@ -269,11 +366,13 @@ fn custom_hit(
         data_type: "custom_food".into(),
         note,
         matched_alias: false,
+        name: None,
+        forms: Vec::new(),
     }
 }
 
 /// The two rules of [`search_foods`], with the databases already read.
-#[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn merge_hits(
     conn: &rusqlite::Connection,
     userconn: &rusqlite::Connection,
@@ -282,6 +381,22 @@ fn merge_hits(
     overridden: &[i64],
     include_overridden: bool,
     limit: u32,
+) -> Result<Vec<db::FoodHit>, String> {
+    merge_hits_shaped(conn, userconn, query, own, overridden, include_overridden, limit, false)
+}
+
+/// [`merge_hits`], with the reference half either grouped into one hit per
+/// food or, with `flat`, one hit per form.
+#[allow(clippy::too_many_arguments)]
+fn merge_hits_shaped(
+    conn: &rusqlite::Connection,
+    userconn: &rusqlite::Connection,
+    query: &str,
+    own: Vec<store::CustomFood>,
+    overridden: &[i64],
+    include_overridden: bool,
+    limit: u32,
+    flat: bool,
 ) -> Result<Vec<db::FoodHit>, String> {
     let mut hits: Vec<db::FoodHit> = own
         .into_iter()
@@ -293,50 +408,102 @@ fn merge_hits(
             custom_hit(f.id, f.name, f.brand, note)
         })
         .collect();
-    let mut listed: std::collections::HashSet<String> =
+    let own_ids: std::collections::HashSet<String> =
         hits.iter().filter_map(|h| h.custom_food_id.clone()).collect();
 
-    // A food standing in for the entry the query actually matched is still one
-    // of the user's own foods, so it belongs above the reference data rather
-    // than at the position of the row it replaced.
-    let mut stand_ins: Vec<db::FoodHit> = Vec::new();
-    let mut refs: Vec<db::FoodHit> = Vec::new();
+    let index = family::index(conn)?;
+    let chosen = store::fdc_choices(userconn)?;
+    let overridden: std::collections::HashSet<i64> = overridden.iter().copied().collect();
+    let user = family::User {
+        logged: &chosen.logged,
+        used: &chosen.used,
+        overridden: &overridden,
+    };
 
-    for hit in db::search(conn, query, limit)? {
-        // The lookup only runs for an entry something actually replaces, which
-        // is why the cheap id list is worth reading first.
-        let replacement = match hit.fdc_id {
-            Some(id) if !include_overridden && overridden.contains(&id) => {
-                store::custom_food_overriding(userconn, id)?
-            }
-            _ => None,
-        };
-        match replacement {
-            Some(f) => {
-                // Unless it is already up there because the query matched its
-                // own name. The generic entry's description is what the user
-                // searched for, so it is what the stand-in explains itself by.
+    // Twice the limit in USDA rows, and more while folding leaves the list
+    // short: a food in nine forms is one hit, and the limit counts hits, so a
+    // fixed fetch could hand back fewer foods than exist.
+    let mut fetch = limit.saturating_mul(2);
+    let (mut stand_ins, mut refs) = loop {
+        let found = db::search(conn, query, fetch)?;
+        let exhausted = (found.len() as u32) < fetch;
+        let grouped = index.group(found, query, &user, include_overridden, flat);
+
+        // A food standing in for the entry the query actually matched is still
+        // one of the user's own foods, so it belongs above the reference data
+        // rather than at the position of the row it replaced — unless it is
+        // already up there because the query matched its own name. The generic
+        // entry's description is what the user searched for, so it is what the
+        // stand-in explains itself by.
+        let mut listed = own_ids.clone();
+        let mut stand_ins: Vec<db::FoodHit> = Vec::new();
+        for &id in &grouped.replaced {
+            if let Some(f) = store::custom_food_overriding(userconn, id)? {
                 if listed.insert(f.id.clone()) {
+                    let generic = base_description(conn, id).unwrap_or_default();
                     stand_ins.push(custom_hit(
                         f.id,
                         f.name,
                         f.brand,
-                        Some(format!("Replaces the generic entry “{}”", hit.description)),
+                        Some(format!("Replaces the generic entry “{generic}”")),
                     ));
                 }
             }
-            None => refs.push(hit),
         }
-    }
+        let total = hits.len() + stand_ins.len() + grouped.entries.len();
+        if total >= limit as usize || exhausted || fetch >= limit.saturating_mul(16) {
+            break (stand_ins, grouped.entries);
+        }
+        fetch = fetch.saturating_mul(2);
+    };
 
     // Reference hits fill whatever the user's own foods leave of the limit.
     // Someone with enough matching foods of their own to fill it has told us
     // everything they know about this query already. Truncating last is what
     // keeps a stand-in from being crowded out by the rows it outranks.
+    refs.truncate((limit as usize).saturating_sub(hits.len() + stand_ins.len()));
+    let refs = index.guard_names(refs);
     hits.append(&mut stand_ins);
-    hits.append(&mut refs);
+    hits.extend(refs.into_iter().map(|e| e.hit));
     hits.truncate(limit as usize);
     Ok(hits)
+}
+
+/// Every form of the food an amount panel is open on, so the form can be
+/// switched there without going back to search.
+#[tauri::command]
+fn food_forms(
+    fdc_id: i64,
+    refdb: State<'_, db::Db>,
+    user: State<'_, store::Store>,
+) -> Result<db::FoodFamily, String> {
+    await_family_index(&refdb)?;
+    let conn = refdb.0.lock().map_err(|e| e.to_string())?;
+    let uc = user.0.lock().map_err(|e| e.to_string())?;
+    forms_of(&conn, &uc, fdc_id)
+}
+
+/// [`food_forms`], with the databases already read.
+fn forms_of(
+    conn: &rusqlite::Connection,
+    userconn: &rusqlite::Connection,
+    fdc_id: i64,
+) -> Result<db::FoodFamily, String> {
+    let index = family::index(conn)?;
+    let chosen = store::fdc_choices(userconn)?;
+    let overridden: std::collections::HashSet<i64> =
+        store::overridden_fdc_ids(userconn)?.into_iter().collect();
+    let user = family::User {
+        logged: &chosen.logged,
+        used: &chosen.used,
+        overridden: &overridden,
+    };
+    if let Some(f) = index.family(fdc_id, &user) {
+        return Ok(f);
+    }
+    // A row the index has not seen is still a food with a name.
+    let name = base_description(conn, fdc_id).ok_or_else(|| format!("food {fdc_id}: not found"))?;
+    Ok(db::FoodFamily { name, forms: Vec::new() })
 }
 
 #[tauri::command]
@@ -1297,7 +1464,10 @@ const FREQUENT_POOL_FACTOR: u32 = 3;
 /// amount a row opens on is the last one logged to it — the dal at lunch, not
 /// the spoonful at dinner. Without it the list is exactly what it always was,
 /// which is what the home-screen widget, which has no sitting, still reads.
-#[tauri::command]
+///
+/// `async` for the reason [`get_day`] is: the first list after launch can wait
+/// for the food-family index.
+#[tauri::command(async)]
 fn frequent_foods(
     limit: Option<u32>,
     meal: Option<String>,
@@ -1306,6 +1476,7 @@ fn frequent_foods(
 ) -> Result<Vec<store::FrequentFood>, String> {
     let want = limit.unwrap_or(6);
     check_meal_filter(meal.as_deref())?;
+    let index = family_index(&refdb);
     let refconn = refdb.0.lock().map_err(|e| e.to_string())?;
     let conn = user.0.lock().map_err(|e| e.to_string())?;
 
@@ -1317,7 +1488,7 @@ fn frequent_foods(
         meal.as_deref(),
     )?;
     let overridden = store::overridden_fdc_ids(&conn)?;
-    Ok(resolve_frequent(&refconn, candidates, &overridden, want))
+    Ok(resolve_frequent(&refconn, index.as_deref(), candidates, &overridden, want))
 }
 
 /// A sitting to narrow the quick-add list to, checked against the four before
@@ -1336,8 +1507,13 @@ fn check_meal_filter(meal: Option<&str>) -> Result<(), String> {
 /// The reference-database half of [`frequent_foods`], with both databases
 /// already read — split out for the reason [`merge_hits`] is: a `State` cannot
 /// be built in a test, and this is the half worth testing.
+///
+/// A reference row is also given the short name search gives its food, which
+/// is what its chip says, when there is an index to give it; the description
+/// beside it is what a tap logs.
 fn resolve_frequent(
     refconn: &rusqlite::Connection,
+    index: Option<&family::Index>,
     candidates: Vec<store::FrequentFood>,
     overridden: &[i64],
     want: u32,
@@ -1352,6 +1528,7 @@ fn resolve_frequent(
                 Some(d) => f.description = d,
                 None => continue,
             }
+            f.name = index.and_then(|ix| ix.entry_name(id, &f.description));
         }
         out.push(f);
         if out.len() >= want as usize {
@@ -3038,6 +3215,8 @@ pub struct EntryValueView {
 pub struct EntryPartView {
     pub ordinal: i64,
     pub description: String,
+    /// What the part is called on screen, as [`Component::name`].
+    pub name: Option<String>,
     pub fdc_id: Option<i64>,
     /// Exactly one of these is set, the same way the stored row is.
     pub grams: Option<f64>,
@@ -3079,11 +3258,15 @@ pub struct EntrySnapshotView {
 /// a "less than", a trace, or "nobody knew" — is here.
 const CORRECTABLE_KINDS: [&str; 5] = ["measured", "label_zero", "below_loq", "trace", "unknown"];
 
-#[tauri::command]
+/// `async` for the reason [`get_day`] is: naming the parts can wait for the
+/// food-family index.
+#[tauri::command(async)]
 fn get_entry_snapshot(
     entry_id: String,
+    refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<EntrySnapshotView, String> {
+    let index = family_index(&refdb);
     let conn = user.0.lock().map_err(|e| e.to_string())?;
     let entry = store::entry_by_id(&conn, &entry_id)?;
     let Some(snap) = store::snapshot_of(&conn, &entry_id)? else {
@@ -3120,6 +3303,12 @@ fn get_entry_snapshot(
             .map(|(i, c)| EntryPartView {
                 ordinal: i as i64,
                 description: c.description.clone(),
+                // Named as the day names the same line, so the picker of which
+                // part to correct reads as the sheet above it does.
+                name: c
+                    .fdc_id
+                    .zip(index.as_deref())
+                    .and_then(|(f, ix)| ix.entry_name(f, &c.description)),
                 fdc_id: c.fdc_id,
                 grams: match c.quantity {
                     store::SnapQuantity::Grams(g) => Some(g),
@@ -3767,6 +3956,7 @@ fn collect_day(
             if entry.source_kind != "food" && entry.source_kind != "water" {
                 b.components.push(Component {
                     description: c.description.clone(),
+                    name: None,
                     fdc_id: c.fdc_id,
                     grams: match c.quantity {
                         store::SnapQuantity::Grams(g) => Some(g),
@@ -4216,16 +4406,27 @@ fn totals_from(
 /// silently, so a SQL rollup over foods where three of five lack a selenium
 /// measurement would report the two-food subtotal as the day's intake — with no
 /// indication anything was missing.
-#[tauri::command]
+///
+/// `async` because the first day read after launch can wait for the
+/// food-family index that names its entries (see [`await_family_index`]).
+/// Without it tauri runs the body on the WKWebView's main thread (see
+/// `scan_label_photo`), and the window would stop answering for as long as
+/// the build runs. Two reads may then finish out of order, so the screen
+/// keeps only the answer to the last one it asked (`refresh` in App.tsx).
+#[tauri::command(async)]
 fn get_day(
     logged_on: String,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<DayView, String> {
+    let index = family_index(&refdb);
     let goals = resolve_goals(&user)?;
     let conn = refdb.0.lock().map_err(|e| e.to_string())?;
     let dim = nutrient_dim(&conn)?;
-    let (entries, breakdowns, by_nutrient) = collect_day(&conn, &user, &dim, &logged_on)?;
+    let (mut entries, mut breakdowns, by_nutrient) = collect_day(&conn, &user, &dim, &logged_on)?;
+    if let Some(index) = &index {
+        name_day(index, &mut entries, &mut breakdowns);
+    }
     Ok(DayView {
         logged_on,
         meals: meals_from(&entries, &breakdowns),
@@ -4837,10 +5038,13 @@ fn widget_payloads(
     // takes both databases for itself and would wait forever behind a guard this
     // function was still holding.
     let view = range_view(refdb, user, from, to)?;
+    // The tile names a food as the Foods screen does, so it waits for the
+    // family index as that screen does: with neither lock held.
+    let index = family_index(refdb);
     // And the reference lock only after `range_view` has given both back.
     let frequent = {
         let rc = refdb.0.lock().map_err(|e| e.to_string())?;
-        resolve_frequent(&rc, candidates, &overridden, want)
+        resolve_frequent(&rc, index.as_deref(), candidates, &overridden, want)
     };
     Ok((
         widgets::aggregate_from(&view, widgets::PERIOD_DAYS, &stamp),
@@ -4973,6 +5177,16 @@ fn init_state(app: &AppHandle) -> Result<(), String> {
     let ref_path = db::resolve(app)?;
     let ref_conn = db::open(&ref_path)?;
     let ref_db = db::Db(Mutex::new(ref_conn));
+
+    // The food-family index reads every reference row once. Built here on its
+    // own connection, off the launch path, so the first search finds it ready
+    // rather than paying for it; a search that arrives first simply waits.
+    let warm = ref_path.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = db::open(&warm).and_then(|c| family::index(&c).map(|_| ())) {
+            eprintln!("could not index food families ahead of time: {e}");
+        }
+    });
 
     // `data_root` rather than `app_data_dir` directly: it honours the debug-only
     // relocation the transport's end-to-end test needs, and every path below —
@@ -5166,6 +5380,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             search_foods,
+            food_forms,
             get_food_detail,
             add_log_entry,
             delete_log_entry,
@@ -7596,7 +7811,7 @@ mod tests {
 
         let candidates = store::frequent_foods(&uc, "2026-08-01", 6).unwrap();
         assert_eq!(candidates.len(), 2, "the log itself still holds both");
-        let rows = resolve_frequent(&rc, candidates, &[], 6);
+        let rows = resolve_frequent(&rc, Some(&family::index(&rc).unwrap()), candidates, &[], 6);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].fdc_id, Some(live));
     }
@@ -7615,7 +7830,7 @@ mod tests {
 
         let candidates = store::frequent_foods(&uc, "2026-08-01", 6).unwrap();
         assert_eq!(candidates[0].description, "whatever this row used to be called");
-        let rows = resolve_frequent(&rc, candidates, &[], 6);
+        let rows = resolve_frequent(&rc, Some(&family::index(&rc).unwrap()), candidates, &[], 6);
         assert_eq!(
             rows[0].description, current,
             "the commit path logs the description it fetches, so the row has to \
@@ -7646,7 +7861,7 @@ mod tests {
         let overridden = store::overridden_fdc_ids(&uc).unwrap();
         assert_eq!(overridden, vec![live]);
         assert!(
-            resolve_frequent(&rc, candidates, &overridden, 6).is_empty(),
+            resolve_frequent(&rc, Some(&family::index(&rc).unwrap()), candidates, &overridden, 6).is_empty(),
             "tapping it would log USDA's figures for the category while the \
              user has a pack for the product, and the entry would keep them"
         );
@@ -7673,7 +7888,7 @@ mod tests {
 
         let candidates = store::frequent_foods(&uc, "2026-08-01", 18).unwrap();
         assert!(candidates.len() >= 2, "the pool holds all of them");
-        assert_eq!(resolve_frequent(&rc, candidates, &[], 1).len(), 1);
+        assert_eq!(resolve_frequent(&rc, Some(&family::index(&rc).unwrap()), candidates, &[], 1).len(), 1);
     }
 
     #[test]

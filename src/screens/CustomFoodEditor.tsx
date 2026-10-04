@@ -14,6 +14,7 @@ import {
 } from "../api";
 import CameraCapture from "../components/CameraCapture";
 import { useCameraRoute } from "../lib/camera";
+import { displayName } from "../lib/foodForms";
 import { useHashSheet } from "../lib/hashSheet";
 import { nounFor, pieceText } from "../lib/pieces";
 import LabelForm from "../components/LabelForm";
@@ -533,7 +534,9 @@ export default function CustomFoodEditor(p: Props) {
       // Overridden entries included: this is the picker that hides them from
       // ordinary search, and an entry already replaced must still be choosable —
       // otherwise a food that removes its own base could never take it back.
-      searchFoods(q, 8, true)
+      // Flat: a pack replaces one USDA row, so here each form is its own row,
+      // named with what tells it apart — the form IS the choice.
+      searchFoods(q, 8, true, true)
         .then((r) => {
           if (mine !== seq.current) return;
           // A base has to be a bundled entry: `overrides_fdc_id` is an fdc id, and
@@ -882,7 +885,7 @@ export default function CustomFoodEditor(p: Props) {
                       onClick={() => { setOverridesFdcId(h.fdc_id); setQuery(""); setHits([]); }}
                     >
                       <span className="row__main">
-                        <span className="row__title">{h.description}</span>
+                        <span className="row__title">{displayName(h)}</span>
                         {h.note && <span className="hit__note">{h.note}</span>}
                       </span>
                       <span className="hit__src">{h.data_type}</span>

@@ -131,8 +131,10 @@ pub struct Aggregate {
 /// One tappable food on the quick-add widget.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QuickFood {
-    /// The food's name, as the person last wrote it. Nothing else: no amount, no
-    /// date, no count of how often they ate it.
+    /// The food's name, as the app shows it: a pack's own name, or the short
+    /// name search gives a reference food ("Mungo beans, boiled"), since a
+    /// tile cuts a full USDA description off before it says which food it is.
+    /// Nothing else: no amount, no date, no count of how often they ate it.
     pub label: String,
     /// "food" or "custom", split off `FrequentFood::key`.
     pub kind: String,
@@ -472,7 +474,7 @@ pub fn quickadd_from(rows: &[crate::store::FrequentFood], as_of: &str) -> QuickA
             // id columns — one spelling of the identity, produced once.
             let (kind, id) = r.key.split_once(':')?;
             Some(QuickFood {
-                label: r.description.clone(),
+                label: r.name.clone().unwrap_or_else(|| r.description.clone()),
                 kind: kind.to_string(),
                 id: id.to_string(),
             })
@@ -822,6 +824,7 @@ mod tests {
             fdc_id: if kind == "food" { id.parse().ok() } else { None },
             custom_food_id: if kind == "custom" { Some(id.into()) } else { None },
             description: description.into(),
+            name: None,
             brand: None,
             last_grams: 150.0,
             last_ml: None,

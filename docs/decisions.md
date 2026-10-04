@@ -1608,3 +1608,76 @@ Trends**. They turned down "Back retraces your steps" (tabs still pile up) and "
   or an overlay has already answered (`defaultPrevented`) is not a shortcut as well.
 - Not done: on a window wider than 1080px, the workbench's picked food is not a history entry, so
   Escape leaves Add food in one step rather than putting the pick down first.
+
+## D31 — A food in several forms is one row in search, and its form is chosen at the scale
+
+**Context.** Search listed every USDA row on its own, so one food came back as rows that read the
+same: "Mungo beans, mature seeds, raw", "…, cooked, boiled, with salt", "…, cooked, boiled, without
+salt". Measured on 51 queries a home cook types, 1,102 rows were 766 foods. Three kinds of repeat
+were mixed together: 207 with-salt / without-salt pairs (160 differ only in sodium), 206 names held
+under several fdc_ids ("Strawberries, raw" six times), and genuine forms (raw against boiled urad is
+341 against 105 kcal per 100 g). The user chose from a page of rendered options ("TrackIt search
+picker"): **Pick at the scale**. They turned down a run of short rows per food, form chips in the
+list, and a folded row that opens in place.
+
+**Decision.**
+
+- **One entry per food.** `search_foods` returns a food's forms on its entry (`FoodHit.forms`,
+  uncooked first) under a family name (`FoodHit.name`). The limit counts entries. The Food screen
+  draws such an entry as one row with a stacked tile and "Raw or boiled" under the name.
+- **The form is chosen once, on the amount panel.** Its forms are chips under the family name. The
+  panel opens on the form this user logged last, else the one the typed Indian name means (its
+  alias target), else the first. Switching keeps typed grams and the bowl, moves a chosen serving to
+  the new form's portion of the same name, and the energy line follows. Every other way into the
+  panel (a widget, a repeat) asks `food_forms` for the chips without waiting on it.
+- **Ingredient pickers take the uncooked form**, because ingredients are weighed raw (D22): New
+  recipe, the cook sheet and a pantry container. Their tile or swap panel offers the same chips. A
+  food with no uncooked form sorts after those that have one. The "does this replace a generic
+  entry?" picker asks for `flat` results, where every form is its own row, since there the form is
+  the decision.
+- **Kitchen salted twins leave search** unless a query word starts with "salt" or is a prefix of
+  "salted", the user has used the salted row, or a custom food overrides it. Salt is logged from
+  the pantry or as a "to taste" line (D28), so a salted row would count it twice.
+- **One food under several fdc_ids shows once**: the member this user used, else the alias target,
+  else the fullest, else the lowest id. A survey (FNDDS) row joins only if its nutrients are close.
+- **Survey dishes are their own food.** "Mung beans, cooked" (6.86 g fat, oil and salt assumed) is
+  never a form of "Mung beans" (raw, boiled).
+- **Names drop words that tell nothing apart** ("mature seeds", a generic "cooked" before a method,
+  "drained" after "boiled"). The panel's foot and every logged entry keep the full USDA name.
+- **What was logged is shown by the same short name.** An entry on Today, a dish's ingredient
+  line, the "Usually" and "One tap" chips and the quick-add widget read "Mungo beans, boiled": the
+  family name and the form's chip, or a single food's tidied name. The log still stores the full
+  description and exact fdc_id, and exports carry them. The name is worked out when the day is
+  read (`Index::entry_name`) and is never stored. It is given only while the stored description is
+  still the dataset's, so a reworded row, or an id handed to another food, shows the description
+  as logged. It is worked out for no user in particular, so nothing the user does later (a salted
+  twin logged, a sibling replaced by their own pack) renames an entry. A dataset update that adds
+  or drops another form of the same food can shorten an unchanged entry differently ("Oats" to
+  "Oats, plain"), or leave it in full: the name is search's, and search reads the siblings. It
+  never names another food and never touches what was logged; holding the wording still would
+  mean storing it. A form the app already calls by its description (in a family named by one
+  form's description, or with a chip that fell back to it) keeps that description on the day too,
+  as an ingredient tile does (`formName`). The entry's sheet says the full name once, "Logged as
+  “…”". The user's own foods, dishes, pots, supplements and water keep their own names.
+
+**Consequences.**
+
+- Nothing is deleted from `usda_core.db`, and no schema changes. A hidden id still resolves through
+  `get_food_detail`, so recipes, cooks and overrides still point at it, and past entries read
+  from their own `entry_snapshots` as before.
+- The families are a static index over the whole reference DB (`family.rs`, `family/build.rs`,
+  `family/forms.rs`, `tidy.rs`), built once on a background thread at launch: 0.4 s in a desktop
+  release build. A search, a day or a quick-add list that arrives first waits for it without
+  holding either database lock, and the day, the quick-add list and the correction sheet wait off
+  the main thread. A short name is a nicety: if the index cannot be built, those are drawn with
+  full descriptions rather than refused.
+  `db::search` is unchanged; `search_foods` over-fetches until grouping fills the limit.
+- "What this user chose" (`store::fdc_choices`) reads logged entries by their own time and recipe or
+  cook lines only as having been used, so editing a recipe never makes its raw lines the newest
+  choice for the Food screen.
+- The rule was ported from a prototype and checked against it: identical output on 147 queries,
+  grouped and flat, and on `food_forms` for all 13,694 rows. Known merges it still makes: yardlong
+  bean pods with yardlong bean seeds, and some fast-food items differing only by a lower-case
+  parenthetical. Their chips fall back to full descriptions, so they stay distinguishable.
+- Chip words the data needed: a survey row with no distinguishing words reads "as eaten"; one with
+  an identical label gets ", survey"; survey coding ("NFS") is spelled out.

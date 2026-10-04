@@ -1094,6 +1094,15 @@ pub struct LogEntry {
     pub supplement_id: Option<String>,
     pub bottle_id: Option<String>,
     pub description: String,
+    /// What a reference food entry is called on screen, the short name search
+    /// gives it ("Mungo beans, boiled"), while `description` keeps the full
+    /// USDA wording it was logged with. Never stored: worked out where a day
+    /// is drawn (`name_day` in lib.rs), and only while that wording is still
+    /// the dataset's. `None` from every read here, and always `None` for the
+    /// user's own foods, dishes, pots, supplements and water, which keep the
+    /// names they were logged under.
+    #[serde(default)]
+    pub name: Option<String>,
     /// What was eaten, in grams. `None` for a supplement and for nothing else —
     /// a dose is counted, not weighed. Never read this as `0`.
     pub grams: Option<f64>,
@@ -5172,6 +5181,69 @@ pub fn overridden_fdc_ids(conn: &Connection) -> Result<Vec<i64>, String> {
     Ok(ids)
 }
 
+/// The reference foods this user has chosen, and when — newest per `fdc_id`.
+pub struct FdcChoices {
+    /// When each was last logged. A logged entry is the one choice made at the
+    /// scale, so the food opens on the form logged last, and on nothing else.
+    pub logged: HashMap<i64, String>,
+    /// When each was last chosen anywhere: logged, or put into a recipe or a
+    /// pot that still exists.
+    pub used: HashMap<i64, String>,
+}
+
+/// What search reads to honour a choice already made. A food USDA files in
+/// several forms opens on the form this user last logged rather than asking
+/// again; a kitchen-salted twin that is normally folded away stays on offer to
+/// someone who has picked it anywhere before; and of the same food filed under
+/// several fdc_ids, the one they chose stands for the rest. A deleted entry,
+/// recipe or pot is not a choice that stood, so it does not count.
+///
+/// A recipe line is dated by the recipe's `created_at` and a pot's by its
+/// `cooked_at`, never by `updated_at`: renaming a recipe or marking a pot
+/// empty chooses no food, and dating its lines by that edit would make every
+/// ingredient in it look like the newest choice. Ingredients are weighed raw,
+/// so they never say which form someone eats, which is why only `logged`
+/// decides what the Food screen opens on.
+pub fn fdc_choices(conn: &Connection) -> Result<FdcChoices, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT fdc_id, MAX(CASE WHEN logged THEN at END), MAX(at) FROM (
+               SELECT fdc_id, created_at AS at, 1 AS logged FROM log_entries
+                WHERE deleted_at IS NULL AND fdc_id IS NOT NULL
+               UNION ALL
+               SELECT ri.fdc_id, r.created_at, 0 FROM recipe_ingredients ri
+                 JOIN recipes r ON r.id = ri.recipe_id
+                WHERE r.deleted_at IS NULL AND ri.fdc_id IS NOT NULL
+               UNION ALL
+               SELECT ci.fdc_id, c.cooked_at, 0 FROM cook_ingredients ci
+                 JOIN cooks c ON c.id = ci.cook_id
+                WHERE c.deleted_at IS NULL AND ci.fdc_id IS NOT NULL
+             ) GROUP BY fdc_id",
+        )
+        .map_err(|e| e.to_string())?;
+    let mut out = FdcChoices {
+        logged: HashMap::new(),
+        used: HashMap::new(),
+    };
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for row in rows {
+        let (fdc, logged, used) = row.map_err(|e| e.to_string())?;
+        if let Some(at) = logged {
+            out.logged.insert(fdc, at);
+        }
+        out.used.insert(fdc, used);
+    }
+    Ok(out)
+}
+
 /// Which of the given dates already carry at least one import-only entry —
 /// so a second import over the same file, or an overlapping one, can be
 /// caught before it silently doubles those days' totals.
@@ -5342,6 +5414,7 @@ pub fn day(conn: &Connection, logged_on: &str) -> Result<Vec<LogEntry>, String> 
                 recipe_id: r.get(5)?,
                 custom_food_id: r.get(6)?,
                 description: r.get(7)?,
+                name: None,
                 // Reads as Option because a supplement row stores no mass here.
                 // As `f64` this would be an InvalidColumnType that fails the
                 // WHOLE day rather than the one entry.
@@ -5736,6 +5809,11 @@ pub struct FrequentFood {
     /// description and drops the row entirely if the dataset no longer has
     /// one — see `frequent_foods` in lib.rs.
     pub description: String,
+    /// For a reference food, the short name search gives it ("Mungo beans,
+    /// boiled"), filled in by the command layer beside the current
+    /// description, which is still what a tap logs. `None` for the user's own
+    /// foods, whose name is already their own.
+    pub name: Option<String>,
     /// The pack's brand. Always `None` for a reference food.
     pub brand: Option<String>,
     /// The net weight of the most recent entry, to open the amount step on as
@@ -6016,6 +6094,7 @@ pub fn frequent_foods_at(
             fdc_id,
             custom_food_id,
             description,
+            name: None,
             brand,
             last_grams,
             last_ml,
@@ -7304,6 +7383,7 @@ pub fn entry_by_id(conn: &Connection, id: &str) -> Result<LogEntry, String> {
             recipe_id: r.get(5)?,
             custom_food_id: r.get(6)?,
             description: r.get(7)?,
+            name: None,
             grams: r.get(8)?,
             gross_g: r.get(9)?,
             tare_g: r.get(10)?,

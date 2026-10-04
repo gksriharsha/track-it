@@ -6,6 +6,7 @@ import {
   deleteSession, minutesText, recentSessions, saveSession, sayActivityChanged, sessionTitle,
 } from "../lib/activity";
 import type { RecentSession } from "../lib/activity";
+import { displayName } from "../lib/foodForms";
 import { PlusGlyph, useBottleLog } from "./DayWater";
 import Glyph from "./Glyph";
 import { useQuickLog } from "./QuickLog";
@@ -148,10 +149,10 @@ export default function LogSheet(p: {
                   onClick={() => food(f)}
                   disabled={quick.pending !== null || busy}
                   aria-busy={quick.pending === f.key}
-                  aria-label={`Log ${f.description}, ${f.last_amount_label}, to ${p.meal}`}
+                  aria-label={`Log ${displayName(f)}, ${f.last_amount_label}, to ${p.meal}`}
                 >
                   <PlusGlyph />
-                  <span className="usual__name">{f.description}</span>
+                  <span className="usual__name">{displayName(f)}</span>
                   <span className="usual__amt tnum">{f.last_amount_label}</span>
                 </button>
               ))}
