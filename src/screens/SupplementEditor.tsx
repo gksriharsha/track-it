@@ -982,6 +982,7 @@ export default function SupplementEditor(p: Props) {
             <input
               className="field"
               autoFocus
+              data-results-below
               placeholder="Which nutrient? — vitamin D, magnesium, B12…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

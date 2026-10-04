@@ -452,6 +452,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
         <div style={{ marginTop: "var(--s4)" }}>
           <input
             className="field"
+            data-results-below
             placeholder="Search an ingredient — “urad dal”, “atta”, “ghee”"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

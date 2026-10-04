@@ -867,6 +867,7 @@ export default function CustomFoodEditor(p: Props) {
           <>
             <input
               className="field"
+              data-results-below
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search the generic entry this replaces — “chocolate, milk”"

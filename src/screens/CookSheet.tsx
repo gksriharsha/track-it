@@ -500,6 +500,7 @@ export default function CookSheet(p: Props) {
                   <input
                     className="field"
                     autoFocus
+                    data-results-below
                     placeholder={`Instead of ${r.description}…`}
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
@@ -534,7 +535,7 @@ export default function CookSheet(p: Props) {
           </button>
           {swapping === -1 && (
             <div style={{ marginTop: "var(--s3)" }}>
-              <input className="field" autoFocus placeholder="Search an ingredient"
+              <input className="field" autoFocus data-results-below placeholder="Search an ingredient"
                 value={query} onChange={(e) => setQuery(e.target.value)} />
               {hits.length > 0 && (
                 <ul className="hits">

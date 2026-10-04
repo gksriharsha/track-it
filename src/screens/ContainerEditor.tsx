@@ -191,7 +191,7 @@ export default function ContainerEditor(p: Props) {
             </div>
           ) : (
             <>
-              <input className="field" value={query} onChange={(e) => setQuery(e.target.value)}
+              <input className="field" value={query} onChange={(e) => setQuery(e.target.value)} data-results-below
                 placeholder="Salt, sunflower oil, ghee…" aria-label="Search for what's in it" />
               {hits.length > 0 && (
                 <ul className="hits">
