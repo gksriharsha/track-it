@@ -335,10 +335,12 @@ export default function CookSheet(p: Props) {
         p.cookId,
       );
       clearDraft();
+      // Still "Saving…" after it has saved: the screen closes by going back a
+      // step, which lands a moment later, and a Save live again in that moment
+      // could write the same thing twice.
       p.onSaved(id);
     } catch (e) {
       setError(String(e));
-    } finally {
       setSaving(false);
     }
   }

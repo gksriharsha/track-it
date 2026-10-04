@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { deleteContainerEvent, getContainer, tasteFactors } from "../api";
 import ReadingSheet from "../components/ReadingSheet";
 import ScreenHead from "../components/ScreenHead";
+import { useHashSheet } from "../lib/hashSheet";
 import { amount, figure, howRead, shortDate, used } from "../lib/pantry";
 import type { Container, ContainerEvent, ContainerStretch, FoodTasteFactor } from "../types";
 
@@ -17,12 +18,16 @@ interface Props {
  * is left out; a stretch waiting for the container's empty weight or the
  * food's weight per ml says which. Newest first, under the figure they add
  * up to.
+ *
+ * "Record a reading" opens the same sheet the pantry's (+) does, held in the
+ * hash the same way, as `reading=<this container's id>`, so the Android back
+ * gesture closes the sheet rather than leaving the container's page.
  */
 export default function ContainerHistory(p: Props) {
   const [c, setC] = useState<Container | null>(null);
   const [factor, setFactor] = useState<FoodTasteFactor | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sheet, setSheet] = useState(false);
+  const reading = useHashSheet("reading", p.id);
   const [showReadings, setShowReadings] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
 
@@ -144,14 +149,17 @@ export default function ContainerHistory(p: Props) {
       </section>
 
       <div className="pcta">
-        <button className="btn pcta__btn" onClick={() => setSheet(true)}>Record a reading</button>
+        <button className="btn pcta__btn" onClick={reading.show}>Record a reading</button>
       </div>
 
-      {sheet && (
+      {/* Saving closes the sheet the way every other close does, a step back.
+          The container it hands back is shown at once, and the taste factor,
+          which that reading may have moved, is read again behind it. */}
+      {reading.open && (
         <ReadingSheet
           target={{ id: c.id, name: c.name, description: c.description, read_by: c.read_by, cup_ml: c.cup_ml }}
-          onClose={() => setSheet(false)}
-          onSaved={(next) => { setC(next); setSheet(false); load(); }}
+          onClose={reading.hide}
+          onSaved={(next) => { setC(next); reading.hide(); load(); }}
         />
       )}
     </div>

@@ -16,7 +16,7 @@ interface Props {
    * destination that would be wrong from the other. Falls back to the hash
    * the router reads.
    */
-  onBack?: () => void;
+  onBack: () => void;
 }
 
 /**
@@ -34,7 +34,7 @@ export default function CustomFoods(p: Props) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
 
-  const back = p.onBack ?? (() => { window.location.hash = "/foods"; });
+  const back = p.onBack;
 
   const load = useCallback(async () => {
     try {

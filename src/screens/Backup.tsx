@@ -13,7 +13,7 @@ import type { BackupStatus, RestoreOutcome } from "../types";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
-  onBack?: () => void;
+  onBack: () => void;
 }
 
 /**
@@ -100,7 +100,7 @@ export default function Backup(p: Props) {
   const [restorePass, setRestorePass] = useState("");
   const [restored, setRestored] = useState<RestoreOutcome | null>(null);
 
-  const back = p.onBack ?? (() => { window.location.hash = "/you"; });
+  const back = p.onBack;
 
   const load = useCallback(async () => {
     try {

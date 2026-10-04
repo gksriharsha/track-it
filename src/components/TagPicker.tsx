@@ -107,6 +107,9 @@ export default function TagPicker(p: Props) {
             onKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               if (e.key === "Escape") {
+                // Answered here: the cuisine being typed is what Escape
+                // dismisses, not the screen it is typed on.
+                e.preventDefault();
                 setDraft("");
                 setTyping(false);
               }

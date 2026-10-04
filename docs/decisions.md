@@ -1557,3 +1557,54 @@ Every reader downstream sees only an amount, so nothing else had to learn about 
   read as the amounts they were derived to; the amounts themselves do not move.
 - The camera still never turns a percentage into an amount (`suppanel`'s rule stands): this is a
   person typing what the pack says, with the basis named.
+
+## D30 — Back goes to Trends from every tab, and a finished task leaves no trail behind it
+
+**Context.** After adding a food, Back opened the Food search again. Every screen change pushed a
+history entry and finishing a task pushed one more, so the + sheet, the search and the amount all
+stayed behind Today. The cook sheet and the food editors did the same after Save, so Back reopened a
+finished form, and every bottom-bar tap stacked, so Back replayed each tab visited. The user asked
+to see flow options and picked one from a playable picker ("TrackIt flow picker"): **Tabs, then
+Trends**. They turned down "Back retraces your steps" (tabs still pile up) and "Stay where you were"
+(a log returns to the starting screen with a bar instead of showing Today).
+
+**Decision.**
+
+- **Trends is the root of history.** It is depth 0, and Back on it closes the app. A page that opens
+  anywhere else at depth 0 (a reload of a deep screen) gets Trends written under it at launch.
+- **Tabs never stack.** The bar's Trends, Today and Days, and the sidebar's rows, leave exactly
+  Trends, or Trends and the tab. Picking a date on Days shows it on Today, which is a tab like any
+  other, so Back from it goes to Trends rather than the calendar. The sidebar gained a Trends row
+  (⌘0), since home had no way to it there.
+- **Every log ends on Today with only Trends behind it.** This covers the amount sheet, the desktop
+  workbench, activity, water, a widget's food, and the + sheet's one-tap chips. The flow that led
+  there leaves history entirely, including a widget's `pick` token, which would otherwise replay.
+  One-tap chips inside Add food ("Usually at") and Activity ("Done before") still leave you where
+  you are, because tapping three staples in a row is what they are for; the Undo bar confirms each.
+- **Finishing a form goes back** to whatever opened it, by history rather than by `from`, which is
+  kept only as a fallback for a screen with nothing behind it. That restores the opener exactly:
+  the amount sheet with its reading, the pot with its id. Deleting a container from its own editor
+  passes its page as well. Profile and Targets swap for each other instead of stacking.
+- **Overlays Back should close are history entries**, held in the hash like every sheet: the new
+  recipe builder, the pantry's reading sheet, and the cameras and photo viewers in the editors.
+  The command palette stays in state, and Back closes it first.
+
+**Consequences.**
+
+- History cannot be truncated, only walked back and written over, and a walk is answered by
+  popstate later. So the rule is planned as pure operations in `lib/nav.ts`, tested against a model
+  of the browser's history in `nav.test.ts`, and run by one queue in `useHashRoute`. Every write
+  waits for any walk under way to land, sheets included (`setSheetNavigator`). Two walks in flight
+  could add up to more steps than there are entries, and the extra step would leave the app.
+- Two timing rules keep the queue honest. A walk is finished only by its own landing, checked by
+  the depth it was going to, because a traversal fires popstate at once but queues its hashchange,
+  and a leftover hashchange must not finish the walk that set off after it. A step back after an
+  await (a Save) is counted from the screen that asked (`planBackFrom`), so a Back pressed while
+  it saved is not doubled. A sheet opened behind a walk is written from the hash as it is when its
+  turn comes, and not at all if the person has left that screen.
+- A widget tap is a front door: whatever was on screen gives way, as it does for the launcher icon.
+  An editor left open keeps its draft.
+- Escape is the desktop's Back on asides, by history; on a tab it still does nothing. A key a field
+  or an overlay has already answered (`defaultPrevented`) is not a shortcut as well.
+- Not done: on a window wider than 1080px, the workbench's picked food is not a history entry, so
+  Escape leaves Add food in one step rather than putting the pick down first.

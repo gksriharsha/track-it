@@ -20,8 +20,12 @@ export interface SheetTarget {
 
 interface Props {
   target: SheetTarget;
+  /**
+   * Shut the sheet. Its owner holds it in the hash as `reading=<container id>`,
+   * so this is a step back, and the ×, the scrim and Escape all take it.
+   */
   onClose: () => void;
-  /** Saved: the container as it now reads. */
+  /** Saved: the container as it now reads. The owner closes the sheet. */
   onSaved: (c: Container) => void;
 }
 
@@ -117,10 +121,12 @@ export default function ReadingSheet({ target, onClose, onSaved }: Props) {
       const c = await addContainerEvent(
         target.id, kind, todayIso(), value, value !== null ? unit : null, kind === "reading" && spilled,
       );
+      // Still "Saving…" after it has saved. The owner closes the sheet by going
+      // back a step, which lands a moment later rather than at once, and a Save
+      // live again in that moment could record the same reading twice.
       onSaved(c);
     } catch (e) {
       setError(String(e));
-    } finally {
       setSaving(false);
     }
   }

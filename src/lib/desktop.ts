@@ -125,6 +125,9 @@ export function useHotkeys(keys: Hotkey[], enabled = true): void {
       // A composition in progress (an IME picking a character) must not be
       // read as a shortcut — the keystrokes belong to the text being composed.
       if (e.isComposing) return;
+      // A key something nearer has already answered — a field's own Escape,
+      // an overlay closing — is not a shortcut as well. One press, one act.
+      if (e.defaultPrevented) return;
       const mod = e.metaKey || e.ctrlKey;
       for (const k of latest.current) {
         if (k.key.toLowerCase() !== e.key.toLowerCase()) continue;

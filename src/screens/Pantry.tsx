@@ -5,8 +5,9 @@ import Glyph from "../components/Glyph";
 import ReadingSheet from "../components/ReadingSheet";
 import type { SheetTarget } from "../components/ReadingSheet";
 import ScreenHead from "../components/ScreenHead";
+import { useHashSheetValue } from "../lib/hashSheet";
 import { amount, howRead, lastLine, pantryPeriod, waitingLine } from "../lib/pantry";
-import type { ContainerSummary, Pantry as PantryData, PantryFood } from "../types";
+import type { Pantry as PantryData, PantryFood } from "../types";
 
 interface Props {
   onBack?: () => void;
@@ -22,11 +23,15 @@ interface Props {
  * every period's figure is, and what a written to-taste amount really comes
  * to — and its containers sit beneath it as tiles, each with its last reading
  * and a (+) beside it to record the next, the way water's row has one.
+ *
+ * The reading sheet a (+) opens is held in the hash as `reading=<container
+ * id>` rather than in state, so the Android back gesture closes the sheet
+ * instead of leaving the pantry from under it.
  */
 export default function Pantry(p: Props) {
   const [data, setData] = useState<PantryData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<SheetTarget | null>(null);
+  const reading = useHashSheetValue("reading");
 
   const load = useCallback(async () => {
     try {
@@ -40,13 +45,9 @@ export default function Pantry(p: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const open = (food: PantryFood, c: ContainerSummary): SheetTarget => ({
-    id: c.id,
-    name: c.name,
-    description: food.description,
-    read_by: c.read_by,
-    cup_ml: c.cup_ml,
-  });
+  // The hash carries only the container's id, so what the sheet shows of it is
+  // found again in what was loaded. Nothing until the pantry is in.
+  const target = reading.value !== null && data ? targetOf(data, reading.value) : null;
 
   const empty = data !== null && data.foods.length === 0 && data.finished.length === 0;
 
@@ -101,7 +102,7 @@ export default function Pantry(p: Props) {
                       </button>
                       <button
                         className="pantry__add"
-                        onClick={() => setSheet(open(f, c))}
+                        onClick={() => reading.show(c.id)}
                         aria-label={`Record a reading of the ${c.name.toLowerCase()}`}
                       >
                         <PlusGlyph />
@@ -133,15 +134,31 @@ export default function Pantry(p: Props) {
         </div>
       )}
 
-      {sheet && (
+      {/* Saving closes the sheet the way every other close does, a step back,
+          then reads the pantry again so the tile shows the reading just made. */}
+      {target && (
         <ReadingSheet
-          target={sheet}
-          onClose={() => setSheet(null)}
-          onSaved={() => { setSheet(null); load(); }}
+          key={target.id}
+          target={target}
+          onClose={reading.hide}
+          onSaved={() => { reading.hide(); load(); }}
         />
       )}
     </div>
   );
+}
+
+/**
+ * What the reading sheet needs to know about one container, with the food it
+ * sits under. Only a container still in use has a (+), so the finished ones
+ * are not looked through.
+ */
+function targetOf(data: PantryData, id: string): SheetTarget | null {
+  for (const food of data.foods) {
+    const c = food.containers.find((x) => x.id === id);
+    if (c) return { id: c.id, name: c.name, description: food.description, read_by: c.read_by, cup_ml: c.cup_ml };
+  }
+  return null;
 }
 
 /**

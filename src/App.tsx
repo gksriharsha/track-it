@@ -31,7 +31,9 @@ import type { Command } from "./components/CommandPalette";
 import LogSheet from "./components/LogSheet";
 import { AnnounceProvider } from "./components/UndoBar";
 import { MOD, isAndroid, useHotkeys } from "./lib/desktop";
-import { useHashSheet } from "./lib/hashSheet";
+import { announceHashMoved, setSheetNavigator, useHashSheet } from "./lib/hashSheet";
+import { parseHash, planBack, planBackFrom, planLaunch, planReset, planTab } from "./lib/nav";
+import type { HistoryOp } from "./lib/nav";
 import { getDay, humanDate, shiftIso, takeWidgetLanding, todayIso } from "./api";
 import type { DayView, Meal } from "./types";
 import { parsePick } from "./types";
@@ -438,9 +440,10 @@ interface Nav {
   /**
    * Overwrite the current history entry instead of pushing a new one.
    *
-   * Used only by the drawer's own rows. Pushing would stack the destination on
-   * top of the entry that opened the menu, so one Back from a recipe would
-   * reopen the drawer rather than return to the screen it was opened from.
+   * For a screen that takes the place of the one showing rather than sitting
+   * on it: a drawer row over the open drawer, the + sheet's choice over the
+   * sheet, profile and targets swapping for each other, a new container over
+   * its saved editor. Pushing would leave the thing replaced one Back away.
    */
   replace?: boolean;
 }
@@ -498,43 +501,191 @@ function depthOf(): number {
   return typeof st?.d === "number" ? st.d : 0;
 }
 
-function useHashRoute() {
+/** The hash a route is written as. Built here only, so nothing splices one by hand. */
+function hashOf(t: Tab, nav: Nav = {}): string {
+  const q = new URLSearchParams();
+  if (nav.id) q.set("id", nav.id);
+  if (nav.from) q.set("from", nav.from);
+  if (nav.q) q.set("q", nav.q);
+  if (nav.pick) q.set("pick", nav.pick);
+  if (nav.code) q.set("code", nav.code);
+  if (nav.sheet) q.set("sheet", nav.sheet);
+  const s = q.toString();
+  return s ? `#/${t}?${s}` : `#/${t}`;
+}
+
+/** The ways the app moves through history. See `lib/nav.ts` for the rule. */
+interface Navigation {
+  route: Route;
+  /** Open a screen over this one, or write over this one with `replace`. */
+  go: (t: Tab, nav?: Nav) => void;
+  /**
+   * Leave this screen for the one that opened it, `steps` entries back —
+   * counted from `at`, the depth of the screen asking, when it is given (see
+   * `planBackFrom`), or from wherever history stands when it runs.
+   */
+  back: (steps?: number, fallback?: Tab, at?: number) => void;
+  /** A bar or sidebar destination: Trends alone, or Trends and the tab. */
+  tab: (t: Tab) => void;
+  /** Trends, then exactly what is given: where a log or a widget lands. */
+  reset: (screens: readonly { t: Tab; nav?: Nav }[]) => void;
+  openMenu: () => void;
+  closeMenu: () => void;
+  /**
+   * Something not held in history that Back should close first — the command
+   * palette. Returns true when it closed something.
+   */
+  backGuard: { current: (() => boolean) | null };
+  /** The depth of the entry on screen, as of this render. */
+  depth: number;
+}
+
+function useHashRoute(): Navigation {
   const [route, setRoute] = useState<Route>(readRoute);
+  const [shownDepth, setShownDepth] = useState(depthOf);
   /** The depth of the entry currently showing. Mirrors `history.state.d`. */
   const depth = useRef(0);
+  /**
+   * Plans waiting their turn, each worked out only when it runs, against the
+   * depth history has by then. A plan computed early against a depth a walk
+   * is about to change would write its entries in the wrong place.
+   */
+  const queue = useRef<(() => HistoryOp[])[]>([]);
+  /**
+   * A walk back is under way: the depth it is going to, and what to write
+   * once it gets there. The depth is what tells its landing apart from a
+   * late event left over from the walk before it — a traversal fires popstate
+   * at once but queues its hashchange, and by the time that arrives the next
+   * walk may already have set off.
+   */
+  const walking = useRef<{ target: number; rest: HistoryOp[] } | null>(null);
+  const watchdog = useRef<number | undefined>(undefined);
+  const backGuard = useRef<(() => boolean) | null>(null);
+
+  /**
+   * Carry out a plan from `ops`, stopping at a walk.
+   *
+   * A walk is answered by popstate some time later, and the entries after it
+   * belong on the entry it reaches, so the rest of the plan waits in
+   * `walking` until `sync` hears that it has landed. Everything else is
+   * `replaceState`/`pushState`, which take effect at once and fire nothing —
+   * so the route is re-read here and the sheet holders told.
+   */
+  const present = useCallback(() => {
+    setRoute(readRoute());
+    setShownDepth(depth.current);
+  }, []);
+
+  const apply = useCallback((ops: HistoryOp[]) => {
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      if (op.kind === "walk") {
+        walking.current = { target: depth.current + op.by, rest: ops.slice(i + 1) };
+        // A walk the browser never answers would hold every later move — a
+        // go() past the first entry, which Android's WebView ignores. In that
+        // case the rest is written where history stands, which shows the
+        // right screen even if what lies behind it is not tidy.
+        window.clearTimeout(watchdog.current);
+        watchdog.current = window.setTimeout(() => {
+          const w = walking.current;
+          if (w === null) return;
+          walking.current = null;
+          depth.current = depthOf();
+          apply(w.rest);
+          drain();
+        }, 1500);
+        window.history.go(op.by);
+        return;
+      }
+      if (op.kind === "replace") window.history.replaceState({ d: op.d }, "", op.hash);
+      else window.history.pushState({ d: op.d }, "", op.hash);
+      depth.current = op.d;
+    }
+    present();
+    announceHashMoved();
+    // `drain` is declared below and only reads refs, so the closure is safe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const drain = useCallback(() => {
+    while (walking.current === null && queue.current.length > 0) {
+      const plan = queue.current.shift() as () => HistoryOp[];
+      apply(plan());
+    }
+  }, [apply]);
+
+  /** Run a plan now, or after whatever is already under way. */
+  const perform = useCallback((plan: () => HistoryOp[]) => {
+    queue.current.push(plan);
+    drain();
+  }, [drain]);
 
   // Stamp the entry the app booted on, so the first Back can tell that there is
-  // nothing behind it and let Android close the app.
+  // nothing behind it and let Android close the app — and if the page opened
+  // somewhere other than Trends, put Trends under it. A second run (StrictMode)
+  // finds the work done: the depth is no longer 0.
   useEffect(() => {
     if ((window.history.state as { d?: number } | null)?.d === undefined) {
       window.history.replaceState({ d: 0 }, "");
     }
     depth.current = depthOf();
-  }, []);
+    perform(() => planLaunch(depth.current, window.location.hash));
+  }, [perform]);
 
   useEffect(() => {
     const sync = () => {
       const st = window.history.state as { d?: number } | null;
       if (st?.d === undefined) {
-        // An entry pushed by a plain `location.hash = …` — a few screens still
-        // navigate that way. Stamp it rather than leaving a hole in the count,
-        // or Back from it would read as depth 0 and close the app.
+        // An entry pushed by a plain `location.hash = …`. Nothing in the app
+        // writes one any more, but a stamp keeps the count true if something
+        // ever does: an unstamped entry would read as depth 0 and close the
+        // app on Back.
         depth.current += 1;
         window.history.replaceState({ d: depth.current }, "");
       } else {
         depth.current = st.d;
       }
-      setRoute(readRoute());
+      const w = walking.current;
+      if (w !== null) {
+        // Only the walk's own landing finishes it. Anything else — the
+        // hashchange of the walk before, which arrives after its popstate —
+        // leaves it walking.
+        if (depth.current !== w.target) return;
+        walking.current = null;
+        window.clearTimeout(watchdog.current);
+        apply(w.rest);
+        drain();
+        return;
+      }
+      present();
     };
-    // Both fire for a hash change, and going back fires popstate first; `sync`
-    // is idempotent, so being called twice costs nothing.
+    // Both fire for a hash change, and going back fires popstate first. Once a
+    // walk is finished, the second call only re-reads the same route.
     window.addEventListener("hashchange", sync);
     window.addEventListener("popstate", sync);
     return () => {
       window.removeEventListener("hashchange", sync);
       window.removeEventListener("popstate", sync);
     };
-  }, []);
+  }, [apply, drain, present]);
+
+  const back = useCallback((steps = 1, fallback: Tab = "statistics", at?: number) => {
+    perform(() => (at === undefined
+      ? planBack(depth.current, steps, hashOf(fallback))
+      : planBackFrom(depth.current, at, steps, hashOf(fallback))));
+  }, [perform]);
+
+  // Sheets move history through the same queue. See `setSheetNavigator`.
+  useEffect(() => {
+    setSheetNavigator({
+      push: (make) => perform(() => {
+        const hash = make();
+        return hash === null ? [] : [{ kind: "push", d: depth.current + 1, hash }];
+      }),
+      back: (stillOpen) => perform(() => (stillOpen() ? planBack(depth.current, 1, hashOf("statistics")) : [])),
+    });
+    return () => setSheetNavigator(null);
+  }, [perform]);
 
   /**
    * The Android back gesture, answered by the app instead of by the WebView.
@@ -545,60 +696,55 @@ function useHashRoute() {
    * is what Wry asks by default, always says no and Back closed the app from
    * every screen.
    *
-   * One rule covers both cases, because the open drawer IS a history entry:
-   * anything above depth zero has somewhere to go back to.
+   * Anything above depth zero has somewhere to go back to, and depth zero is
+   * Trends. A gesture while a move is still under way is swallowed rather than
+   * stacked on top of it: the screen it was aimed at is about to change.
    */
   useEffect(() => {
     const w = window as unknown as { __androidBack?: () => boolean };
     w.__androidBack = () => {
+      if (backGuard.current?.()) return true;
+      if (walking.current !== null || queue.current.length > 0) return true;
       if (depth.current > 0) {
-        window.history.back();
+        back();
         return true;
       }
       return false;
     };
     return () => { delete w.__androidBack; };
-  }, []);
+  }, [back]);
 
   const go = useCallback((t: Tab, nav: Nav = {}) => {
-    const q = new URLSearchParams();
-    if (nav.id) q.set("id", nav.id);
-    if (nav.from) q.set("from", nav.from);
-    if (nav.q) q.set("q", nav.q);
-    if (nav.pick) q.set("pick", nav.pick);
-    if (nav.code) q.set("code", nav.code);
-    if (nav.sheet) q.set("sheet", nav.sheet);
-    const s = q.toString();
-    const target = s ? `/${t}?${s}` : `/${t}`;
-    if (nav.replace) {
-      // Keeps this entry's depth: the destination stands exactly where the
-      // entry it replaced stood, so one Back reaches what came before it.
-      window.history.replaceState({ d: depth.current }, "", `#${target}`);
-      setRoute(readRoute());
-      return;
-    }
-    depth.current += 1;
-    window.history.pushState({ d: depth.current }, "", `#${target}`);
-    setRoute(readRoute());
-  }, []);
+    perform(() => [
+      nav.replace
+        ? { kind: "replace", d: depth.current, hash: hashOf(t, nav) }
+        : { kind: "push", d: depth.current + 1, hash: hashOf(t, nav) },
+    ]);
+  }, [perform]);
+
+  const tab = useCallback((t: Tab) => {
+    perform(() => planTab(depth.current, window.location.hash, t));
+  }, [perform]);
+
+  const reset = useCallback((screens: readonly { t: Tab; nav?: Nav }[]) => {
+    perform(() => planReset(depth.current, screens.map((x) => hashOf(x.t, x.nav))));
+  }, [perform]);
 
   /**
    * Open the drawer by adding `menu=1` to the hash the app is already on.
    *
    * Rewriting the whole hash would be wrong: an editor's `id` and a search's
    * `q` live there too, and opening a menu must not drop the food being
-   * transcribed or the query just typed.
+   * transcribed or the query just typed. Trends' own entry has an empty path
+   * on a cold start, and the drawer opened there sits over Trends.
    */
   const openMenu = useCallback(() => {
-    const raw = window.location.hash.replace(/^#\/?/, "");
-    const cut = raw.indexOf("?");
-    const path = cut === -1 ? raw : raw.slice(0, cut);
-    const params = new URLSearchParams(cut === -1 ? "" : raw.slice(cut + 1));
-    params.set("menu", "1");
-    depth.current += 1;
-    window.history.pushState({ d: depth.current }, "", `#/${path || "today"}?${params.toString()}`);
-    setRoute(readRoute());
-  }, []);
+    perform(() => {
+      const { path, params } = parseHash(window.location.hash);
+      params.set("menu", "1");
+      return [{ kind: "push", d: depth.current + 1, hash: `#/${path || "statistics"}?${params.toString()}` }];
+    });
+  }, [perform]);
 
   /**
    * Close it by going BACK, so the button, the scrim and the system gesture all
@@ -609,21 +755,16 @@ function useHashRoute() {
    * rewrites the hash in place instead.
    */
   const closeMenu = useCallback(() => {
-    if (depth.current > 0) {
-      window.history.back();
-      return;
-    }
-    const raw = window.location.hash.replace(/^#\/?/, "");
-    const cut = raw.indexOf("?");
-    const path = cut === -1 ? raw : raw.slice(0, cut);
-    const params = new URLSearchParams(cut === -1 ? "" : raw.slice(cut + 1));
-    params.delete("menu");
-    const s = params.toString();
-    window.history.replaceState({ d: 0 }, "", `#/${path || "today"}${s ? `?${s}` : ""}`);
-    setRoute(readRoute());
-  }, []);
+    perform(() => {
+      if (depth.current > 0) return [{ kind: "walk", by: -1 }];
+      const { path, params } = parseHash(window.location.hash);
+      params.delete("menu");
+      const s = params.toString();
+      return [{ kind: "replace", d: 0, hash: `#/${path || "statistics"}${s ? `?${s}` : ""}` }];
+    });
+  }, [perform]);
 
-  return [route, go, openMenu, closeMenu] as const;
+  return { route, go, back, tab, reset, openMenu, closeMenu, backGuard, depth: shownDepth };
 }
 
 /**
@@ -640,8 +781,16 @@ export default function App() {
 }
 
 function Shell() {
-  const [route, go, openMenu, closeMenu] = useHashRoute();
+  const { route, go, back: backBy, tab: toTab, reset, openMenu, closeMenu, backGuard, depth: here } = useHashRoute();
   const tab = route.tab;
+  /*
+    Every way out of a screen steps back from that screen, not from wherever
+    history happens to be when the step runs. A Save that finishes after a
+    Back pressed while it was saving has nothing more to do, and one that
+    finishes with a camera opened over the form closes both. `here` is the
+    depth of the screen this render drew, so each callback carries its own.
+  */
+  const back = (steps = 1, fallback: Tab = "statistics") => backBy(steps, fallback, here);
 
   /*
     A tap on an Android home-screen widget, landed on the right screen.
@@ -666,7 +815,12 @@ function Shell() {
         const l = await takeWidgetLanding();
         if (l === null || !ROUTES.includes(l.route)) return;
         const pick = parsePick(l.pick);
-        go(l.route as Tab, pick === null ? {} : { pick: l.pick as string });
+        // A widget is a front door, like the launcher icon: whatever was on
+        // screen gives way, and Trends stands behind where it lands. A form
+        // left open keeps its draft (see each editor's own draft store); the
+        // tap is the person saying where they want to be now.
+        if (l.route === "statistics") toTab("statistics");
+        else reset([{ t: l.route as Tab, nav: pick === null ? {} : { pick: l.pick as string } }]);
       } catch {
         // Silence, not an alert. The app has simply opened on its usual front
         // door, which is where it opens anyway.
@@ -676,7 +830,7 @@ function Shell() {
     w.__widgetTap = () => { void land(); };
     void land();
     return () => { delete w.__widgetTap; };
-  }, [go]);
+  }, [toTab, reset]);
   const [date, setDate] = useState(todayIso());
   const [meal, setMeal] = useState<Meal>(defaultMeal());
 
@@ -733,13 +887,17 @@ function Shell() {
   dateNow.current = date;
   const refreshShown = useCallback(() => refresh(dateNow.current), [refresh]);
 
-  const onLogged = useCallback(async (fromSheet?: boolean) => {
-    await refresh(date);
-    // Logged from a sheet — the amount, over Add food — the day takes the
-    // sheet's place in history, so one Back returns to the screen it was over
-    // rather than to the sheet with nothing left in it.
-    go("today", { replace: fromSheet === true });
-  }, [date, refresh, go]);
+  /*
+    Logged: the day it went into, with only Trends behind it. The + sheet, the
+    search and the amount that led here are gone from history, so Back from
+    Today goes to Trends and can never reopen any of them (see lib/nav.ts).
+    The move comes before the re-read, so a Back pressed while the day loads
+    acts on Today rather than on the search it is leaving.
+  */
+  const onLogged = useCallback(() => {
+    reset([{ t: "today" }]);
+    void refresh(date);
+  }, [date, refresh, reset]);
 
   /**
    * The three screens that sit over Add food. Foods stays mounted behind all of
@@ -785,81 +943,100 @@ function Shell() {
    * not places — the same distinction the sidebar already draws between its
    * four nav rows and its one primary button.
    */
+  /** An aside from the palette, unless it is the screen already showing. */
+  const open = (t: Tab, nav: Nav = {}) => {
+    const here = tab === t && route.id === (nav.id ?? null) && route.pick === (nav.pick ?? null)
+      && route.q === (nav.q ?? null);
+    if (here) return;
+    go(t, nav);
+  };
+
   const commands: Command[] = [
-    { id: "go-statistics", label: "Trends", hint: TAB_HINT.statistics, group: "Go to", run: () => go("statistics") },
+    { id: "go-statistics", label: "Trends", hint: TAB_HINT.statistics, group: "Go to", run: () => toTab("statistics") },
     ...TABS.map((t) => ({
       id: `go-${t.id}`,
       label: t.label,
       hint: TAB_HINT[t.id],
       group: "Go to",
-      run: () => go(t.id),
+      run: () => toTab(t.id),
     })),
-    { id: "add", label: "Add food", hint: "search, weigh and log", group: "Do", run: () => go("foods") },
-    { id: "add-activity", label: "Add activity", hint: "a walk, a class, a gym session", group: "Do", run: () => go("foods", { pick: "activity" }) },
-    { id: "prev", label: "Previous day", hint: humanDate(shiftIso(date, -1)), group: "Do", run: () => { setDate(shiftIso(date, -1)); go("today"); } },
+    { id: "add", label: "Add food", hint: "search, weigh and log", group: "Do", run: () => open("foods") },
+    { id: "add-activity", label: "Add activity", hint: "a walk, a class, a gym session", group: "Do", run: () => open("foods", { pick: "activity" }) },
+    { id: "prev", label: "Previous day", hint: humanDate(shiftIso(date, -1)), group: "Do", run: () => { setDate(shiftIso(date, -1)); toTab("today"); } },
     ...(canGoForward
-      ? [{ id: "next", label: "Next day", hint: humanDate(shiftIso(date, 1)), group: "Do", run: () => { setDate(shiftIso(date, 1)); go("today"); } }]
+      ? [{ id: "next", label: "Next day", hint: humanDate(shiftIso(date, 1)), group: "Do", run: () => { setDate(shiftIso(date, 1)); toTab("today"); } }]
       : []),
     ...(canGoForward
-      ? [{ id: "back-today", label: "Back to today", hint: humanDate(todayIso()), group: "Do", run: () => { setDate(todayIso()); go("today"); } }]
+      ? [{ id: "back-today", label: "Back to today", hint: humanDate(todayIso()), group: "Do", run: () => { setDate(todayIso()); toTab("today"); } }]
       : []),
-    { id: "recipes", label: "Recipes", hint: "dishes you cook repeatedly", group: "Library", run: () => go("recipes", { from: "library" }) },
-    { id: "own", label: "Foods you added", hint: "transcribed from a pack", group: "Library", run: () => go("custom-foods", { from: "library" }) },
-    { id: "sups", label: "Supplements", hint: "taken by count, not by weight", group: "Library", run: () => go("supplements", { from: "library" }) },
-    { id: "vessels", label: "Bowls & plates", hint: "weighed empty once", group: "Library", run: () => go("vessels", { from: "library" }) },
-    { id: "bottles", label: "Water bottles", hint: "weighed full once", group: "Library", run: () => go("bottles", { from: "library" }) },
-    { id: "pantry", label: "Pantry", hint: "salt, oil and the rest, read by the jar", group: "Library", run: () => go("pantry", { from: "library" }) },
-    { id: "new-own", label: "Transcribe a new food", hint: "from the pack in front of you", group: "Library", run: () => go("custom-food", { from: "custom-foods" }) },
-    { id: "profile", label: "About you", hint: "who the figures are for", group: "Settings", run: () => go("profile", { from: "you" }) },
-    { id: "targets", label: "Targets & goals", hint: "what every figure is read against", group: "Settings", run: () => go("settings", { from: "you" }) },
-    { id: "import", label: "Import", hint: "a log you kept elsewhere", group: "Settings", run: () => go("import", { from: "you" }) },
-    { id: "export", label: "Export", hint: "a spreadsheet you keep", group: "Settings", run: () => go("export", { from: "you" }) },
-    { id: "household", label: "Your devices", hint: "the others in this kitchen", group: "Settings", run: () => go("household", { from: "you" }) },
+    { id: "recipes", label: "Recipes", hint: "dishes you cook repeatedly", group: "Library", run: () => open("recipes", { from: "library" }) },
+    { id: "own", label: "Foods you added", hint: "transcribed from a pack", group: "Library", run: () => open("custom-foods", { from: "library" }) },
+    { id: "sups", label: "Supplements", hint: "taken by count, not by weight", group: "Library", run: () => open("supplements", { from: "library" }) },
+    { id: "vessels", label: "Bowls & plates", hint: "weighed empty once", group: "Library", run: () => open("vessels", { from: "library" }) },
+    { id: "bottles", label: "Water bottles", hint: "weighed full once", group: "Library", run: () => open("bottles", { from: "library" }) },
+    { id: "pantry", label: "Pantry", hint: "salt, oil and the rest, read by the jar", group: "Library", run: () => open("pantry", { from: "library" }) },
+    { id: "new-own", label: "Transcribe a new food", hint: "from the pack in front of you", group: "Library", run: () => open("custom-food", { from: "custom-foods" }) },
+    { id: "profile", label: "About you", hint: "who the figures are for", group: "Settings", run: () => open("profile", { from: "you" }) },
+    { id: "targets", label: "Targets & goals", hint: "what every figure is read against", group: "Settings", run: () => open("settings", { from: "you" }) },
+    { id: "import", label: "Import", hint: "a log you kept elsewhere", group: "Settings", run: () => open("import", { from: "you" }) },
+    { id: "export", label: "Export", hint: "a spreadsheet you keep", group: "Settings", run: () => open("export", { from: "you" }) },
+    { id: "household", label: "Your devices", hint: "the others in this kitchen", group: "Settings", run: () => open("household", { from: "you" }) },
     // Filtered out rather than disabled off Android, for the same reason the
     // drawer item is: a palette entry that cannot go anywhere is worse than an
     // absent one.
     ...(isAndroid()
-      ? [{ id: "backup", label: "Backup", hint: "one sealed file, carried by Google", group: "Settings", run: () => go("backup", { from: "you" }) }]
+      ? [{ id: "backup", label: "Backup", hint: "one sealed file, carried by Google", group: "Settings", run: () => open("backup", { from: "you" }) }]
       : []),
   ];
 
-  /**
-   * Where Escape goes from an aside.
-   *
-   * `route.from` rather than `history.back()`: the app already records where
-   * each aside was opened from, and honouring that is predictable in a way
-   * that walking the history stack is not — a reload landing directly on an
-   * editor has no previous entry to return to, and Escape must not close the
-   * window.
-   */
-  const escapeTarget = (): Tab | null => {
-    if (!ASIDES.includes(tab as (typeof ASIDES)[number])) return null;
-    return route.from ?? ASIDE_HOME[tab] ?? "today";
+  /*
+    The palette is held in state rather than in history, so Back has to be
+    told about it: on a tablet it opens by touch, and the gesture should close
+    it rather than take the screen from under it.
+  */
+  backGuard.current = () => {
+    if (!palOpen) return false;
+    setPalOpen(false);
+    return true;
+  };
+
+  /*
+    Escape is the desktop's Back, on the screens that are a task or a detour
+    (the asides): it leaves for whatever opened them, by history, exactly as
+    the gesture does on a phone. On a tab it does nothing, as before — a tab is
+    a place, not something to be dismissed. Sheets and overlays take Escape
+    first and stop it, so one press never closes a sheet and the screen.
+  */
+  const leaveAside = () => {
+    if (tab === "statistics" || !ASIDES.includes(tab as (typeof ASIDES)[number])) return;
+    back(1, ASIDE_HOME[tab] ?? "statistics");
   };
 
   useHotkeys([
     { key: "k", mod: true, run: () => setPalOpen((o) => !o) },
     { key: "n", mod: true, run: openLog },
-    { key: "1", mod: true, run: () => go("today") },
-    { key: "2", mod: true, run: () => go("nutrients") },
-    { key: "3", mod: true, run: () => go("history") },
-    { key: "4", mod: true, run: () => go("library") },
-    { key: "5", mod: true, run: () => go("you") },
+    { key: "0", mod: true, run: () => toTab("statistics") },
+    { key: "1", mod: true, run: () => toTab("today") },
+    { key: "2", mod: true, run: () => toTab("nutrients") },
+    { key: "3", mod: true, run: () => toTab("history") },
+    { key: "4", mod: true, run: () => toTab("library") },
+    { key: "5", mod: true, run: () => toTab("you") },
     // The date only means something on Today, so stepping it takes you there
     // rather than silently changing a day you cannot see.
-    { key: "ArrowLeft", mod: true, run: () => { setDate(shiftIso(date, -1)); go("today"); } },
-    { key: "ArrowRight", mod: true, run: () => { if (canGoForward) { setDate(shiftIso(date, 1)); go("today"); } } },
-    { key: "t", mod: true, shift: true, run: () => { setDate(todayIso()); go("today"); } },
+    { key: "ArrowLeft", mod: true, run: () => { setDate(shiftIso(date, -1)); toTab("today"); } },
+    { key: "ArrowRight", mod: true, run: () => { if (canGoForward) { setDate(shiftIso(date, 1)); toTab("today"); } } },
+    { key: "t", mod: true, shift: true, run: () => { setDate(todayIso()); toTab("today"); } },
     {
       key: "Escape",
       inFields: true,
       run: () => {
         if (palOpen) { setPalOpen(false); return; }
-        const back = escapeTarget();
-        if (back) go(back, { id: route.id });
+        leaveAside();
       },
     },
-  ]);
+  // Not until the log is open: behind the passphrase field there is nothing a
+  // shortcut could open, and a move made there would be waiting underneath.
+  ], opened);
 
   /*
     The launch gate, and it returns EARLY rather than overlaying the shell.
@@ -899,22 +1076,23 @@ function Shell() {
 
       {/* Each choice replaces the sheet's own history entry with where it
           leads, so Back from there returns to the screen under the sheet
-          rather than reopening it. Water is Today's own sheet, so it opens
-          over Today: closing it, or logging from it, leaves Today with the
-          bottle just logged in view, not whichever screen the + was on. */}
+          rather than reopening it. Anything logged from the sheet itself ends
+          on Today, as every log does. */}
       <LogSheet
         open={logSheet.open}
         onClose={logSheet.hide}
         date={date}
         meal={meal}
-        onFood={() => go("foods", { replace: true })}
+        // Already on Add food (the sidebar's Add, or ⌘N, pressed there): the
+        // sheet just closes, rather than stacking a second search on the first.
+        onFood={() => (tab === "foods" && route.pick === null ? logSheet.hide() : go("foods", { replace: true }))}
         onActivity={() => go("foods", { pick: "activity", replace: true })}
         onStrength={() => go("foods", { pick: "strength", replace: true })}
-        onWater={() => {
-          go("today", { replace: true });
-          go("today", { sheet: "water" });
-        }}
+        // Today's own water sheet, over Today with Trends behind it: closing it,
+        // or logging from it, leaves the day with the bottle in view.
+        onWater={() => reset([{ t: "today" }, { t: "today", nav: { sheet: "water" } }])}
         onChanged={refreshShown}
+        onLogged={() => reset([{ t: "today" }])}
       />
 
       {/* Desktop only. Brand + the one action + the four places, replacing
@@ -963,13 +1141,16 @@ function Shell() {
         </button>
 
         <nav className="sidebar__nav" aria-label="Main">
-          {SIDEBAR_NAV.map((t, i) => (
+          {/* Trends first, because it is home: the screen the app opens on and
+              the one Back ends at. Without a row of its own it was reachable
+              only by backing all the way out, on a tablet as on a desktop. */}
+          {[{ id: "statistics", label: "Trends" } as const, ...SIDEBAR_NAV].map((t, i) => (
             <button
               key={t.id}
               className="sidebar__link"
               aria-current={tab === t.id ? "page" : undefined}
-              onClick={() => go(t.id)}
-              title={`${t.label} (${MOD}${i + 1})`}
+              onClick={() => toTab(t.id)}
+              title={`${t.label} (${MOD}${i})`}
             >
               <span className="sidebar__rail" aria-hidden />
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="sidebar__icon">
@@ -978,7 +1159,7 @@ function Shell() {
               {t.label}
               {/* Shown on hover and on the current row — a hint, not a label,
                   so it must not compete with the destination's own name. */}
-              <span className="sidebar__key" aria-hidden>{MOD}{i + 1}</span>
+              <span className="sidebar__key" aria-hidden>{MOD}{i}</span>
             </button>
           ))}
         </nav>
@@ -996,7 +1177,7 @@ function Shell() {
               ? "page"
               : undefined
           }
-          onClick={() => go("you")}
+          onClick={() => toTab("you")}
           title={`You (${MOD}5)`}
         >
           <span className="sidebar__rail" aria-hidden />
@@ -1055,6 +1236,11 @@ function Shell() {
                       // an aside such as the cook sheet needs an id in the
                       // hash, and sending a Back button to `#/cook` without
                       // one would land on an error instead of a screen.
+                      // Already there: the drawer just closes. Written over
+                      // the drawer's entry instead, the screen would stand in
+                      // history twice and the next Back would seem to do
+                      // nothing.
+                      if (tab === item.id) { closeMenu(); return; }
                       const home = BAR_IDS.includes(tab) ? (tab as Tab) : undefined;
                       go(item.id as Tab, { from: home, replace: true });
                     }}
@@ -1187,9 +1373,11 @@ function Shell() {
 
         {tab === "history" && (
           <History
+            // The day picked is shown on Today, which is a tab like any other:
+            // Trends stands behind it, not this calendar (see lib/nav.ts).
             onPickDate={(iso) => {
               setDate(iso);
-              go("today");
+              toTab("today");
             }}
             onImport={() => go("import", { from: "history" })}
           />
@@ -1222,7 +1410,7 @@ function Shell() {
         */}
         {tab === "recipes" && (
           <Recipes
-            onBack={() => go(route.from ?? "library")}
+            onBack={() => back(1, route.from ?? "library")}
             onCook={(recipeId) => go("cook", { id: `r:${recipeId}`, from: "recipes" })}
           />
         )}
@@ -1235,8 +1423,11 @@ function Shell() {
           <CookSheet
             cookId={route.id?.startsWith("r:") ? null : route.id}
             recipeId={route.id?.startsWith("r:") ? route.id.slice(2) : null}
-            onBack={() => go(route.from ?? "recipes")}
-            onSaved={() => go(route.from ?? "recipes")}
+            // Saved or abandoned, the pot returns to whatever opened it — the
+            // recipes, or Add food mid-log — and is not left behind it, where
+            // Back would have started a fresh pot from the recipe again.
+            onBack={() => back(1, route.from ?? "recipes")}
+            onSaved={() => back(1, route.from ?? "recipes")}
             onManageVessels={() => go("vessels", { id: route.id, from: "cook" })}
           />
         )}
@@ -1250,8 +1441,8 @@ function Shell() {
         */}
         {tab === "import" && (
           <ImportData
-            onBack={() => go(route.from ?? "history")}
-            onDone={() => go(route.from ?? "history")}
+            onBack={() => back(1, route.from ?? "history")}
+            onDone={() => back(1, route.from ?? "history")}
           />
         )}
 
@@ -1262,7 +1453,7 @@ function Shell() {
           it, so getting here from a period on History goes through the menu.
           This screen carries the same four presets, which makes that cheap.
         */}
-        {tab === "export" && <ExportData onBack={() => go(route.from ?? "you")} />}
+        {tab === "export" && <ExportData onBack={() => back(1, route.from ?? "you")} />}
 
         {/*
           `onChanged` re-reads the day. Targets are the denominator of every
@@ -1271,49 +1462,58 @@ function Shell() {
         */}
         {tab === "profile" && (
           <Profile
-            onBack={() => go(route.from ?? "you")}
-            onOpenSettings={() => go("settings", { from: "profile" })}
+            onBack={() => back(1, route.from ?? "you")}
+            // Profile and targets lead to each other. Each swaps for the other
+            // rather than stacking, so going back and forth between them does
+            // not build a trail, and Back from either returns to whatever
+            // opened the first.
+            onOpenSettings={() => go("settings", { from: route.from ?? "you", replace: true })}
             onChanged={() => refresh(date)}
           />
         )}
 
         {tab === "settings" && (
           <Settings
-            onBack={() => go(route.from ?? "you")}
-            onOpenProfile={() => go("profile", { from: "settings" })}
+            onBack={() => back(1, route.from ?? "you")}
+            onOpenProfile={() => go("profile", { from: route.from ?? "you", replace: true })}
             onChanged={() => refresh(date)}
           />
         )}
 
-        {tab === "household" && <Household onBack={() => go(route.from ?? "you")} />}
+        {tab === "household" && <Household onBack={() => back(1, route.from ?? "you")} />}
 
         {/* Android only, and gated in the render as well as in the drawer:
             the route is reachable by typing a hash, and a desktop build has no
             keystore, no SQLCipher and no Auto Backup to describe. */}
-        {tab === "backup" && isAndroid() && <Backup onBack={() => go(route.from ?? "you")} />}
+        {tab === "backup" && isAndroid() && <Backup onBack={() => back(1, route.from ?? "you")} />}
 
         {/* No way back: this is where the app opens. */}
-        {tab === "statistics" && <Statistics onOpenProfile={() => go("profile", { from: "statistics" })} />}
+        {tab === "statistics" && (
+          <Statistics
+            onOpenProfile={() => go("profile", { from: "statistics" })}
+            onAddFood={() => go("foods", { from: "statistics" })}
+          />
+        )}
 
         {/*
-          No nav tab leads here, so the screen carries its own way out; it goes
-          through the router rather than writing the hash itself. Android's Back
-          gesture works too — `go` writes a hash, which is a history entry.
+          No nav tab leads here, so the screen carries its own way out, and it
+          is the same step Android's Back takes: to the entry that opened it.
+          That entry still holds whatever was open there — the amount sheet
+          with its reading, the pot being cooked with its id — so nothing has
+          to be carried back out in the hash. `from` is only the fallback for a
+          screen with nothing behind it.
         */}
-        {/* The id is carried back out as well as in. Every other caller ignores
-            it, but the cook sheet is keyed on its own id — returning without
-            one would land on a blank sheet rather than the pot being cooked. */}
         {tab === "vessels" && (
-          <Vessels onBack={() => go(route.from ?? "foods", { id: route.id })} />
+          <Vessels onBack={() => back(1, route.from ?? "foods")} />
         )}
 
         {tab === "bottles" && (
-          <Bottles onBack={() => go(route.from ?? "foods", { id: route.id })} />
+          <Bottles onBack={() => back(1, route.from ?? "foods")} />
         )}
 
         {tab === "pantry" && (
           <Pantry
-            onBack={() => go(route.from ?? "library")}
+            onBack={() => back(1, route.from ?? "library")}
             onOpen={(id) => go("container", { id, from: "pantry" })}
             onAdd={() => go("container-edit", { from: "pantry" })}
           />
@@ -1323,27 +1523,30 @@ function Shell() {
           <ContainerHistory
             key={route.id}
             id={route.id}
-            onBack={() => go("pantry")}
+            onBack={() => back(1, "pantry")}
             onEdit={(id) => go("container-edit", { id, from: "container" })}
           />
         )}
 
-        {/* Saving replaces the editor's own history entry, so Back from the
-            container it lands on goes to the pantry rather than into a form
-            that has already been saved. */}
+        {/* A container edited returns to its own page, which re-reads it. A
+            new one has no page yet, so it takes the editor's place in history:
+            Back from it goes to the pantry rather than into a form that has
+            already been saved. Deleted from the editor opened on its page,
+            both are passed on the way back, since the page now describes
+            nothing. */}
         {tab === "container-edit" && (
           <ContainerEditor
             key={route.id ?? "new"}
             id={route.id}
-            onDone={(id) => go("container", { id, from: "pantry", replace: true })}
-            onCancel={() => (route.id ? go("container", { id: route.id, replace: true }) : go("pantry", { replace: true }))}
-            onDeleted={() => go("pantry", { replace: true })}
+            onDone={(id) => (route.id ? back(1, "pantry") : go("container", { id, from: "pantry", replace: true }))}
+            onCancel={() => back(1, "pantry")}
+            onDeleted={() => back(route.from === "container" ? 2 : 1, "pantry")}
           />
         )}
 
         {tab === "custom-foods" && (
           <CustomFoods
-            onBack={() => go(route.from ?? "foods")}
+            onBack={() => back(1, route.from ?? "foods")}
             onEdit={(id) => go("custom-food", { id, from: "custom-foods" })}
           />
         )}
@@ -1356,7 +1559,7 @@ function Shell() {
         */}
         {tab === "supplements" && (
           <Supplements
-            onBack={() => go(route.from ?? "foods")}
+            onBack={() => back(1, route.from ?? "foods")}
             onEdit={(id) => go("supplement", { id, from: "supplements" })}
           />
         )}
@@ -1370,8 +1573,8 @@ function Shell() {
           <SupplementEditor
             key={route.id ?? "new"}
             id={route.id}
-            onDone={() => go(route.from ?? "supplements")}
-            onCancel={() => go(route.from ?? "supplements")}
+            onDone={() => back(1, route.from ?? "supplements")}
+            onCancel={() => back(1, route.from ?? "supplements")}
           />
         )}
 
@@ -1380,8 +1583,8 @@ function Shell() {
             key={route.id ?? "new"}
             id={route.id}
             barcode={route.code}
-            onDone={() => go(route.from ?? "custom-foods")}
-            onCancel={() => go(route.from ?? "custom-foods")}
+            onDone={() => back(1, route.from ?? "custom-foods")}
+            onCancel={() => back(1, route.from ?? "custom-foods")}
           />
         )}
         </main>
@@ -1399,7 +1602,7 @@ function Shell() {
                    way. On a phone it is a sheet over Today now (DaySheet), so
                    this only matters for an address left over from before. */
                 current={tab === t.id || (t.id === "today" && tab === "nutrients")}
-                onClick={() => go(t.id)} />
+                onClick={() => toTab(t.id)} />
             ))}
 
             {/*
@@ -1420,7 +1623,7 @@ function Shell() {
 
             {BAR_RIGHT.map((t) => (
               <BarLink key={t.id} id={t.id} label={t.label}
-                current={tab === t.id} onClick={() => go(t.id)} />
+                current={tab === t.id} onClick={() => toTab(t.id)} />
             ))}
             <BarLink id="more" label="More" current={route.menu || inDrawer}
               onClick={openMenu} expanded={route.menu} />

@@ -14,9 +14,10 @@ import {
 import type { HouseholdView, PairingOffer, PairingState, Peer } from "../types";
 import CameraCapture from "../components/CameraCapture";
 import ScreenHead from "../components/ScreenHead";
+import { useCameraRoute } from "../lib/camera";
 
 interface Props {
-  onBack?: () => void;
+  onBack: () => void;
 }
 
 /**
@@ -41,10 +42,16 @@ export default function Household(p: Props) {
     dialling rather than listening, but the six digits and the two buttons that
     follow are identical — so the polling effect below watches this as well.
   */
-  const [scanning, setScanning] = useState(false);
   const [joining, setJoining] = useState(false);
-
-  const back = p.onBack ?? (() => { window.location.hash = "/you"; });
+  /*
+    The lens that reads the other device's code, held in the hash rather than
+    in state. Held in state it was invisible to the Android back gesture, which
+    went straight past it and took the whole Household screen away. As a
+    history entry, Back shuts the lens and leaves the device list standing,
+    which is what a person who only opened a camera expects. It has a key of
+    its own so that no other screen's lens opens alongside it.
+  */
+  const pairCam = useCameraRoute("pair-code");
 
   const load = useCallback(async () => {
     try {
@@ -185,7 +192,7 @@ export default function Household(p: Props) {
     an untidiness.
   */
   async function readCode(dataBase64: string) {
-    setScanning(false);
+    pairCam.closeCam();
     try {
       const seen = await scanPairCode(dataBase64);
       if (seen.payload === null) {
@@ -263,7 +270,7 @@ export default function Household(p: Props) {
 
   return (
     <div className="screen">
-      <ScreenHead title="Household" onBack={back} />
+      <ScreenHead title="Household" onBack={p.onBack} />
 
       {error && <p className="alert" role="alert">{error}</p>}
 
@@ -275,11 +282,11 @@ export default function Household(p: Props) {
       */}
       {/* The camera sheet is its own full-screen layer, so it covers the
           ledger and the device list rather than being squeezed among them. */}
-      {scanning && (
+      {pairCam.open && (
         <CameraCapture
           scanKind="pair"
           onCapture={readCode}
-          onCancel={() => setScanning(false)}
+          onCancel={pairCam.closeCam}
         />
       )}
 
@@ -413,7 +420,7 @@ export default function Household(p: Props) {
                 */}
                 <div className="chips" style={{ marginTop: "var(--s4)" }}>
                   <button className="btn" onClick={startPairing}>Show a code</button>
-                  <button className="btn btn--quiet" onClick={() => setScanning(true)}>
+                  <button className="btn btn--quiet" onClick={pairCam.openCam}>
                     Scan a code
                   </button>
                 </div>
