@@ -27,6 +27,8 @@ export function useHashSheetValue(param: string): {
   value: string | null;
   show: (value: string) => void;
   hide: () => void;
+  /** Close it only while it is still open on `expect` (any value, for null). */
+  closeIf: (expect: string | null) => void;
 } {
   /*
     A reload with the param still in the hash must not reopen the sheet. At
@@ -55,9 +57,16 @@ export function useHashSheetValue(param: string): {
 
   useForceOnHash();
   const value = readHash().params.get(param);
+  /**
+   * The screen this holder was last drawn on. A show that runs after it has
+   * gone — a pick that resolves once the person has left Add food — opens
+   * nothing, rather than hanging the sheet's param on whatever screen is up.
+   */
+  const drawnOn = readHash().path;
 
   const show = useCallback((next: string) => {
     const { path, params } = readHash();
+    if (path !== drawnOn) return;
     const now = params.get(param);
     if (now === next) return;
     params.set(param, next);
@@ -69,21 +78,44 @@ export function useHashSheetValue(param: string): {
       notify();
       return;
     }
-    // A plain hash assignment rather than `pushState`, because it fires
-    // `hashchange` — which is how `App` learns there is one more entry to go
-    // back through. Without it the depth would stand still, and the Android
-    // gesture that should close this sheet would close the app.
-    window.location.hash = `/${path}?${params.toString()}`;
+    // Through the app's navigator when there is one, so this entry waits its
+    // turn behind any walk back already under way rather than landing on the
+    // entry that walk is leaving — and is written from the hash as it stands
+    // when its turn comes. If the walk has taken the person off this screen,
+    // the sheet does not open over wherever they are now. Without a navigator
+    // (a screen tested on its own) a plain hash assignment, which fires
+    // `hashchange` — how `App` would learn there is one more entry.
+    if (sheetNav) {
+      sheetNav.push(() => {
+        const at = readHash();
+        if (at.path !== path || at.params.get(param) !== null) return null;
+        at.params.set(param, next);
+        return `#/${at.path}?${at.params.toString()}`;
+      });
+    } else {
+      window.location.hash = `/${path}?${params.toString()}`;
+    }
     notify();
-  }, [param]);
+  }, [param, drawnOn]);
 
-  const hide = useCallback(() => {
+  /**
+   * Close it. `expect`, when not null, is the value this holder opened it on:
+   * a close that finds the param holding something else by the time it runs
+   * (`sheet=water` opened where `sheet=log` was) leaves that alone.
+   */
+  const closeIf = useCallback((expect: string | null) => {
     const { path, params } = readHash();
+    const isOpen = (v: string | null) => (expect === null ? v !== null : v === expect);
     // Already shut. Going back anyway would take the screen with it.
-    if (params.get(param) === null) return;
+    if (!isOpen(params.get(param))) return;
     const st = window.history.state as { d?: number } | null;
     if (typeof st?.d === "number" && st.d > 0) {
-      window.history.back();
+      // The step back is checked again when it runs. A second close while the
+      // first is still landing (a double tap, the scrim and the gesture
+      // together) finds the sheet already gone and does nothing, rather than
+      // taking the screen under it as well.
+      if (sheetNav) sheetNav.back(() => isOpen(readHash().params.get(param)));
+      else window.history.back();
       return;
     }
     params.delete(param);
@@ -91,7 +123,11 @@ export function useHashSheetValue(param: string): {
     notify();
   }, [param]);
 
-  return { value, show, hide };
+  // Takes nothing, because it is handed straight to buttons as a click
+  // handler, and an event arriving as `expect` would close nothing at all.
+  const hide = useCallback(() => closeIf(null), [closeIf]);
+
+  return { value, show, hide, closeIf };
 }
 
 /**
@@ -105,11 +141,39 @@ export function useHashSheet(param: string, key: string): {
 } {
   const s = useHashSheetValue(param);
   const open = s.value === key;
-  const { show: showValue, hide: hideValue } = s;
+  const { show: showValue, closeIf } = s;
   const show = useCallback(() => showValue(key), [showValue, key]);
   // Only its own key: `cam=label` is another lens, and not this one's to shut.
-  const hide = useCallback(() => { if (open) hideValue(); }, [open, hideValue]);
+  // Read off the hash as it is NOW rather than as it was when this rendered:
+  // a hide that runs after an await (a log, then close) must not go back over
+  // whatever has opened on the same param in the meantime.
+  const hide = useCallback(() => {
+    if (readHash().params.get(param) === key) closeIf(key);
+  }, [param, key, closeIf]);
   return { open, show, hide };
+}
+
+/**
+ * How a sheet moves history when the app is running: the same queue every
+ * other screen change goes through (`useHashRoute` in App.tsx), so a sheet
+ * opened or closed while a walk back to Trends is still under way waits for
+ * it to land. Two walks in flight at once can add up to more steps than there
+ * are entries, and the extra step would leave the app altogether.
+ */
+interface Navigator {
+  /**
+   * Add an entry one deeper than the entry showing, with the hash `make`
+   * returns when the step comes to run, or nothing if it returns null.
+   */
+  push: (make: () => string | null) => void;
+  /** One entry back, if `stillOpen` says so when the step comes to run. */
+  back: (stillOpen: () => boolean) => void;
+}
+let sheetNav: Navigator | null = null;
+
+/** Hand sheets the app's navigator, or take it away again. */
+export function setSheetNavigator(n: Navigator | null): void {
+  sheetNav = n;
 }
 
 /** The params the page was loaded with — the only ones a mount may strip. */
@@ -124,6 +188,13 @@ const SHEET_EVENT = "trackit:sheet";
 function notify(): void {
   window.dispatchEvent(new Event(SHEET_EVENT));
 }
+
+/**
+ * The same news, from the app's navigator: `pushState` and `replaceState`
+ * fire no event of their own, and a sheet that is open in the hash written
+ * there has to hear about it.
+ */
+export const announceHashMoved = notify;
 
 function readHash(): { path: string; params: URLSearchParams } {
   const raw = window.location.hash.replace(/^#\/?/, "");

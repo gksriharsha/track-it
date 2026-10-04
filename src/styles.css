@@ -355,7 +355,14 @@ b, strong, th { font-weight: 600; }
 /* ─────────────────────────────────────────────────────────────
    Shell + navigation
    ───────────────────────────────────────────────────────────── */
-.app { min-height: 100%; display: flex; flex-direction: column; }
+.app {
+  min-height: 100%; display: flex; flex-direction: column;
+  /* Room at the foot for the keyboard, when one is up (Android only, where
+     the window is edge to edge and not resized for it). Without it a field at
+     the end of a long form has nowhere to scroll to and is typed into under
+     the keys. See lib/keyboard.ts, which does the scrolling. */
+  padding-bottom: var(--sys-ime);
+}
 
 /* No backdrop-filter here. It creates a containing block for position:fixed
    descendants, which pinned the mobile bottom nav to the bottom of THIS
@@ -2720,6 +2727,8 @@ b, strong, th { font-weight: 600; }
     max-height: calc(100vh - var(--s7)); overflow-y: auto;
     /* The scrollbar must not sit on top of the card's shadow. */
     padding-right: var(--s1); margin-right: calc(var(--s1) * -1);
+    /* A tablet's keyboard: room for the last field to scroll above it. */
+    padding-bottom: var(--sys-ime);
   }
   /* The search field is this pane's own header, not a centred hero: it stops
      being the one focal point on screen the moment results sit beside a
@@ -3774,8 +3783,6 @@ b, strong, th { font-weight: 600; }
     padding: var(--s2) var(--s4) calc(var(--s2) + max(0px, var(--safe-bottom) - var(--sys-ime)));
     background: var(--bg); border-top: 1px solid var(--line);
   }
-  /* So the end of a long list can scroll clear of the keys. */
-  .food__list { padding-bottom: var(--sys-ime); }
   /* Results rise from the field: held to the space above it and standing at
      its foot, so your own, drawn last, are the nearest to it. */
   .food__body.is-results { justify-content: flex-end; min-height: var(--food-fill, 0px); }

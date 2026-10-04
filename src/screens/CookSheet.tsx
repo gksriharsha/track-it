@@ -335,10 +335,12 @@ export default function CookSheet(p: Props) {
         p.cookId,
       );
       clearDraft();
+      // Still "Saving…" after it has saved: the screen closes by going back a
+      // step, which lands a moment later, and a Save live again in that moment
+      // could write the same thing twice.
       p.onSaved(id);
     } catch (e) {
       setError(String(e));
-    } finally {
       setSaving(false);
     }
   }
@@ -498,6 +500,7 @@ export default function CookSheet(p: Props) {
                   <input
                     className="field"
                     autoFocus
+                    data-results-below
                     placeholder={`Instead of ${r.description}…`}
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
@@ -532,7 +535,7 @@ export default function CookSheet(p: Props) {
           </button>
           {swapping === -1 && (
             <div style={{ marginTop: "var(--s3)" }}>
-              <input className="field" autoFocus placeholder="Search an ingredient"
+              <input className="field" autoFocus data-results-below placeholder="Search an ingredient"
                 value={query} onChange={(e) => setQuery(e.target.value)} />
               {hits.length > 0 && (
                 <ul className="hits">

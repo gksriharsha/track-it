@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { readFoodPhoto, saveFoodPhoto } from "../api";
+import { useCameraRoute } from "../lib/camera";
+import { useHashSheet } from "../lib/hashSheet";
 import CameraCapture from "./CameraCapture";
 import type { ScanKind } from "./CameraCapture";
 
@@ -57,9 +59,21 @@ export default function PhotoSlot(p: Props) {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
   const [zoom, setZoom] = useState(false);
-  const [camera, setCamera] = useState(false);
+  /*
+    The full-size view and the camera are held in the hash, not in state, so
+    the Android back gesture closes whichever is up rather than taking the
+    editor out from under it, with the form half typed. Each is keyed on this
+    slot's kind: an editor holds two slots, and a shared key would have one
+    slot's button open the other's view as well — or a second live camera.
+
+    Neither listens for Escape here. For the full-size view, App's Escape
+    takes the entry away, and a listener here as well would close it twice,
+    the second time closing the editor. The camera's Escape is CameraCapture's
+    own: it takes the key before App sees it and closes the lens once.
+  */
+  const view = useHashSheet("photo", `slot-${p.scanKind}`);
+  const cam = useCameraRoute(`slot-${p.scanKind}`);
 
   useEffect(() => {
     const name = p.name;
@@ -93,13 +107,6 @@ export default function PhotoSlot(p: Props) {
     };
   }, [p.name]);
 
-  useEffect(() => {
-    if (!open) return;
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
-  }, [open]);
-
   /**
    * Shrink, store, and hand the stored name up. `src` is anything an `<img>` can
    * decode: an object URL for a picked file, a data URL for a captured frame.
@@ -132,7 +139,7 @@ export default function PhotoSlot(p: Props) {
   }
 
   function captured(dataBase64: string) {
-    setCamera(false);
+    cam.closeCam();
     // The camera hands over a full-resolution frame, so it goes through the same
     // ceiling as a picked file rather than straight to disk.
     const src = dataBase64.startsWith("data:")
@@ -145,7 +152,7 @@ export default function PhotoSlot(p: Props) {
     shown.current = null;
     setPreview(null);
     setError(null);
-    setOpen(false);
+    view.hide();
     p.onChange(null);
   }
 
@@ -169,7 +176,7 @@ export default function PhotoSlot(p: Props) {
             type="button"
             onClick={() => {
               setZoom(false);
-              setOpen(true);
+              view.show();
             }}
             aria-label={`Open the ${p.label.toLowerCase()} full size`}
           >
@@ -180,7 +187,7 @@ export default function PhotoSlot(p: Props) {
               <button
                 className="btn btn--quiet pslot__btn"
                 type="button"
-                onClick={() => setCamera(true)}
+                onClick={() => cam.openCam()}
                 disabled={busy}
               >
                 Use the camera
@@ -215,7 +222,7 @@ export default function PhotoSlot(p: Props) {
               <button
                 className="btn btn--quiet pslot__btn"
                 type="button"
-                onClick={() => setCamera(true)}
+                onClick={() => cam.openCam()}
                 disabled={busy}
               >
                 Use the camera
@@ -253,19 +260,19 @@ export default function PhotoSlot(p: Props) {
         }}
       />
 
-      {camera && (
+      {cam.open && (
         <CameraCapture
           scanKind={p.scanKind}
           onCapture={captured}
-          onCancel={() => setCamera(false)}
+          onCancel={cam.closeCam}
           /* This slot has always had a picker; the failure panel simply never
              had a way to reach it, so its own advice made the user go and find
              the button themselves. */
-          onPickInstead={() => { setCamera(false); file.current?.click(); }}
+          onPickInstead={() => { cam.closeCam(); file.current?.click(); }}
         />
       )}
 
-      {open && has && (
+      {view.open && has && (
         <div className="pview" role="dialog" aria-modal="true" aria-label={p.label}>
           <div className="pview__bar">
             <span className="pview__name">{p.label}</span>
@@ -274,7 +281,7 @@ export default function PhotoSlot(p: Props) {
             <button className="btn btn--quiet pview__btn" type="button" onClick={() => setZoom(!zoom)}>
               {zoom ? "Fit" : "Actual size"}
             </button>
-            <button className="btn btn--quiet pview__btn" type="button" onClick={() => setOpen(false)} autoFocus>
+            <button className="btn btn--quiet pview__btn" type="button" onClick={view.hide} autoFocus>
               Close
             </button>
           </div>

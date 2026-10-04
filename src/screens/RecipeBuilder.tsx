@@ -52,10 +52,13 @@ interface Draft {
  * is conserved through cooking; concentration is not. See D22.
  */
 /**
- * A half-built recipe is real work. The Android back gesture drives WebView
- * history, so an accidental swipe unmounts this screen — losing an ingredient
- * list someone just typed. The draft is mirrored to sessionStorage and restored
- * on return, which is kinder than a confirmation dialog on every exit.
+ * A half-built recipe is real work. The builder is a history entry of its own
+ * (`builder=new`, held by `Recipes`), so the Android back gesture closes it
+ * and lands on the recipe list — and an accidental swipe unmounts it just the
+ * same, which would lose an ingredient list someone just typed. The draft is
+ * mirrored to sessionStorage and restored on return, which is kinder than a
+ * confirmation dialog on every exit. Only Cancel, which asks first, and a
+ * successful save throw it away.
  *
  * The key is versioned. A draft written before ingredients could be optional
  * has rows of the wrong shape, and restoring one would put `undefined` where a
@@ -246,8 +249,14 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
         cuisine: defaultCuisine,
       });
       clearDraft();
+      // Still "Saving…" after it has saved. Recipes closes the builder by
+      // going back a step, which lands a moment later rather than at once,
+      // and a Save live again in that moment could save the same recipe twice.
       onDone();
-    } catch (e) { setError(String(e)); } finally { setSaving(false); }
+    } catch (e) {
+      setError(String(e));
+      setSaving(false);
+    }
   }
 
   return (
@@ -443,6 +452,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
         <div style={{ marginTop: "var(--s4)" }}>
           <input
             className="field"
+            data-results-below
             placeholder="Search an ingredient — “urad dal”, “atta”, “ghee”"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

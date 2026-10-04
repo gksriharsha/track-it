@@ -9,7 +9,7 @@ interface Props {
    * the label stays neutral rather than naming one destination that would be
    * wrong from the other. Falls back to the hash the router reads.
    */
-  onBack?: () => void;
+  onBack: () => void;
 }
 
 /**
@@ -31,7 +31,7 @@ export default function Bottles(p: Props) {
   const [editing, setEditing] = useState<Bottle | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const back = p.onBack ?? (() => { window.location.hash = "/foods"; });
+  const back = p.onBack;
 
   const load = useCallback(async () => {
     try {

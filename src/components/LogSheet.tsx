@@ -29,8 +29,9 @@ import { useAnnounce } from "./UndoBar";
  * The cost, which the user accepted when choosing it: one tap more before
  * searching for a food.
  *
- * A one-tap log closes the sheet, because the bar that says what was written
- * and offers the way back sits under every sheet.
+ * A one-tap log ends where every log does: on the day it went into, with only
+ * Trends behind it (see lib/nav.ts). The bar that says what was written and
+ * offers the way back lives above every screen, so it comes along.
  */
 export default function LogSheet(p: {
   open: boolean;
@@ -47,6 +48,8 @@ export default function LogSheet(p: {
   onWater: () => void;
   /** Something was written to the day: re-read it. */
   onChanged: () => void;
+  /** A one-tap log was written: show the day, the way any log ends. */
+  onLogged: () => void;
 }) {
   const announce = useAnnounce();
   const [foods, setFoods] = useState<FrequentFood[]>([]);
@@ -76,7 +79,7 @@ export default function LogSheet(p: {
   const day = label === "Today" || label === "Yesterday" ? label.toLowerCase() : label;
 
   async function food(f: FrequentFood) {
-    if (await quick.log(f)) p.onClose();
+    if (await quick.log(f)) p.onLogged();
   }
 
   /** A walk, a swim, a class: written again as it was. Strength opens, since its sets are done one at a time. */
@@ -101,7 +104,7 @@ export default function LogSheet(p: {
           sayActivityChanged();
         },
       });
-      p.onClose();
+      p.onLogged();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -110,7 +113,7 @@ export default function LogSheet(p: {
   }
 
   async function wholeBottle(b: Bottle) {
-    if (await water.drink(b)) p.onClose();
+    if (await water.drink(b)) p.onLogged();
   }
 
   const shown = error ?? quick.error ?? water.error;

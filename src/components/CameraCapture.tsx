@@ -348,10 +348,27 @@ export default function CameraCapture(p: Props) {
     };
   }, [stop, invalidateProbe]);
 
+  /*
+    Escape cancels, and the key is this sheet's alone. It is taken on the
+    capture phase of the document, ahead of App's own Escape, and stopped there.
+    Left to reach App, it closed things twice: a lens held in the hash had its
+    entry popped by App and then this cancel went back a second time, taking
+    the screen under it; a lens still held in a caller's state was closed here
+    while App navigated the screen away. A key something earlier already took
+    is left alone, and so is one pressed inside another modal layer — the ⌘K
+    palette opened over this — which is that layer's to close, as in `Sheet`.
+  */
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && cancel();
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const modal = document.activeElement?.closest('[aria-modal="true"]');
+      if (modal && modal !== sheet.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cancel();
+    };
+    document.addEventListener("keydown", esc, true);
+    return () => document.removeEventListener("keydown", esc, true);
   }, [cancel]);
 
   /**

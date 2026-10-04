@@ -92,11 +92,10 @@ interface Props {
   preselect?: string | null;
   onMealChange: (m: Meal) => void;
   /**
-   * Something was logged, and the day it went into is shown. `fromSheet` when
-   * it was logged from the amount sheet, whose place in history the day then
-   * takes: Back from it comes here, not to a sheet over nothing.
+   * Something was logged, and the day it went into is shown, with only
+   * Trends behind it: this screen and its sheets leave history (lib/nav.ts).
    */
-  onLogged: (fromSheet?: boolean) => void;
+  onLogged: () => void;
   /**
    * The day changed while this screen stayed up — a one-tap log, or the Undo
    * of one. Re-reads it in place, without the trip to Today `onLogged` takes.
@@ -335,6 +334,9 @@ export default function Foods(p: Props) {
    * narrow. Enter picks whatever is highlighted, which is row 0 until moved.
    */
   const searchRef = useRef<HTMLInputElement>(null);
+  /** The last search and widget pick acted on, so a return to them is not a new one. */
+  const seedTaken = useRef<string | null>(null);
+  const pickTaken = useRef<string | null>(null);
   const [activeHit, setActiveHit] = useState(0);
 
   /** The user's own answers for the thing being logged. */
@@ -461,14 +463,25 @@ export default function Foods(p: Props) {
    */
   useEffect(() => {
     const q = (p.seed ?? "").trim();
-    if (q === "") return;
+    // Taken once. Coming back to this search from an aside over it (a pot
+    // corrected, a bowl weighed) returns the same `q` to the hash, and running
+    // it again would drop the food picked since and the weight typed for it.
+    // Released only while this screen is in front with no search asked for,
+    // so the next ⌘K for the same words is a new request again. While an aside
+    // covers it the hash has no `q` either, and that must not count.
+    if (q === "") {
+      if (p.active) seedTaken.current = null;
+      return;
+    }
+    if (q === seedTaken.current) return;
+    seedTaken.current = q;
     setTab("foods");
     setQuery(q);
     setPicked(null); setPickedCustom(null); setPickedRecipe(null);
     setPickedCook(null); setPickedSupplement(null); setTicked([]);
     runSearch(q);
     searchRef.current?.focus();
-  }, [p.seed, runSearch]);
+  }, [p.seed, p.active, runSearch]);
 
   /**
    * A food handed over by a home-screen widget.
@@ -485,7 +498,24 @@ export default function Foods(p: Props) {
    */
   useEffect(() => {
     const target = parsePick(p.preselect ?? null);
-    if (target === null) return;
+    if (target === null) {
+      // Reached with nothing picked — the + sheet's Food, the Add widget, ⌘K's
+      // Add food — while this screen stayed mounted on the water or activity
+      // pane: the route says the food search, so the search is what shows.
+      // Only while in front, for the same reason as the search above.
+      if (p.active) {
+        pickTaken.current = null;
+        setTab("foods");
+        setActivityId(null);
+        setLikeLast(false);
+      }
+      return;
+    }
+    // Taken once, for the reason the search above is: Back from the bowl
+    // library to a widget's food brings its token back into the hash, and
+    // picking it again would reset the reading the person had already made.
+    if (p.preselect === pickTaken.current) return;
+    pickTaken.current = p.preselect ?? null;
     let live = true;
     setError(null);
     setPickedRecipe(null); setPickedCook(null); setPickedSupplement(null); setTicked([]);
@@ -543,7 +573,7 @@ export default function Foods(p: Props) {
     // `recall` is stable and `setNet` is a plain function on this component;
     // re-running this for either would defeat the point of keying on the token.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.preselect]);
+  }, [p.preselect, p.active]);
 
   /**
    * A changed result set invalidates the highlight — row 3 of the old list is
@@ -735,7 +765,7 @@ export default function Foods(p: Props) {
       setOrigin(null); setCuisine(null); setRecalled(false);
       // Re-read before the parent refreshes: what is left has just changed.
       loadCooks();
-      p.onLogged(amountSheet.open);
+      p.onLogged();
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
 
@@ -766,7 +796,7 @@ export default function Foods(p: Props) {
       }
       setPickedRecipe(null); setQuery(""); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
-      p.onLogged(amountSheet.open);
+      p.onLogged();
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
 
@@ -796,7 +826,7 @@ export default function Foods(p: Props) {
       // again has just changed underneath it — this very entry may be what
       // puts the food into the window in the first place.
       loadQuick();
-      p.onLogged(amountSheet.open);
+      p.onLogged();
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
 
@@ -817,7 +847,7 @@ export default function Foods(p: Props) {
         u,
       );
       setPickedSupplement(null);
-      p.onLogged(amountSheet.open);
+      p.onLogged();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -870,7 +900,7 @@ export default function Foods(p: Props) {
       setPicked(null); setQuery(""); setHits([]); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
       loadQuick();
-      p.onLogged(amountSheet.open);
+      p.onLogged();
     } catch (e) { setError(String(e)); } finally { setSaving(false); }
   }
 

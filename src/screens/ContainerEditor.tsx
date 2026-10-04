@@ -143,10 +143,12 @@ export default function ContainerEditor(p: Props) {
         { weighedCupG: weighedOk ? weighedCup : null, pouredIn: poured, pouredUnit: poured !== null ? pourUnit : null },
         p.id,
       );
+      // Still "Saving…" after it has saved: the screen closes by going back a
+      // step, which lands a moment later, and a Save live again in that moment
+      // could write the same thing twice.
       p.onDone(id);
     } catch (e) {
       setError(String(e));
-    } finally {
       setSaving(false);
     }
   }
@@ -189,7 +191,7 @@ export default function ContainerEditor(p: Props) {
             </div>
           ) : (
             <>
-              <input className="field" value={query} onChange={(e) => setQuery(e.target.value)}
+              <input className="field" value={query} onChange={(e) => setQuery(e.target.value)} data-results-below
                 placeholder="Salt, sunflower oil, ghee…" aria-label="Search for what's in it" />
               {hits.length > 0 && (
                 <ul className="hits">

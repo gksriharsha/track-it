@@ -11,6 +11,8 @@ interface Props {
   onBack?: () => void;
   /** About you, from the activity section's comparison with its level. */
   onOpenProfile?: () => void;
+  /** Add food, from the first-run invitation to log a few days. */
+  onAddFood: () => void;
 }
 
 /** How far back to look. Kept short — three answers, not a date picker. */
@@ -131,7 +133,7 @@ export default function Statistics(p: Props) {
             Log a few days and this fills in: how much you usually eat, how much that varies
             from day to day, and where your food has been coming from.
           </p>
-          <button className="btn" onClick={() => { window.location.hash = "/foods?from=statistics"; }}>
+          <button className="btn" onClick={p.onAddFood}>
             Add your first food
           </button>
         </div>

@@ -13,6 +13,8 @@ import {
   todayIso,
 } from "../api";
 import CameraCapture from "../components/CameraCapture";
+import { useCameraRoute } from "../lib/camera";
+import { useHashSheet } from "../lib/hashSheet";
 import { nounFor, pieceText } from "../lib/pieces";
 import LabelForm from "../components/LabelForm";
 import PhotoSlot from "../components/PhotoSlot";
@@ -112,7 +114,13 @@ export default function CustomFoodEditor(p: Props) {
   const [hidCustom, setHidCustom] = useState(false);
   const seq = useRef(0);
 
-  const [viewing, setViewing] = useState(false);
+  /*
+    The photo full size, held in the hash rather than in state: Back closes it
+    and leaves the form as it was, where in state Back left the editor and
+    took the half-typed panel with it. Its own key on the `photo` param, which
+    the two photo slots below use for their own full-size views.
+  */
+  const viewer = useHashSheet("photo", "aside");
   const wide = useWide();
 
   /**
@@ -307,8 +315,13 @@ export default function CustomFoodEditor(p: Props) {
    * The barcode read off a live frame. Nothing is stored: a photograph of a
    * barcode is worth nothing once the digits are read, so the frame goes to the
    * recogniser and no further.
+   *
+   * The lens is held in the hash, so Back closes it rather than the editor.
+   * Not Add food's `barcode` key: Add food stays mounted behind this screen,
+   * and a shared key would open its camera too — a second live stream, behind
+   * a hidden div.
    */
-  const [barcodeCam, setBarcodeCam] = useState(false);
+  const barCam = useCameraRoute("barcode-edit");
   const [barcodeReading, setBarcodeReading] = useState(false);
   const [barcodeShot, setBarcodeShot] = useState<BarcodeScan | null>(null);
   const [barcodeNote, setBarcodeNote] = useState<string | null>(null);
@@ -322,7 +335,7 @@ export default function CustomFoodEditor(p: Props) {
   }
 
   async function readBarcodeFrame(dataBase64: string) {
-    setBarcodeCam(false);
+    barCam.closeCam();
     const mine = ++barSeq.current;
     setBarcodeShot(null);
     setBarcodeNote(null);
@@ -444,7 +457,8 @@ export default function CustomFoodEditor(p: Props) {
     setScanning(false);
     // The ingredient list and the barcode belong to that same pack, and a
     // barcode left on offer would be the fastest thing on this screen to
-    // accept without looking.
+    // accept without looking. The lens itself needs nothing here: it lives in
+    // the hash, and pointing the router at another food writes one without it.
     ingSeq.current++;
     setIngRead(null);
     setIngNote(null);
@@ -453,7 +467,6 @@ export default function CustomFoodEditor(p: Props) {
     setBarcodeShot(null);
     setBarcodeNote(null);
     setBarcodeReading(false);
-    setBarcodeCam(false);
   }, [p.id]);
 
   const snapshot = useMemo(
@@ -616,10 +629,12 @@ export default function CustomFoodEditor(p: Props) {
     try {
       await saveCustomFood(food, p.id);
       clearDraft();
+      // Still "Saving…" after it has saved: the screen closes by going back a
+      // step, which lands a moment later, and a Save live again in that moment
+      // could write the same thing twice.
       p.onDone();
     } catch (e) {
       setError(String(e));
-    } finally {
       setSaving(false);
     }
   }
@@ -693,7 +708,7 @@ export default function CustomFoodEditor(p: Props) {
                 <button
                   className="btn btn--quiet vrow__btn"
                   type="button"
-                  onClick={() => { forgetBarcodeScan(); setBarcodeCam(true); }}
+                  onClick={() => { forgetBarcodeScan(); barCam.openCam(); }}
                   disabled={barcodeReading}
                   aria-label="Read the barcode with the camera"
                 >
@@ -712,7 +727,7 @@ export default function CustomFoodEditor(p: Props) {
               <button
                 className="btn btn--quiet vrow__btn"
                 type="button"
-                onClick={() => { forgetBarcodeScan(); setBarcodeCam(true); }}
+                onClick={() => { forgetBarcodeScan(); barCam.openCam(); }}
               >
                 Try again
               </button>
@@ -762,7 +777,7 @@ export default function CustomFoodEditor(p: Props) {
               <button
                 className="btn btn--quiet vrow__btn"
                 type="button"
-                onClick={() => { forgetBarcodeScan(); setBarcodeCam(true); }}
+                onClick={() => { forgetBarcodeScan(); barCam.openCam(); }}
               >
                 Take it again
               </button>
@@ -852,6 +867,7 @@ export default function CustomFoodEditor(p: Props) {
           <>
             <input
               className="field"
+              data-results-below
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search the generic entry this replaces — “chocolate, milk”"
@@ -1205,7 +1221,7 @@ export default function CustomFoodEditor(p: Props) {
           >
             <div className="group__name">{asideTitle}</div>
             <button
-              onClick={() => setViewing(true)}
+              onClick={() => viewer.show()}
               style={{ display: "block", width: "100%" }}
               aria-label={`Open the ${asideTitle.toLowerCase()} photo full size`}
             >
@@ -1241,7 +1257,7 @@ export default function CustomFoodEditor(p: Props) {
           }}
         >
           <button
-            onClick={() => setViewing(true)}
+            onClick={() => viewer.show()}
             style={{
               display: "flex", alignItems: "center", gap: "var(--s3)",
               flex: 1, minWidth: 0, minHeight: 44, textAlign: "left",
@@ -1264,16 +1280,16 @@ export default function CustomFoodEditor(p: Props) {
           readiness comes from the barcode reader rather than the panel-type
           gauge. Capture stays enabled, and the check digit is still what decides
           whether the digits are worth offering. */}
-      {barcodeCam && (
+      {barCam.open && (
         <CameraCapture
           scanKind="barcode"
           onCapture={(b64) => { void readBarcodeFrame(b64); }}
-          onCancel={() => setBarcodeCam(false)}
+          onCancel={barCam.closeCam}
         />
       )}
 
-      {viewing && aside.url && (
-        <Lightbox url={aside.url} title={asideTitle} onClose={() => setViewing(false)} />
+      {viewer.open && aside.url && (
+        <Lightbox url={aside.url} title={asideTitle} onClose={viewer.hide} />
       )}
     </div>
   );
@@ -1684,15 +1700,13 @@ function mimeOf(name: string): string {
  * Fit-to-screen is the default and actual size is one tap away: a panel
  * photographed at arm's length is legible fitted, and one photographed of a
  * whole pack is not.
+ *
+ * No Escape listener of its own. It is held in the hash, so App's Escape takes
+ * its entry away; a listener here as well would close it twice, and the second
+ * close would go back past the editor.
  */
 function Lightbox({ url, title, onClose }: { url: string; title: string; onClose: () => void }) {
   const [actual, setActual] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   return (
     <div

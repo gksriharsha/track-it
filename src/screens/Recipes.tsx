@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteRecipe, listRecipes } from "../api";
 import RecipeBuilder from "./RecipeBuilder";
+import { useHashSheet } from "../lib/hashSheet";
 import { plural } from "../lib/nutrient";
 import type { Recipe } from "../types";
 import ScreenHead from "../components/ScreenHead";
@@ -26,7 +27,20 @@ export default function Recipes(p: Props) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [building, setBuilding] = useState(false);
+  /*
+    The builder is held in the hash, as `builder=new`, rather than in state.
+
+    It covers the whole screen, so it reads as a screen of its own, and Back
+    from it is expected to land on this list. Held in state it was invisible
+    to history: the Android gesture went past it and took the person out of
+    Recipes altogether. As a history entry, Back closes the builder and
+    nothing else, and Cancel and Save close it the same way.
+
+    Its own param rather than the shared `sheet` one, because `sheet` is
+    swapped in place by whichever sheet opens next, and this is not one of
+    those sheets.
+  */
+  const builder = useHashSheet("builder", "new");
 
   const load = useCallback(async () => {
     try {
@@ -49,11 +63,14 @@ export default function Recipes(p: Props) {
 
   const list = recipes;
 
-  if (building) {
+  if (builder.open) {
     return (
       <RecipeBuilder
-        onCancel={() => setBuilding(false)}
-        onDone={() => { setBuilding(false); load(); }}
+        onCancel={builder.hide}
+        // Going back is what closes the builder. This screen stayed mounted
+        // while it was open, so its own load on mount will not run again, and
+        // the list is reloaded here to show the recipe just saved.
+        onDone={() => { builder.hide(); load(); }}
       />
     );
   }
@@ -65,7 +82,7 @@ export default function Recipes(p: Props) {
         onBack={p.onBack}
         action={
           list.length > 0 ? (
-            <button className="btn" onClick={() => setBuilding(true)}>New recipe</button>
+            <button className="btn" onClick={builder.show}>New recipe</button>
           ) : null
         }
       />
@@ -90,7 +107,7 @@ export default function Recipes(p: Props) {
             out at cooked, and every batch afterwards starts from it. That one cooked weight is
             what keeps a katori of rajma from counting three times over.
           </p>
-          <button className="btn" onClick={() => setBuilding(true)}>Build your first recipe</button>
+          <button className="btn" onClick={builder.show}>Build your first recipe</button>
         </div>
       ) : (
         // The count the title used to carry as a subtitle, heading the grid

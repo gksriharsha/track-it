@@ -11,6 +11,7 @@ import {
 } from "../api";
 import CameraCapture from "../components/CameraCapture";
 import PhotoSlot from "../components/PhotoSlot";
+import { useCameraRoute } from "../lib/camera";
 import type {
   BarcodeScan,
   IngredientsScan,
@@ -131,7 +132,15 @@ export default function SupplementEditor(p: Props) {
   const [ingHint, setIngHint] = useState<IngredientsScan | null>(null);
   const [ingNote, setIngNote] = useState<string | null>(null);
 
-  const [camera, setCamera] = useState(false);
+  /*
+    The barcode lens, held in the hash rather than in state. Held in state it
+    was invisible to the Android back gesture, which went straight past it and
+    closed the editor with a half-typed bottle on it. As a history entry, Back
+    shuts the lens and leaves the form where it was. The key is its own rather
+    than Add food's "barcode": `Foods` stays mounted behind this aside, and a
+    shared key would open its hidden camera alongside this one.
+  */
+  const barCam = useCameraRoute("supplement-barcode");
   const [barcodeBusy, setBarcodeBusy] = useState(false);
   const [barcodeHint, setBarcodeHint] = useState<BarcodeScan | null>(null);
   const [barcodeFail, setBarcodeFail] = useState<string | null>(null);
@@ -388,7 +397,7 @@ export default function SupplementEditor(p: Props) {
    * clutter the photo store for no benefit.
    */
   async function readBarcode(frame: string) {
-    setCamera(false);
+    barCam.closeCam();
     setBarcodeBusy(true);
     setBarcodeHint(null);
     setBarcodeFail(null);
@@ -532,10 +541,12 @@ export default function SupplementEditor(p: Props) {
     setSaving(true);
     try {
       await saveSupplement(sup, p.id);
+      // Still "Saving…" after it has saved: the screen closes by going back a
+      // step, which lands a moment later, and a Save live again in that moment
+      // could write the same thing twice.
       p.onDone();
     } catch (e) {
       setError(String(e));
-    } finally {
       setSaving(false);
     }
   }
@@ -615,7 +626,7 @@ export default function SupplementEditor(p: Props) {
               {CAN_STREAM && (
                 <button
                   className="btn btn--quiet sup-barcode__btn"
-                  onClick={() => { setBarcodeHint(null); setBarcodeFail(null); setCamera(true); }}
+                  onClick={() => { setBarcodeHint(null); setBarcodeFail(null); barCam.openCam(); }}
                   disabled={barcodeBusy}
                 >
                   {barcodeBusy ? "Reading…" : "Scan"}
@@ -665,7 +676,7 @@ export default function SupplementEditor(p: Props) {
               onDismiss={() => setBarcodeHint(null)}
               act={CAN_STREAM ? (
                 <button className="btn btn--quiet vrow__btn"
-                  onClick={() => { setBarcodeHint(null); setCamera(true); }}>
+                  onClick={() => { setBarcodeHint(null); barCam.openCam(); }}>
                   Try again
                 </button>
               ) : null}
@@ -680,7 +691,7 @@ export default function SupplementEditor(p: Props) {
               onDismiss={() => setBarcodeHint(null)}
               act={CAN_STREAM ? (
                 <button className="btn btn--quiet vrow__btn"
-                  onClick={() => { setBarcodeHint(null); setCamera(true); }}>
+                  onClick={() => { setBarcodeHint(null); barCam.openCam(); }}>
                   Try again
                 </button>
               ) : null}
@@ -971,6 +982,7 @@ export default function SupplementEditor(p: Props) {
             <input
               className="field"
               autoFocus
+              data-results-below
               placeholder="Which nutrient? — vitamin D, magnesium, B12…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -1062,11 +1074,11 @@ export default function SupplementEditor(p: Props) {
         </button>
       </div>
 
-      {camera && (
+      {barCam.open && (
         <CameraCapture
           scanKind="barcode"
           onCapture={readBarcode}
-          onCancel={() => setCamera(false)}
+          onCancel={barCam.closeCam}
         />
       )}
     </div>
