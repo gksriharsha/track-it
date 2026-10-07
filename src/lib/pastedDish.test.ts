@@ -148,8 +148,7 @@ const amt = (d: PastedDish, id: number) => d.nutrients.find((n) => n.nutrient_id
   check("no figures", !noFigures.ok);
 }
 
-if (failures > 0) {
-  console.error(`${failures} failure(s)`);
-  process.exit(1);
-}
+// Thrown rather than process.exit: these tests are typechecked with the app,
+// which has no Node typings (see node.d.ts).
+if (failures > 0) throw new Error(`${failures} check(s) failed`);
 console.log("pastedDish: all checks passed");
