@@ -13,6 +13,11 @@ interface Props {
    * to confirm rather than something written on the user's behalf.
    */
   recalledNote?: string | null;
+  /**
+   * The origins worth offering, when a choice already made rules the rest out:
+   * a restaurant dish was never made at home. All four when not given.
+   */
+  origins?: Origin[];
 }
 
 /**
@@ -51,7 +56,7 @@ export default function TagPicker(p: Props) {
     <div className="tags">
       <div className="group__name">Where it came from</div>
       <div className="chips">
-        {ORIGINS.map((o) => (
+        {ORIGINS.filter((o) => !p.origins || p.origins.includes(o.id)).map((o) => (
           <button
             key={o.id}
             className="chip"

@@ -961,6 +961,18 @@ function Shell() {
     go(t, nav);
   };
 
+  /*
+    The Food screen with the Restaurant food sheet open over it. The sheet
+    rides in the hash as its own entry, like the + sheet's water, so closing
+    it is an ordinary Back to a plain Food screen and nothing left in that
+    entry can open it again.
+  */
+  const openRestaurant = () => {
+    if (new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("sheet") === "paste") return;
+    if (tab !== "foods" || route.pick !== null) go("foods");
+    go("foods", { q: tab === "foods" ? route.q ?? undefined : undefined, sheet: "paste" });
+  };
+
   const commands: Command[] = [
     { id: "go-statistics", label: "Trends", hint: TAB_HINT.statistics, group: "Go to", run: () => toTab("statistics") },
     ...TABS.map((t) => ({
@@ -972,6 +984,9 @@ function Shell() {
     })),
     { id: "add", label: "Add food", hint: "search, weigh and log", group: "Do", run: () => open("foods") },
     { id: "add-activity", label: "Add activity", hint: "a walk, a class, a gym session", group: "Do", run: () => open("foods", { pick: "activity" }) },
+    // The Food screen's two ways of adding, by the names its buttons give them.
+    { id: "new-own", label: "Packaged food", hint: "from the pack in front of you", group: "Do", run: () => open("custom-food", { from: "custom-foods" }) },
+    { id: "restaurant", label: "Restaurant food", hint: "an assistant's estimate, pasted in", group: "Do", run: openRestaurant },
     { id: "prev", label: "Previous day", hint: humanDate(shiftIso(date, -1)), group: "Do", run: () => { setDate(shiftIso(date, -1)); toTab("today"); } },
     ...(canGoForward
       ? [{ id: "next", label: "Next day", hint: humanDate(shiftIso(date, 1)), group: "Do", run: () => { setDate(shiftIso(date, 1)); toTab("today"); } }]
@@ -985,7 +1000,6 @@ function Shell() {
     { id: "vessels", label: "Bowls & plates", hint: "weighed empty once", group: "Library", run: () => open("vessels", { from: "library" }) },
     { id: "bottles", label: "Water bottles", hint: "weighed full once", group: "Library", run: () => open("bottles", { from: "library" }) },
     { id: "pantry", label: "Pantry", hint: "salt, oil and the rest, read by the jar", group: "Library", run: () => open("pantry", { from: "library" }) },
-    { id: "new-own", label: "Transcribe a new food", hint: "from the pack in front of you", group: "Library", run: () => open("custom-food", { from: "custom-foods" }) },
     { id: "profile", label: "About you", hint: "who the figures are for", group: "Settings", run: () => open("profile", { from: "you" }) },
     { id: "targets", label: "Targets & goals", hint: "what every figure is read against", group: "Settings", run: () => open("settings", { from: "you" }) },
     { id: "import", label: "Import", hint: "a log you kept elsewhere", group: "Settings", run: () => open("import", { from: "you" }) },

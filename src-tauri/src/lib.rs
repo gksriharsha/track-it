@@ -15,6 +15,8 @@ mod family_tests;
 mod keystore;
 #[cfg(test)]
 mod percent_tests;
+#[cfg(test)]
+mod pasted_dish_tests;
 mod store;
 mod sync;
 mod tidy;
@@ -1608,6 +1610,26 @@ pub struct ImportRowInput {
     /// was skipped — and a failure that names the wrong row is worse than one
     /// that names none.
     pub source_row: usize,
+    /// Where the dish came from and what kind of food it is, for a row that
+    /// is one dish pasted in rather than a day read out of a spreadsheet. The
+    /// user's own answer, so absent unless they gave one — a spreadsheet row
+    /// never does.
+    #[serde(default)]
+    pub origin: Option<String>,
+    #[serde(default)]
+    pub cuisine: Option<String>,
+    /// How much the dish weighed, when an estimate came with it. The figures
+    /// are for the whole of it either way; without a weight the food's mass
+    /// is the nominal 100 g a spreadsheet row carries.
+    #[serde(default)]
+    pub grams: Option<f64>,
+    /// What one of the dish is called — "portion" — for a dish pasted in from
+    /// an estimate. Such a row is logged as one of it, counted rather than
+    /// weighed, so the day shows "1 portion" and never a weight nobody
+    /// measured; a correction then counts portions. Never sent by the
+    /// spreadsheet importer, whose rows stay a weighed 100 g.
+    #[serde(default)]
+    pub piece_noun: Option<String>,
 }
 
 /// Why one row of a batch import did not become a log entry. `row` is
@@ -1665,14 +1687,19 @@ pub(crate) fn valid_iso_date(s: &str) -> bool {
     (1..=days_in_month).contains(&day)
 }
 
-/// Import one already-parsed spreadsheet row into exactly what a transcribed
-/// pack already is in this app: one `custom_foods` row plus one `log_entries`
-/// row pointing at it via `Source::Custom`. `serving_g: 100.0` paired with
-/// logging `Quantity::Grams(100.0)` is the whole trick — nutrient storage is
-/// per-100g-scaled-from-per-serving, so with serving and grams equal that
-/// scaling is the identity and the number typed into the spreadsheet is
-/// exactly the number that lands in the day's total. 100 is a nominal
-/// placeholder mass, not a claim about how much food that represents.
+/// Import one already-parsed row — a spreadsheet row, or a dish pasted in
+/// from an estimate — into exactly what a transcribed pack already is in this
+/// app: one `custom_foods` row plus one `log_entries` row pointing at it via
+/// `Source::Custom`. The serving the figures are per is the whole of what is
+/// logged, which is the whole trick: nutrient storage is
+/// per-100g-scaled-from-per-serving, so with the logged amount equal to the
+/// serving that scaling is the identity, and the number typed or pasted is
+/// exactly the number that lands in the day's total.
+///
+/// A spreadsheet row is a weighed `serving_g: 100.0`, logged as 100 g: a
+/// nominal placeholder mass, not a claim about how much food that was. A
+/// pasted dish is one counted portion of a serving as heavy as its estimate
+/// said, or the same nominal 100 g without one, so its day shows "1 portion".
 fn import_one_row(
     refconn: &rusqlite::Connection,
     conn: &mut rusqlite::Connection,
@@ -1706,15 +1733,27 @@ fn import_one_row(
         }
     };
 
+    let grams = match row.grams {
+        None => 100.0,
+        Some(g) if g.is_finite() && g > 0.0 => g,
+        Some(_) => return Err("the dish's weight must be a positive number of grams".into()),
+    };
+    store::check_origin(row.origin.as_deref())?;
+    let piece_noun = match row.piece_noun.as_deref().map(str::trim) {
+        None => None,
+        Some("") => return Err("a dish counted by the portion needs a word for one".into()),
+        Some(n) => Some(n.to_string()),
+    };
+
     let food = store::CustomFood {
         id: String::new(),
         name: description.clone(),
         brand: None,
         overrides_fdc_id: None,
-        serving_g: 100.0,
+        serving_g: grams,
         serving_ml: None,
-        serving_pieces: None,
-        piece_noun: None,
+        serving_pieces: piece_noun.as_ref().map(|_| 1.0),
+        piece_noun: piece_noun.clone(),
         serving_label: None,
         ingredients: None,
         barcode: None,
@@ -1743,8 +1782,8 @@ fn import_one_row(
     let food_id = store::save_custom_food(conn, None, &food)?;
 
     let tags = store::Tags {
-        origin: None,
-        cuisine: None,
+        origin: row.origin.clone(),
+        cuisine: row.cuisine.as_deref().map(str::trim).filter(|c| !c.is_empty()).map(String::from),
     };
     // Frozen like any other entry. An imported row is history by definition —
     // it describes a day already lived — so it must not be re-valued later
@@ -1759,7 +1798,11 @@ fn import_one_row(
         Some(&row.meal),
         store::Source::Custom(&food_id),
         &description,
-        store::Quantity::Grams(100.0),
+        if piece_noun.is_some() {
+            store::Quantity::Pieces(1.0)
+        } else {
+            store::Quantity::Grams(grams)
+        },
         None,
         &tags,
     );
@@ -1881,17 +1924,30 @@ impl ResolvedPanel {
 /// Shown wherever a custom food is expanded, because "43 g of a Hershey's bar"
 /// on its own does not say that most of what the day counts for it was borrowed
 /// or is missing.
-fn provenance_line(panel: &ResolvedPanel) -> String {
+fn provenance_line(panel: &ResolvedPanel, food: &store::CustomFood) -> String {
     let total = panel.rows.len();
+    let came = values_came(food);
     match &panel.base_description {
         Some(base) => format!(
-            "{} of {total} values off the pack, {} borrowed from “{base}”, {} unmeasured",
+            "{} of {total} values {came}, {} borrowed from “{base}”, {} unmeasured",
             panel.from_label, panel.from_base, panel.unknown
         ),
         None => format!(
-            "{} of {total} values off the pack, {} unmeasured",
+            "{} of {total} values {came}, {} unmeasured",
             panel.from_label, panel.unknown
         ),
+    }
+}
+
+/// Where one of the user's own foods got its figures, as the provenance line
+/// says it. Only a transcribed pack has a pack: a dish pasted in from an
+/// assistant's estimate (one counted portion) and a spreadsheet row have none,
+/// and saying "off the pack" of either would claim a label nobody read.
+fn values_came(food: &store::CustomFood) -> &'static str {
+    match (food.import_only, food.serving_pieces.is_some()) {
+        (false, _) => "off the pack",
+        (true, true) => "from an estimate",
+        (true, false) => "from your import",
     }
 }
 
@@ -3494,7 +3550,7 @@ fn resolve_contribution(
             Ok((
                 None,
                 vec![store::SnapComponent {
-                    description: format!("{} — {}", food.name, provenance_line(&panel)),
+                    description: format!("{} — {}", food.name, provenance_line(&panel, &food)),
                     // A custom food has no USDA identity, and borrowing the
                     // overridden food's would name the wrong thing here.
                     fdc_id: None,
@@ -3767,7 +3823,7 @@ fn ingredient_values(
             let food = store::get_custom_food_for_history(uconn, cid)?;
             let panel = resolve_panel(refconn, &food)?;
             Ok((
-                format!("{} — {}", description, provenance_line(&panel)),
+                format!("{} — {}", description, provenance_line(&panel, &food)),
                 panel.from_label + panel.from_base > 0,
                 panel.values().into_iter().collect(),
             ))

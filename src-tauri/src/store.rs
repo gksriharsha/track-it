@@ -1410,8 +1410,8 @@ pub struct CustomFood {
     pub photo_label: Option<String>,
     pub photo_ingredients: Option<String>,
     pub nutrients: Vec<CustomNutrient>,
-    /// Set only by a bulk spreadsheet import — see the `custom_foods` table
-    /// comment. `#[serde(default)]` because the existing custom-food editor's
+    /// Set by `import_log_rows` — a bulk spreadsheet import, or a dish pasted
+    /// in from an estimate — see the `custom_foods` table comment. `#[serde(default)]` because the existing custom-food editor's
     /// frontend payload does not send this field and must keep deserializing
     /// exactly as it does today, defaulting to `false`.
     #[serde(default)]
@@ -5267,6 +5267,9 @@ pub fn dates_with_existing_imports(
          JOIN custom_foods cf ON cf.id = le.custom_food_id
          WHERE le.source_kind = 'custom' AND le.deleted_at IS NULL
            AND cf.import_only = 1
+           -- A spreadsheet row is always weighed; a dish pasted in from an
+           -- estimate is one counted portion, and is not an import to warn of.
+           AND le.pieces IS NULL
            AND le.logged_on IN ({placeholders})"
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
