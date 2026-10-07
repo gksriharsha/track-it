@@ -1616,6 +1616,10 @@ b, strong, th { font-weight: 600; }
 }
 /* The weight must never wrap between number and unit ("25" / "g"). */
 .breakdown__row > :last-child { white-space: nowrap; flex: none; }
+/* A row that is one line of words and no weight — one of your own foods'
+   "6 of 47 values from an estimate, 41 unmeasured" — wraps like a sentence
+   rather than running off the sheet's edge. */
+.breakdown__row > :only-child { white-space: normal; flex: 1 1 auto; min-width: 0; }
 /* An ingredient USDA has no composition data for is a gap in a public table,
    not a health risk and not something the person did. It was painted in the
    limit-exceeded colour, which is the one colour in this palette that means
@@ -3716,8 +3720,9 @@ b, strong, th { font-weight: 600; }
    As the user picked it, "Search at the bottom": the meal as the title;
    what is on the stove, the foods usually had at this sitting and the rest
    of their own things; and the search at the foot of a phone's screen,
-   where the thumb is, with the barcode and the pack camera inside it. No
-   tabs, and no paragraphs of explanation.
+   where the thumb is, holding only the barcode beside the words. Packaged
+   food and Restaurant food sit above it as two named buttons until there
+   are results. No tabs, and no paragraphs of explanation.
    ───────────────────────────────────────────────────────────── */
 .fhead { gap: 2px; }
 .fhead__meal {
@@ -3775,6 +3780,19 @@ b, strong, th { font-weight: 600; }
 }
 .food__icon:disabled { opacity: 0.5; cursor: default; }
 @media (hover: hover) { .food__icon:hover:not(:disabled) { background: var(--sunken); color: var(--ink); } }
+/* What adds a food that is not here yet: two named buttons over the field,
+   never icons inside it (the field's own controls only find). */
+.food__adds { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); margin-bottom: var(--s2); }
+.food__add {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: var(--btn-h); padding: 0 var(--s2); border-radius: var(--r-md);
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink); font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600;
+  transition: background-color 140ms ease-out;
+}
+.food__add svg { flex: none; color: var(--area-ink); }
+@media (hover: hover) { .food__add:hover { background: var(--sunken); } }
+.empty__acts .btn svg { flex: none; }
 .food__scan { margin: 0 0 var(--s2); color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 
 /* The meal sheet: the four sittings, the chosen one ticked. A white cell on a
@@ -3789,7 +3807,8 @@ b, strong, th { font-weight: 600; }
      drawn over the page's bottom third, so its height comes from
      MainActivity as --sys-ime; the navigation bar's inset is under the keys
      then, and only counted when they are down. The Undo bar sits just above
-     the field, where it sits above the bottom bar on every other screen. */
+     the whole dock, add buttons included (`.toast` below), where it sits
+     above the bottom bar on every other screen. */
   .food__dock {
     position: fixed; left: 0; right: 0; bottom: var(--sys-ime); z-index: 25;
     padding: var(--s2) var(--s4) calc(var(--s2) + max(0px, var(--safe-bottom) - var(--sys-ime)));
@@ -3799,10 +3818,36 @@ b, strong, th { font-weight: 600; }
      its foot, so your own, drawn last, are the nearest to it. */
   .food__body.is-results { justify-content: flex-end; min-height: var(--food-fill, 0px); }
   .food__results { flex-direction: column-reverse; }
+  /* The dock is a row taller while its two add buttons show, and the page's
+     own foot padding is sized for the bar this screen does not have. */
+  .food__body:not(.is-results) { padding-bottom: calc(var(--btn-h) + var(--s2)); }
+  /* The add buttons stand aside while results show, so the results' foot
+     carries them: drawn nearest the field, where the column stands reversed,
+     with targets a thumb can hit, the line's height given back. */
+  .food__results > .food__foot { order: -1; }
+  .food__foot .link {
+    display: inline-flex; align-items: center; min-height: 44px;
+    margin-block: -12px; padding: 0 var(--s1);
+  }
+  /* Above the dock as measured (Foods.tsx), never over its add buttons; on
+     every other screen, above the bottom bar as before. */
+  .toast {
+    bottom: max(calc(var(--bar-h) + var(--s3) + var(--safe-bottom)),
+                calc(var(--dock-top, 0px) + var(--s2)));
+  }
+  /* Copy the prompt stands alone at the head of its sheet: a real target, its
+     left padding given back so it lines up with the box under it. */
+  .paste__head .link {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 var(--s2); margin-inline-start: calc(var(--s2) * -1);
+  }
 }
 @media (min-width: 721px) {
-  /* A real keyboard: the field heads the list, as a search does on a desktop. */
-  .food__dock { order: -1; }
+  /* A real keyboard: the field heads the list, as a search does on a desktop.
+     The add buttons sit under it rather than over it here, so the field
+     stays put when they stand aside as results come in. */
+  .food__dock { order: -1; display: flex; flex-direction: column; }
+  .food__adds { order: 1; margin: var(--s2) 0 0; }
 }
 @media (min-width: 1080px) {
   /* The workbench sets its list to block when something is picked; this one
@@ -4096,3 +4141,26 @@ b, strong, th { font-weight: 600; }
 /* Here the tags have a heading of their own, so not the rule that sets them
    off from a log sheet's amount. */
 .rb .tags { margin-top: 0; padding-top: 0; border-top: none; }
+
+/* Restaurant food: an assistant's JSON in, a one-off entry out (PasteDish.tsx). */
+.paste { display: grid; gap: var(--s3); }
+.paste__head { display: flex; align-items: center; gap: var(--s2); }
+.paste__text { min-height: 7.5em; resize: vertical; font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+/* Once read, the reply has done its job: the box gives its room to the dish,
+   so Add stays in sight on a phone without scrolling the sheet. */
+.paste__text.is-read {
+  min-height: 0;
+  height: calc(3 * var(--t-sm) * var(--t-sm-lh) + 2 * var(--s3) + 2px);
+}
+/* The tags sit in the sheet's own column, one gap below the dish, not with
+   the rule and margins they take under an amount. */
+.paste .tags { margin-top: 0; padding-top: var(--s3); }
+.paste .commit { margin-top: 0; }
+@media (max-width: 720px) {
+  .paste__text { resize: none; }
+  /* The no-match buttons as one column of one width, not a ragged stack. */
+  .empty__acts { flex-direction: column; align-items: stretch; max-width: 18rem; margin-inline: auto; }
+}
+.paste__dish { display: grid; gap: var(--s1); }
+.paste__line { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.paste__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }

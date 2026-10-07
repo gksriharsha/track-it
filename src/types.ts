@@ -891,8 +891,9 @@ export interface CustomFood {
   /** Which Daily Values its percentages are of. Missing reads as "current". */
   dv_basis?: DvBasis;
   /**
-   * True for a row a spreadsheet import created rather than a person typing a
-   * pack in. These are excluded from search and "My foods" — a year of history
+   * True for a row `import_log_rows` created — a spreadsheet import, or a dish
+   * pasted in from an estimate — rather than a person typing a pack in. These
+   * are excluded from search and "Your foods" — a year of history
    * would otherwise swarm both with entries nobody would ever search for or log
    * a second time — but a day that already logged one keeps resolving it. Never
    * set by the existing custom-food editor, so it is safe to default to false.
@@ -1624,6 +1625,13 @@ export interface ImportRowInput {
    * a failure can name the row they would actually find if they opened it —
    * rows dropped during parsing make this batch's own indices meaningless. */
   source_row: number;
+  /** For a dish pasted in: where it came from and what kind of food it is. */
+  origin?: Origin | null;
+  cuisine?: string | null;
+  /** The dish's weight, when an estimate came with it; else a nominal 100 g. */
+  grams?: number | null;
+  /** What one of a pasted dish is called ("portion"): logged as one, counted. */
+  piece_noun?: string | null;
 }
 
 /** Why one row of the batch did not become a log entry. `row` is 1-based,

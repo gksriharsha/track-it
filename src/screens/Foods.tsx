@@ -54,6 +54,7 @@ import Amount, { AmountTitle, Dose } from "../components/Amount";
 import type { Serving } from "../components/Amount";
 import { useQuickLog } from "../components/QuickLog";
 import CameraCapture from "../components/CameraCapture";
+import PasteDish from "../components/PasteDish";
 import ActivityPane from "./Activity";
 import ScreenHead from "../components/ScreenHead";
 import Glyph from "../components/Glyph";
@@ -64,6 +65,38 @@ import { isAndroid, useMedia } from "../lib/desktop";
 import { useHashSheet } from "../lib/hashSheet";
 import { bare, canStream, readBarcodeFromFile, useCameraRoute } from "../lib/camera";
 import type { Weighed } from "../components/WeightField";
+
+/*
+  What the two ways of adding do, said where the buttons' nouns alone could
+  read as filters on the search beside them. A title, so the accessible name
+  stays the visible words (voice control says "Packaged food") and the purpose
+  is still read out and shown on hover.
+*/
+const ADD_PACKAGED = "Add a food from its pack";
+const ADD_RESTAURANT = "Log a dish from a pasted estimate";
+
+/** The pack camera: a food added from the label in your hand. */
+function CameraGlyph() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.9" strokeLinejoin="round" aria-hidden>
+      <path d="M4 8.5h3l1.4-2h7.2L17 8.5h3a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" />
+      <circle cx="12" cy="13.5" r="3.2" />
+    </svg>
+  );
+}
+
+/** A clipboard: a restaurant dish, from an estimate pasted in. */
+function ClipGlyph() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="5.5" y="4.5" width="13" height="16" rx="1.6" />
+      <path d="M9.5 4.5V3.6c0-.3.3-.6.6-.6h3.8c.3 0 .6.3.6.6v.9" />
+      <path d="M9 10h6M9 13.5h6M9 17h3.5" />
+    </svg>
+  );
+}
 
 interface Props {
   date: string;
@@ -308,6 +341,8 @@ export default function Foods(p: Props) {
     the hash so Back closes it. The keypad is drawn where there is no keyboard.
   */
   const amountSheet = useHashSheet("sheet", "amount");
+  /** A dish someone else made, from an assistant's estimate pasted in. */
+  const pasteSheet = useHashSheet("sheet", "paste");
   const wide = useMedia("(min-width: 1080px)");
   const keys = !useMedia("(hover: hover) and (pointer: fine)");
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -1127,6 +1162,39 @@ export default function Foods(p: Props) {
     };
   }, [typed, hits, anyPicked, tab]);
 
+  /*
+    Where the dock's top edge is, for the Undo bar to sit above (styles.css,
+    `.toast`). Measured rather than assumed one field tall: the add buttons,
+    the scan note and the keyboard all move it. On the body, not the root,
+    whose style the keyboard observer above watches. Only while docked and
+    in sight: behind an aside this screen is mounted but hidden.
+  */
+  useLayoutEffect(() => {
+    const dock = dockRef.current;
+    if (!dock) return;
+    const place = () => {
+      const r = dock.getBoundingClientRect();
+      if (getComputedStyle(dock).position !== "fixed" || r.height === 0) {
+        document.body.style.removeProperty("--dock-top");
+        return;
+      }
+      document.body.style.setProperty("--dock-top", `${Math.round(window.innerHeight - r.top)}px`);
+    };
+    place();
+    const seen = new ResizeObserver(place);
+    seen.observe(dock);
+    // The keyboard lifts the dock without resizing it: --sys-ime on the root.
+    const keyboard = new MutationObserver(place);
+    keyboard.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+    window.addEventListener("resize", place);
+    return () => {
+      seen.disconnect();
+      keyboard.disconnect();
+      window.removeEventListener("resize", place);
+      document.body.style.removeProperty("--dock-top");
+    };
+  }, [tab, p.active]);
+
   /** A row of the list: what leads it, what it is, and what is on its right. */
   const row = (key: string, i: number | null, lead: React.ReactNode, title: string,
     sub: React.ReactNode, right: React.ReactNode, open: () => void) => (
@@ -1478,9 +1546,8 @@ export default function Foods(p: Props) {
                     <div className="empty">
                       <h3>What did you eat?</h3>
                       <p>
-                        Search below. Indian names work: <em>urad dal</em>, <em>besan</em>,{" "}
-                        <em>rava</em>. Anything in a pack is better added from its label, with the
-                        camera in the search field.
+                        Type what you had. Indian names work: <em>urad dal</em>, <em>besan</em>,{" "}
+                        <em>rava</em>.
                       </p>
                     </div>
                   )}
@@ -1505,27 +1572,32 @@ export default function Foods(p: Props) {
                     <>
                       <h3>No food of yours has that barcode</h3>
                       <p>
-                        The digits came off the pack fine. TrackIt reads them on this phone and
-                        looks them up nowhere, so nothing was sent anywhere. Add the food from
-                        its pack once and this barcode finds it every time after that.
+                        Read on this phone and looked up nowhere. Add it once with Packaged food
+                        and this barcode finds it after that.
                       </p>
-                      <button className="btn" onClick={() => p.onCreateCustomFood(scanCode)}>
-                        Add it from its pack
+                      <button className="btn" onClick={() => p.onCreateCustomFood(scanCode)}
+                        title={ADD_PACKAGED}>
+                        <CameraGlyph /> Packaged food
                       </button>
                     </>
                   ) : (
                     <>
                       <h3>No matches for “{query.trim()}”</h3>
-                      <p>
-                        Try a simpler word, or the ingredient rather than the dish. Anything with
-                        a nutrition panel is better taken from the pack.
-                      </p>
+                      <p>Try a simpler word.</p>
+                      {/* The two ways of adding, by the names the dock gives
+                          them above the field. A dish searched for and not
+                          found is the likeliest thing to have been ordered. */}
                       <div className="empty__acts">
-                        <button className="btn" onClick={() => p.onCreateCustomFood()}>
-                          Add it from its pack
+                        <button className="btn" onClick={pasteSheet.show} title={ADD_RESTAURANT}>
+                          <ClipGlyph /> Restaurant food
                         </button>
-                        <button className="btn btn--quiet" onClick={p.onCreateSupplement}>
-                          Add a supplement from its bottle
+                        <button className="btn btn--quiet" onClick={() => p.onCreateCustomFood()}
+                          title={ADD_PACKAGED}>
+                          <CameraGlyph /> Packaged food
+                        </button>
+                        <button className="btn btn--quiet" onClick={p.onCreateSupplement}
+                          title="Add a supplement from its bottle">
+                          <Glyph name="tablet" size={20} /> Supplement
                         </button>
                       </div>
                     </>
@@ -1572,9 +1644,15 @@ export default function Foods(p: Props) {
                       </div>
                     </section>
                   )}
+                  {/* The dock's two ways of adding stand aside while results
+                      show, so the foot of the list carries them. */}
                   <p className="food__foot">
-                    Not the thing in your hand?{" "}
-                    <button className="link" onClick={() => p.onCreateCustomFood()}>Add it from its pack</button>
+                    Not what you had?{" "}
+                    <button className="link" onClick={() => p.onCreateCustomFood()}
+                      title={ADD_PACKAGED}>Packaged food</button>
+                    {" or "}
+                    <button className="link" onClick={pasteSheet.show}
+                      title={ADD_RESTAURANT}>Restaurant food</button>
                   </p>
                 </div>
               )}
@@ -1583,14 +1661,29 @@ export default function Foods(p: Props) {
             {/* The field where the thumb is. Pinned to the foot of a phone's
                 screen, and so above the keyboard when it is up; at the top of
                 the list on a wider window, where the keyboard is a real one.
-                The barcode and the pack camera are two icons in it: things
-                done now and then, not two cards with a paragraph each. */}
+
+                The field holds only what finds a food: the words, and the
+                barcode, which is a search by the digits on a pack. What adds
+                a food that is not here yet sits above it as two named
+                buttons, and steps aside once there are results, whose foot
+                then offers the same two. */}
             <div ref={dockRef} className="food__dock">
               {scanNote !== null && (
                 <p className="food__scan">
                   {scanNote}{" "}
                   <button className="link" onClick={startBarcode}>Try again</button>
                 </p>
+              )}
+              {!typed && (
+                <div className="food__adds">
+                  <button className="food__add" onClick={() => p.onCreateCustomFood()}
+                    title={ADD_PACKAGED}>
+                    <CameraGlyph /> Packaged food
+                  </button>
+                  <button className="food__add" onClick={pasteSheet.show} title={ADD_RESTAURANT}>
+                    <ClipGlyph /> Restaurant food
+                  </button>
+                </div>
               )}
               <div className="food__field">
                 <svg className="food__glass" width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -1615,7 +1708,7 @@ export default function Foods(p: Props) {
                   aria-controls="food-hits"
                 />
                 {query !== "" && (
-                  <button className="food__icon" aria-label="Clear the search"
+                  <button className="food__icon" aria-label="Clear the search" title="Clear the search"
                     onClick={() => { setQuery(""); searchRef.current?.focus(); }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                       strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -1625,7 +1718,8 @@ export default function Foods(p: Props) {
                 )}
                 {/* Always offered, camera or not — see `startBarcode`. */}
                 <button className="food__icon" onClick={startBarcode} ref={barBtn} disabled={scanBusy}
-                  aria-label={scanBusy ? "Reading the barcode" : "Find it by its barcode"}>
+                  aria-label={scanBusy ? "Reading the barcode" : "Find it by its barcode"}
+                  title="Find it by its barcode">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                     strokeWidth="1.9" strokeLinecap="round" aria-hidden>
                     <path d="M3.5 7.5V5.6A1.6 1.6 0 0 1 5.1 4H7" />
@@ -1633,14 +1727,6 @@ export default function Foods(p: Props) {
                     <path d="M20.5 16.5v1.9a1.6 1.6 0 0 1-1.6 1.6H17" />
                     <path d="M7 20H5.1a1.6 1.6 0 0 1-1.6-1.6v-1.9" />
                     <path d="M7.5 8.5v7M10.5 8.5v7M13.5 8.5v7M16.5 8.5v7" />
-                  </svg>
-                </button>
-                <button className="food__icon" onClick={() => p.onCreateCustomFood()}
-                  aria-label="Add a food from its pack">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="1.9" strokeLinejoin="round" aria-hidden>
-                    <path d="M4 8.5h3l1.4-2h7.2L17 8.5h3a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" />
-                    <circle cx="12" cy="13.5" r="3.2" />
                   </svg>
                 </button>
               </div>
@@ -1692,6 +1778,10 @@ export default function Foods(p: Props) {
             </button>
           ))}
         </div>
+      </Sheet>
+
+      <Sheet open={pasteSheet.open} onClose={pasteSheet.hide} title="Restaurant food">
+        <PasteDish date={p.date} meal={p.meal} onLogged={p.onLogged} />
       </Sheet>
 
       {/* How much, over the list, wherever the panel does not fit beside it. */}
