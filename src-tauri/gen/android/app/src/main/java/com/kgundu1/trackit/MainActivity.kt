@@ -1,6 +1,7 @@
 package com.kgundu1.trackit
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
@@ -47,6 +48,14 @@ class MainActivity : TauriActivity() {
    * to ask and nothing to poke.
    */
   private var page: WebView? = null
+
+  /**
+   * The latest inset figures as the script that sets them, and whether a
+   * delivery is still being retried. See [publishInsets].
+   */
+  private var insetsScript: String? = null
+  private var insetsRetrying = false
+  private var insetsTries = 0
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
@@ -123,6 +132,21 @@ class MainActivity : TauriActivity() {
   }
 
   /**
+   * The system switched between light and dark while the app was open.
+   *
+   * `uiMode` is in the manifest's `configChanges`, so this Activity is not
+   * rebuilt for it, and `enableEdgeToEdge()` in [onCreate] chose the status
+   * bar's icons once, for the mode it started in: dark icons stayed on a page
+   * that had gone dark, white ones on a page that had gone light. Called
+   * again, it reads the new mode and chooses again. The page needs nothing:
+   * its colours follow `prefers-color-scheme`, which the WebView updates.
+   */
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    enableEdgeToEdge()
+  }
+
+  /**
    * The app is leaving the foreground, so the flag goes with it.
    *
    * Android already ignores `FLAG_KEEP_SCREEN_ON` on a backgrounded app, so in
@@ -193,12 +217,16 @@ class MainActivity : TauriActivity() {
    * Insets are converted to CSS pixels: Android reports physical pixels and
    * the page is laid out in density-independent ones.
    *
-   * Applied more than once on purpose. The listener fires at layout, which can
-   * land before the WebView has a document to run script in — that call is
-   * silently dropped — so the request is repeated once the first frame has had
-   * time to arrive and again on every resume. Setting the same four properties
-   * twice costs nothing; missing them entirely puts the bottom bar under the
-   * navigation pill.
+   * Delivered until the app has started, not just sent. The listener fires at
+   * layout, which on a cold start lands before the page has loaded — the
+   * properties are then set on a document that is about to be replaced, or on
+   * none — and a single retry 600 ms later was still too early: in three cold
+   * launches out of three on the emulator none of them had arrived five
+   * seconds in, and the bottom bar sat under the navigation pill until the app
+   * was resumed. So the script reports back whether the app has mounted (it
+   * defines `window.__androidBack` when it does) and is re-sent every 250 ms
+   * until it has. It is re-asked for on every resume as well. Setting the same
+   * five properties again costs nothing.
    */
   private fun publishInsets(webView: WebView) {
     ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
@@ -213,20 +241,56 @@ class MainActivity : TauriActivity() {
       val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
       val d = resources.displayMetrics.density
       fun css(px: Int) = if (d > 0f) (px / d).toInt() else px
-      webView.evaluateJavascript(
+      insetsScript =
         "(function(){try{var s=document.documentElement.style;" +
           "s.setProperty('--sys-top','${css(bars.top)}px');" +
           "s.setProperty('--sys-right','${css(bars.right)}px');" +
           "s.setProperty('--sys-bottom','${css(bars.bottom)}px');" +
           "s.setProperty('--sys-left','${css(bars.left)}px');" +
-          "s.setProperty('--sys-ime','${css(ime.bottom)}px');}catch(e){}})()",
-        null,
-      )
+          "s.setProperty('--sys-ime','${css(ime.bottom)}px');" +
+          "return !!window.__androidBack}catch(e){return false}})()"
+      deliverInsets(webView)
       // Passed on rather than consumed: this is a measurement, not a claim to
       // have handled the insets.
       insets
     }
-    webView.postDelayed({ ViewCompat.requestApplyInsets(webView) }, 600)
+    // Asked for once the WebView is attached, so the listener is sure to fire
+    // at least once: a view attached after the window's first layout is not
+    // sent insets on its own, and only some WebView builds ask for them.
+    webView.post { ViewCompat.requestApplyInsets(webView) }
+  }
+
+  /**
+   * Run the latest inset script, and run it again until the app is there to
+   * have received it. One retry chain at a time: figures that change while it
+   * waits (the keyboard, a rotation) replace the script it will send next.
+   * Given up after 30 s, when the page has failed to start for some other
+   * reason; the next resume asks afresh.
+   */
+  private fun deliverInsets(webView: WebView) {
+    val script = insetsScript ?: return
+    webView.evaluateJavascript(script) { mounted ->
+      if (mounted == "true") {
+        insetsRetrying = false
+        insetsTries = 0
+        return@evaluateJavascript
+      }
+      if (insetsRetrying) return@evaluateJavascript
+      if (++insetsTries > INSET_TRIES) {
+        insetsTries = 0
+        return@evaluateJavascript
+      }
+      insetsRetrying = true
+      webView.postDelayed({
+        insetsRetrying = false
+        deliverInsets(webView)
+      }, INSET_RETRY_MS)
+    }
+  }
+
+  private companion object {
+    const val INSET_RETRY_MS = 250L
+    const val INSET_TRIES = 120
   }
 
   override fun onDestroy() {
