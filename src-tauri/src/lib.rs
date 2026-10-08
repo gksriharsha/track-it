@@ -247,16 +247,18 @@ fn base_description(conn: &rusqlite::Connection, fdc_id: i64) -> Option<String> 
 /// for the picker that asks which generic entry a food replaces, where the form
 /// is the very thing being chosen.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn search_foods(
     query: String,
     limit: Option<u32>,
     include_overridden: Option<bool>,
     flat: Option<bool>,
+    dishes: Option<bool>,
     refdb: State<'_, db::Db>,
     user: State<'_, store::Store>,
 ) -> Result<Vec<db::FoodHit>, String> {
     let opts = (include_overridden.unwrap_or(false), flat.unwrap_or(false));
-    search_foods_in(&refdb, &user, &query, limit.unwrap_or(40), opts)
+    search_foods_in(&refdb, &user, &query, limit.unwrap_or(40), opts, dishes.unwrap_or(false))
 }
 
 /// [`search_foods`], with the databases as the app holds them.
@@ -266,12 +268,15 @@ fn search_foods_in(
     query: &str,
     limit: u32,
     (include_overridden, flat): (bool, bool),
+    dishes: bool,
 ) -> Result<Vec<db::FoodHit>, String> {
     await_family_index(refdb)?;
     let conn = refdb.0.lock().map_err(|e| e.to_string())?;
     let uc = user.0.lock().map_err(|e| e.to_string())?;
 
-    let own = store::search_custom_foods(&uc, query, limit)?;
+    // Restaurant dishes only for the log's own search (`dishes`): see
+    // `store::search_custom_foods`.
+    let own = store::search_custom_foods(&uc, query, limit, dishes)?;
     let overridden = store::overridden_fdc_ids(&uc)?;
     merge_hits_shaped(
         &conn,
@@ -403,6 +408,16 @@ fn merge_hits_shaped(
     let mut hits: Vec<db::FoodHit> = own
         .into_iter()
         .map(|f| {
+            // A restaurant dish pasted in from an estimate: found like a pack,
+            // shown as what it is. See `store::restaurant_dish`.
+            if f.import_only && f.serving_pieces.is_some() {
+                // Its place under its name, the way a pack shows its brand;
+                // "Restaurant food" only when no place was given.
+                let note = f.brand.is_none().then(|| "Restaurant dish".to_string());
+                let mut hit = custom_hit(f.id, f.name, f.brand, note);
+                hit.data_type = "restaurant_dish".into();
+                return hit;
+            }
             let note = f
                 .overrides_fdc_id
                 .and_then(|id| base_description(conn, id))
@@ -1493,6 +1508,18 @@ fn frequent_foods(
     Ok(resolve_frequent(&refconn, index.as_deref(), candidates, &overridden, want))
 }
 
+/// The restaurant dishes had lately, most recent first and one per name: the
+/// Food screen's "From restaurants". See `store::recent_restaurant_dishes`.
+#[tauri::command]
+fn recent_restaurant_dishes(
+    limit: Option<u32>,
+    user: State<'_, store::Store>,
+) -> Result<Vec<store::FrequentFood>, String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    let since = store::days_ago_iso(&conn, store::FREQUENT_WINDOW_DAYS)?;
+    store::recent_restaurant_dishes(&conn, &since, limit.unwrap_or(4))
+}
+
 /// A sitting to narrow the quick-add list to, checked against the four before
 /// it reaches SQL — so a misspelt one is a sentence rather than a list that is
 /// silently empty and reads as "you never have anything at lunch".
@@ -1630,6 +1657,13 @@ pub struct ImportRowInput {
     /// spreadsheet importer, whose rows stay a weighed 100 g.
     #[serde(default)]
     pub piece_noun: Option<String>,
+    /// Where a pasted dish came from, in the user's own words: "Paradise".
+    /// Kept as the food's `brand`, which is what it is — who made it — so a
+    /// biryani from one place and from another stay two dishes with their own
+    /// estimates, and search finds a dish by its place. Never sent by the
+    /// spreadsheet importer.
+    #[serde(default)]
+    pub place: Option<String>,
 }
 
 /// Why one row of a batch import did not become a log entry. `row` is
@@ -1748,7 +1782,7 @@ fn import_one_row(
     let food = store::CustomFood {
         id: String::new(),
         name: description.clone(),
-        brand: None,
+        brand: row.place.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(String::from),
         overrides_fdc_id: None,
         serving_g: grams,
         serving_ml: None,
@@ -1781,6 +1815,13 @@ fn import_one_row(
 
     let food_id = store::save_custom_food(conn, None, &food)?;
 
+    // The entry is written as "Chicken biryani · Paradise", so a day can tell
+    // one place's dish from another's; the food keeps the dish's own name and
+    // its place as the brand, which is what tells the dishes apart for good.
+    let written = match food.brand.as_deref() {
+        Some(place) => format!("{description} · {place}"),
+        None => description.clone(),
+    };
     let tags = store::Tags {
         origin: row.origin.clone(),
         cuisine: row.cuisine.as_deref().map(str::trim).filter(|c| !c.is_empty()).map(String::from),
@@ -1797,7 +1838,7 @@ fn import_one_row(
         // never as water.
         Some(&row.meal),
         store::Source::Custom(&food_id),
-        &description,
+        &written,
         if piece_noun.is_some() {
             store::Quantity::Pieces(1.0)
         } else {
@@ -1901,6 +1942,10 @@ pub struct CustomFoodDetail {
     pub from_label: usize,
     pub from_base: usize,
     pub unknown: usize,
+    /// Where its figures came from, in the words the provenance line uses:
+    /// "off the pack", "from an estimate" (a restaurant dish pasted in) or
+    /// "from your import". See `values_came`.
+    pub came: &'static str,
 }
 
 /// A custom food's panel, resolved once.
@@ -2426,6 +2471,7 @@ fn get_custom_food_detail(
     };
     let conn = refdb.0.lock().map_err(|e| e.to_string())?;
     let panel = resolve_panel(&conn, &food)?;
+    let came = values_came(&food);
     Ok(CustomFoodDetail {
         food,
         nutrients: panel.rows,
@@ -2433,6 +2479,7 @@ fn get_custom_food_detail(
         from_label: panel.from_label,
         from_base: panel.from_base,
         unknown: panel.unknown,
+        came,
     })
 }
 
@@ -3550,7 +3597,15 @@ fn resolve_contribution(
             Ok((
                 None,
                 vec![store::SnapComponent {
-                    description: format!("{} — {}", food.name, provenance_line(&panel, &food)),
+                    // A restaurant dish is named with its place, as its entry is.
+                    description: format!(
+                        "{} — {}",
+                        match (food.import_only && food.serving_pieces.is_some(), &food.brand) {
+                            (true, Some(place)) => format!("{} · {place}", food.name),
+                            _ => food.name.clone(),
+                        },
+                        provenance_line(&panel, &food)
+                    ),
                     // A custom food has no USDA identity, and borrowing the
                     // overridden food's would name the wrong thing here.
                     fdc_id: None,
@@ -5488,6 +5543,7 @@ pub fn run() {
             container_commands::container_usage,
             container_commands::log_container_use,
             frequent_foods,
+            recent_restaurant_dishes,
             list_custom_foods,
             get_custom_food,
             save_custom_food,
@@ -5861,7 +5917,7 @@ mod tests {
         let mut f = bar(Some(generic));
         f.name = "Chocolate bar".into();
         let food = saved(&mut uc, &f);
-        let own = store::search_custom_foods(&uc, "chocolate", 40).unwrap();
+        let own = store::search_custom_foods(&uc, "chocolate", 40, false).unwrap();
         assert_eq!(own.len(), 1, "the user's own food matches the query");
         let overridden = store::overridden_fdc_ids(&uc).unwrap();
 
@@ -5907,7 +5963,7 @@ mod tests {
         f.brand = Some("Cadbury".into());
         let food = saved(&mut uc, &f);
 
-        let own = store::search_custom_foods(&uc, "chocolate", 40).unwrap();
+        let own = store::search_custom_foods(&uc, "chocolate", 40, false).unwrap();
         assert!(own.is_empty(), "the food itself does not match the query");
         let overridden = store::overridden_fdc_ids(&uc).unwrap();
 

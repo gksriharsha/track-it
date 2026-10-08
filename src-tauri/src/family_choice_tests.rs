@@ -252,7 +252,7 @@ fn a_search_waiting_for_the_index_holds_neither_database() {
         // Held inside the scope, so a failed assertion releases it before the
         // scope waits for the search.
         let cache = family::hold_index_cache();
-        let search = s.spawn(|| search_foods_in(&refdb, &user, "mungo beans", 10, (false, false)));
+        let search = s.spawn(|| search_foods_in(&refdb, &user, "mungo beans", 10, (false, false), false));
         std::thread::sleep(Duration::from_millis(300));
         assert!(
             user.0.try_lock().is_ok(),

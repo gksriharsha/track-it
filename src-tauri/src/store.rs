@@ -5049,18 +5049,25 @@ pub fn search_custom_foods(
     conn: &Connection,
     query: &str,
     limit: u32,
+    dishes: bool,
 ) -> Result<Vec<CustomFood>, String> {
     let q = folded(query);
     if q.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, name, COALESCE(brand,''), COALESCE(barcode,'')
-             FROM custom_foods WHERE deleted_at IS NULL AND import_only = 0",
-        )
-        .map_err(|e| e.to_string())?;
+    // Restaurant dishes only where they are asked for: the Food screen's own
+    // search, where a dish is logged again. Never in an ingredient picker,
+    // where a whole restaurant portion has no business being weighed into a
+    // recipe or a pot, and where it would crowd out the reference foods.
+    let sql = format!(
+        "SELECT id, name, COALESCE(brand,''), COALESCE(barcode,''), {}
+           FROM custom_foods f
+          WHERE deleted_at IS NULL AND {}",
+        restaurant_dish("f"),
+        if dishes { offered_again("f") } else { "f.import_only = 0".to_string() },
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| {
             Ok((
@@ -5068,17 +5075,29 @@ pub fn search_custom_foods(
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
                 r.get::<_, String>(3)?,
+                r.get::<_, bool>(4)?,
             ))
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
+    // One dish per name and place, as the paste that stands for it (see
+    // `restaurant_dishes`): five pastes of one biryani would be noise, not
+    // choice, and a dish with no live entry left is not offered.
+    let stands_for: std::collections::HashSet<String> = if dishes {
+        restaurant_dishes(conn)?.1.into_values().collect()
+    } else {
+        Default::default()
+    };
+    let rows = rows
+        .into_iter()
+        .filter(|(id, _, _, _, dish)| !*dish || stands_for.contains(id))
+        .map(|(id, name, brand, barcode, _)| (id, name, brand, barcode));
 
     // A word prefix: "milk" should find "Hershey's milk chocolate". Bounded by a
     // space rather than any non-letter, which is what a food name separates on.
     let inner_word = format!(" {q}");
     let mut scored: Vec<(u8, usize, String, String)> = rows
-        .into_iter()
         .filter_map(|(id, name, brand, barcode)| {
             let n = folded(&name);
             let b = folded(&brand);
@@ -5267,9 +5286,10 @@ pub fn dates_with_existing_imports(
          JOIN custom_foods cf ON cf.id = le.custom_food_id
          WHERE le.source_kind = 'custom' AND le.deleted_at IS NULL
            AND cf.import_only = 1
-           -- A spreadsheet row is always weighed; a dish pasted in from an
-           -- estimate is one counted portion, and is not an import to warn of.
-           AND le.pieces IS NULL
+           -- A spreadsheet row's food has no pieces; a dish pasted in from an
+           -- estimate is counted by the portion, and is not an import to warn
+           -- of, however one of its entries was logged.
+           AND cf.serving_pieces IS NULL
            AND le.logged_on IN ({placeholders})"
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -5836,6 +5856,15 @@ pub struct FrequentFood {
     /// where it was counted. Pre-formatted because the home-screen widget is
     /// Kotlin and has no `fmtAmount`.
     pub last_amount_label: String,
+    /// Where a restaurant dish came from, when the user named the place —
+    /// "Paradise" — and `None` for everything else: a pack's brand is its
+    /// maker and is not shown on a one-tap chip, while a dish's place is part
+    /// of which dish it is. See [`recent_restaurant_dishes`].
+    pub place: Option<String>,
+    /// True for a restaurant dish pasted in from an estimate, place or not:
+    /// counted by the portion, shown with its place, and kept apart from a
+    /// pack or reference food that happens to share its name.
+    pub restaurant: bool,
 }
 
 /// A whole number of grams, written the way the rest of the app writes it.
@@ -5910,6 +5939,85 @@ fn grouped(n: f64) -> String {
     out
 }
 
+/// Which of the user's own foods are offered again — in the one-tap lists and
+/// in search — as a predicate over `custom_foods` under the alias given.
+///
+/// Every transcribed pack, and a restaurant dish pasted in from an estimate:
+/// both are things a person orders or opens again. Never a spreadsheet row's
+/// one-off container, which `import_only` exists to keep out of sight. The two
+/// kinds of import-only food differ in how they were logged, and that is what
+/// tells them apart without a column of their own: a pasted dish is counted,
+/// one portion (`import_one_row` gives it `serving_pieces`), and a spreadsheet
+/// row is always a weighed 100 g with no pieces at all.
+pub(crate) fn offered_again(alias: &str) -> String {
+    format!("({alias}.import_only = 0 OR {alias}.serving_pieces IS NOT NULL)")
+}
+
+/// The same, for a restaurant dish alone: pasted in, counted by the portion.
+pub(crate) fn restaurant_dish(alias: &str) -> String {
+    format!("({alias}.import_only = 1 AND {alias}.serving_pieces IS NOT NULL)")
+}
+
+/// A restaurant dish's identity: its name and its place, folded. The same
+/// biryani from the same place, however many times it was pasted, is one dish;
+/// from somewhere else it is another.
+fn dish_key(name: &str, place: Option<&str>) -> String {
+    format!("{}\u{1}{}", folded(name), place.map(folded).unwrap_or_default())
+}
+
+/// Every restaurant dish, and which of its pastes stands for it.
+///
+/// Each paste writes a food of its own, so one dish can be several foods. The
+/// one offered — on a one-tap row, in "Usually at", in search — is the paste
+/// most recently LOGGED, by a live entry: the estimate the user last relied
+/// on, and the same food wherever the dish appears. A dish none of whose
+/// entries is live is not offered at all: removing the only entry of a paste
+/// takes it back out of sight, which is the only way to undo one.
+///
+/// Returns, for every undeleted dish food, its dish key; and for every dish
+/// with a live entry, the id of the paste that stands for it.
+fn restaurant_dishes(
+    conn: &Connection,
+) -> Result<(HashMap<String, String>, HashMap<String, String>), String> {
+    let sql = format!(
+        "SELECT id, name, brand FROM custom_foods f WHERE deleted_at IS NULL AND {}",
+        restaurant_dish("f"),
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let key_of: HashMap<String, String> = stmt
+        .query_map([], |r| {
+            let (id, name, brand): (String, String, Option<String>) =
+                (r.get(0)?, r.get(1)?, r.get(2)?);
+            Ok((id, dish_key(&name, brand.as_deref())))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let sql = format!(
+        "SELECT e.custom_food_id
+           FROM log_entries e
+           JOIN custom_foods f ON f.id = e.custom_food_id
+          WHERE e.deleted_at IS NULL AND e.source_kind = 'custom'
+            AND f.deleted_at IS NULL AND {}
+          ORDER BY e.logged_on DESC, e.created_at DESC, e.rowid DESC",
+        restaurant_dish("f"),
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let ids = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    let mut stands_for = HashMap::new();
+    for id in ids {
+        if let Some(key) = key_of.get(&id) {
+            stands_for.entry(key.clone()).or_insert(id);
+        }
+    }
+    Ok((key_of, stands_for))
+}
+
 /// The foods this person has actually been logging, most days first.
 ///
 /// `since` is a date, inclusive, and the caller gets it from [`days_ago_iso`]
@@ -5943,9 +6051,10 @@ fn grouped(n: f64) -> String {
 /// A custom food that has been deleted, or that exists only as a container for
 /// a spreadsheet import, is dropped: the first cannot be logged again, and the
 /// second was never a food anybody would look for. A single import writes one
-/// of those per row along with the entry, so without the `import_only` filter
-/// one afternoon's import of three hundred rows would BE the list. Both
-/// filters match the ones `search_custom_foods` already applies.
+/// of those per row along with the entry, so without that filter one
+/// afternoon's import of three hundred rows would BE the list. A restaurant
+/// dish pasted in is import-only too, but it is ordered again, so it stays —
+/// see [`offered_again`], which `search_custom_foods` applies as well.
 ///
 /// No index is added for this. `idx_log_day` already covers the window
 /// predicate, and one person's ninety days is not a scan worth an index — and
@@ -5986,128 +6095,255 @@ pub fn frequent_foods_at(
     limit: u32,
     meal: Option<&str>,
 ) -> Result<Vec<FrequentFood>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT e.source_kind, e.fdc_id, e.custom_food_id
-               FROM log_entries e
-              WHERE e.deleted_at IS NULL
-                AND e.source_kind IN ('food','custom')
-                AND e.logged_on >= ?1
-                AND (?3 IS NULL OR e.meal = ?3)
-                AND (e.custom_food_id IS NULL
-                     OR EXISTS (SELECT 1 FROM custom_foods f
-                                 WHERE f.id = e.custom_food_id
-                                   AND f.deleted_at IS NULL
-                                   AND f.import_only = 0))
-              GROUP BY e.source_kind, e.fdc_id, e.custom_food_id
-             HAVING ?3 IS NULL OR COUNT(DISTINCT e.logged_on) >= 2
-              ORDER BY COUNT(DISTINCT e.logged_on) DESC,
-                       MAX(e.logged_on) DESC,
-                       MAX(e.created_at) DESC,
-                       MAX(e.rowid) DESC
-              LIMIT ?2",
+    let sql = format!(
+        "SELECT e.source_kind, e.fdc_id, e.custom_food_id, e.logged_on, e.created_at, e.rowid
+           FROM log_entries e
+          WHERE e.deleted_at IS NULL
+            AND e.source_kind IN ('food','custom')
+            AND e.logged_on >= ?1
+            AND (?2 IS NULL OR e.meal = ?2)
+            AND (e.custom_food_id IS NULL
+                 OR EXISTS (SELECT 1 FROM custom_foods f
+                             WHERE f.id = e.custom_food_id
+                               AND f.deleted_at IS NULL
+                               AND {}))",
+        offered_again("f"),
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    type Row = (String, Option<i64>, Option<String>, String, String, i64);
+    let rows: Vec<Row> = stmt
+        .query_map(rusqlite::params![since, meal], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+
+    // Tallied here rather than grouped in SQL, because a restaurant dish is
+    // several foods — one per paste — and its days count together: two
+    // dinners with the same biryani is a habit even when each was a paste of
+    // its own. Every other food is grouped by its id, exactly as before.
+    struct Tally {
+        source_kind: String,
+        fdc_id: Option<i64>,
+        custom_food_id: Option<String>,
+        dish: bool,
+        days: std::collections::HashSet<String>,
+        last_day: String,
+        last_created: String,
+        last_rowid: i64,
+    }
+    let (dish_of, stands_for) = restaurant_dishes(conn)?;
+    let mut tallies: HashMap<String, Tally> = HashMap::new();
+    for (source_kind, fdc_id, custom_food_id, day, created, rowid) in rows {
+        let dish = custom_food_id.as_ref().and_then(|id| dish_of.get(id));
+        let (key, custom_food_id) = match (dish, &custom_food_id, fdc_id) {
+            (Some(k), _, _) => (format!("dish:{k}"), stands_for.get(k).cloned()),
+            (None, Some(id), _) => (format!("custom:{id}"), Some(id.clone())),
+            (None, None, Some(id)) => (format!("food:{id}"), None),
+            (None, None, None) => continue,
+        };
+        let t = tallies.entry(key).or_insert_with(|| Tally {
+            source_kind: source_kind.clone(),
+            fdc_id,
+            custom_food_id,
+            dish: dish.is_some(),
+            days: Default::default(),
+            last_day: String::new(),
+            last_created: String::new(),
+            last_rowid: i64::MIN,
+        });
+        t.days.insert(day.clone());
+        t.last_day = t.last_day.clone().max(day);
+        t.last_created = t.last_created.clone().max(created);
+        t.last_rowid = t.last_rowid.max(rowid);
+    }
+
+    // A sitting's list asks for a habit: two days at that sitting. Ordered by
+    // days, then the most recent day, then `created_at`, then `rowid` — the
+    // tiebreak the ranking has always had, for the reasons given above.
+    let mut ranked: Vec<Tally> = tallies
+        .into_values()
+        .filter(|t| meal.is_none() || t.days.len() >= 2)
+        .collect();
+    ranked.sort_by(|a, b| {
+        b.days
+            .len()
+            .cmp(&a.days.len())
+            .then_with(|| b.last_day.cmp(&a.last_day))
+            .then_with(|| b.last_created.cmp(&a.last_created))
+            .then_with(|| b.last_rowid.cmp(&a.last_rowid))
+    });
+
+    let mut out = Vec::with_capacity(ranked.len().min(limit as usize));
+    for t in ranked.into_iter().take(limit as usize) {
+        // A dish is always one portion, and the paste that stands for it may
+        // not have been had at this sitting, so its helping is read unfiltered.
+        let at = if t.dish { None } else { meal };
+        if let Some(row) = frequent_row(conn, t.source_kind, t.fdc_id, t.custom_food_id, at)? {
+            out.push(row);
+        }
+    }
+    Ok(out)
+}
+
+/// One row of a one-tap list: the food as it stands now, and the helping it
+/// was last had in (at `meal`, when the list is one sitting's). `None` for a
+/// row with no identity, which the log's own constraints make unreachable.
+fn frequent_row(
+    conn: &Connection,
+    source_kind: String,
+    fdc_id: Option<i64>,
+    custom_food_id: Option<String>,
+    meal: Option<&str>,
+) -> Result<Option<FrequentFood>, String> {
+    // Deliberately a second query per surviving row rather than a window
+    // function over the whole log. There are at most `limit` of them, and
+    // this way the "most recent entry" rule is written once, in the same
+    // order clause `recall_tags` uses, instead of being reconstructed
+    // inside a grouped SELECT where SQLite would be free to hand back a
+    // bare column from some other row of the group.
+    let (description, last_grams, last_ml, last_pieces) = conn
+        .query_row(
+            "SELECT description, grams, ml, pieces FROM log_entries
+              WHERE deleted_at IS NULL AND source_kind = ?1
+                AND (?2 IS NULL OR fdc_id = ?2)
+                AND (?3 IS NULL OR custom_food_id = ?3)
+                AND (?4 IS NULL OR meal = ?4)
+              ORDER BY logged_on DESC, created_at DESC, rowid DESC
+              LIMIT 1",
+            rusqlite::params![source_kind, fdc_id, custom_food_id, meal],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, f64>(1)?,
+                    r.get::<_, Option<f64>>(2)?,
+                    r.get::<_, Option<f64>>(3)?,
+                ))
+            },
         )
         .map_err(|e| e.to_string())?;
-    let groups = stmt
-        .query_map(rusqlite::params![since, limit, meal], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, Option<i64>>(1)?,
-                r.get::<_, Option<String>>(2)?,
-            ))
-        })
+
+    // The live name for one of the user's own foods. The group query has
+    // already established the row is there and undeleted, so a missing one
+    // here is a database that changed underneath us rather than an
+    // ordinary case, and the plumbing breadcrumb is the honest answer.
+    //
+    // Whether it is measured by volume, or counted in pieces, is read live
+    // too, for the reason the name is: the repeat logs the food as it
+    // stands. A pack switched back to grams since its last helping cannot
+    // take a volume or a count, so that helping is repeated by the mass it
+    // was valued at instead — and a count is said with the piece's name as
+    // it is now, because that is what the repeat will write.
+    let (description, brand, by_volume, noun, dish) = match custom_food_id.as_deref() {
+        Some(id) => conn
+            .query_row(
+                &format!(
+                    "SELECT name, brand, serving_ml IS NOT NULL, piece_noun, {}
+                       FROM custom_foods f WHERE id = ?1",
+                    restaurant_dish("f"),
+                ),
+                [id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, bool>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, bool>(4)?,
+                    ))
+                },
+            )
+            .map_err(|e| format!("reading the name of a quick-add food: {e}"))?,
+        None => (description, None, false, None, false),
+    };
+    let place = if dish { brand.clone() } else { None };
+    let last_ml = last_ml.filter(|_| by_volume);
+    let last_pieces = last_pieces.filter(|_| noun.is_some());
+
+    let key = match (fdc_id, custom_food_id.as_deref()) {
+        (Some(id), _) => format!("food:{id}"),
+        (None, Some(id)) => format!("custom:{id}"),
+        // Unreachable through the biconditionals on `log_entries`, which
+        // make each source_kind name exactly one id. Answered rather than
+        // panicked on, because a row with no identity is a row nothing can
+        // open and dropping the whole list for it would be worse.
+        (None, None) => return Ok(None),
+    };
+
+    Ok(Some(FrequentFood {
+        source_kind,
+        key,
+        fdc_id,
+        custom_food_id,
+        description,
+        name: None,
+        brand,
+        last_grams,
+        last_ml,
+        last_pieces,
+        last_amount_label: match (last_pieces, noun.as_deref(), last_ml) {
+            (Some(n), Some(noun), _) => pieces_label(n, noun),
+            (_, _, Some(v)) => ml_label(v),
+            _ => grams_label(last_grams),
+        },
+        place,
+        restaurant: dish,
+    }))
+}
+
+/// The restaurant dishes this person has had lately, the most recent first —
+/// the Food screen's "From restaurants", for having one again in a tap.
+///
+/// Not a habit list like [`frequent_foods_at`]: a dish ordered once is worth
+/// offering the next time it is ordered, which is the whole point, so one day
+/// is enough and recency is the order. Every sitting's, too, because a dish had
+/// at lunch is as likely at dinner.
+///
+/// One row per dish and place. Each paste writes a food of its own, so the
+/// same biryani from the same place pasted twice is two foods, and only the
+/// one had most recently is offered. A biryani from somewhere else is a
+/// different dish — a different portion, a different recipe, its own
+/// estimate — and is offered on its own. The place is the food's `brand`.
+pub fn recent_restaurant_dishes(
+    conn: &Connection,
+    since: &str,
+    limit: u32,
+) -> Result<Vec<FrequentFood>, String> {
+    let (dish_of, stands_for) = restaurant_dishes(conn)?;
+    let sql = format!(
+        "SELECT e.custom_food_id
+           FROM log_entries e
+           JOIN custom_foods f ON f.id = e.custom_food_id
+          WHERE e.deleted_at IS NULL
+            AND e.source_kind = 'custom'
+            AND e.logged_on >= ?1
+            AND f.deleted_at IS NULL
+            AND {}
+          ORDER BY e.logged_on DESC, e.created_at DESC, e.rowid DESC",
+        restaurant_dish("f"),
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let ids = stmt
+        .query_map([since], |r| r.get::<_, String>(0))
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
-    let mut out = Vec::with_capacity(groups.len());
-    for (source_kind, fdc_id, custom_food_id) in groups {
-        // Deliberately a second query per surviving row rather than a window
-        // function over the whole log. There are at most `limit` of them, and
-        // this way the "most recent entry" rule is written once, in the same
-        // order clause `recall_tags` uses, instead of being reconstructed
-        // inside a grouped SELECT where SQLite would be free to hand back a
-        // bare column from some other row of the group.
-        let (description, last_grams, last_ml, last_pieces) = conn
-            .query_row(
-                "SELECT description, grams, ml, pieces FROM log_entries
-                  WHERE deleted_at IS NULL AND source_kind = ?1
-                    AND (?2 IS NULL OR fdc_id = ?2)
-                    AND (?3 IS NULL OR custom_food_id = ?3)
-                    AND (?4 IS NULL OR meal = ?4)
-                  ORDER BY logged_on DESC, created_at DESC, rowid DESC
-                  LIMIT 1",
-                rusqlite::params![source_kind, fdc_id, custom_food_id, meal],
-                |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, f64>(1)?,
-                        r.get::<_, Option<f64>>(2)?,
-                        r.get::<_, Option<f64>>(3)?,
-                    ))
-                },
-            )
-            .map_err(|e| e.to_string())?;
-
-        // The live name for one of the user's own foods. The group query has
-        // already established the row is there and undeleted, so a missing one
-        // here is a database that changed underneath us rather than an
-        // ordinary case, and the plumbing breadcrumb is the honest answer.
-        //
-        // Whether it is measured by volume, or counted in pieces, is read live
-        // too, for the reason the name is: the repeat logs the food as it
-        // stands. A pack switched back to grams since its last helping cannot
-        // take a volume or a count, so that helping is repeated by the mass it
-        // was valued at instead — and a count is said with the piece's name as
-        // it is now, because that is what the repeat will write.
-        let (description, brand, by_volume, noun) = match custom_food_id.as_deref() {
-            Some(id) => conn
-                .query_row(
-                    "SELECT name, brand, serving_ml IS NOT NULL, piece_noun
-                       FROM custom_foods WHERE id = ?1",
-                    [id],
-                    |r| {
-                        Ok((
-                            r.get::<_, String>(0)?,
-                            r.get::<_, Option<String>>(1)?,
-                            r.get::<_, bool>(2)?,
-                            r.get::<_, Option<String>>(3)?,
-                        ))
-                    },
-                )
-                .map_err(|e| format!("reading the name of a quick-add food: {e}"))?,
-            None => (description, None, false, None),
-        };
-        let last_ml = last_ml.filter(|_| by_volume);
-        let last_pieces = last_pieces.filter(|_| noun.is_some());
-
-        let key = match (fdc_id, custom_food_id.as_deref()) {
-            (Some(id), _) => format!("food:{id}"),
-            (None, Some(id)) => format!("custom:{id}"),
-            // Unreachable through the biconditionals on `log_entries`, which
-            // make each source_kind name exactly one id. Answered rather than
-            // panicked on, because a row with no identity is a row nothing can
-            // open and dropping the whole list for it would be worse.
-            (None, None) => continue,
-        };
-
-        out.push(FrequentFood {
-            source_kind,
-            key,
-            fdc_id,
-            custom_food_id,
-            description,
-            name: None,
-            brand,
-            last_grams,
-            last_ml,
-            last_pieces,
-            last_amount_label: match (last_pieces, noun.as_deref(), last_ml) {
-                (Some(n), Some(noun), _) => pieces_label(n, noun),
-                (_, _, Some(v)) => ml_label(v),
-                _ => grams_label(last_grams),
-            },
-        });
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for id in ids {
+        if out.len() >= limit as usize {
+            break;
+        }
+        let Some(key) = dish_of.get(&id) else { continue };
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let Some(rep) = stands_for.get(key) else { continue };
+        if let Some(row) = frequent_row(conn, "custom".into(), None, Some(rep.clone()), None)? {
+            out.push(row);
+        }
     }
     Ok(out)
 }
@@ -11279,7 +11515,7 @@ mod tests {
             save_custom_food(&mut c, None, &f).unwrap();
         }
 
-        let names: Vec<String> = search_custom_foods(&c, "  CHOCOLATE ", 20)
+        let names: Vec<String> = search_custom_foods(&c, "  CHOCOLATE ", 20, false)
             .unwrap()
             .into_iter()
             .map(|f| f.name)
@@ -11299,24 +11535,24 @@ mod tests {
         let mut coded = pack("Bar", 43.0, vec![]);
         coded.barcode = Some("034000002405".into());
         let cid = save_custom_food(&mut c, None, &coded).unwrap();
-        let hits = search_custom_foods(&c, "034000002405", 20).unwrap();
+        let hits = search_custom_foods(&c, "034000002405", 20, false).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, cid);
 
         // A wildcard typed into the box is a character, not a pattern.
         save_custom_food(&mut c, None, &pack("100% cocoa", 10.0, vec![])).unwrap();
-        let hits = search_custom_foods(&c, "100%", 20).unwrap();
+        let hits = search_custom_foods(&c, "100%", 20, false).unwrap();
         assert_eq!(
             hits.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
             vec!["100% cocoa"]
         );
 
-        assert!(search_custom_foods(&c, "   ", 20).unwrap().is_empty());
-        assert_eq!(search_custom_foods(&c, "chocolate", 2).unwrap().len(), 2);
+        assert!(search_custom_foods(&c, "   ", 20, false).unwrap().is_empty());
+        assert_eq!(search_custom_foods(&c, "chocolate", 2, false).unwrap().len(), 2);
 
         // A deleted food is not a food you can log.
         delete_custom_food(&c, &cid).unwrap();
-        assert!(search_custom_foods(&c, "034000002405", 20).unwrap().is_empty());
+        assert!(search_custom_foods(&c, "034000002405", 20, false).unwrap().is_empty());
     }
 
     /// Packs are set in capitals, and an accented capital used to make a food
@@ -11331,7 +11567,7 @@ mod tests {
 
         for q in ["CAFÉ BUSTELO", "café bustelo", "Café", "Éclair", "éclair"] {
             assert!(
-                !search_custom_foods(&c, q, 20).unwrap().is_empty(),
+                !search_custom_foods(&c, q, 20, false).unwrap().is_empty(),
                 "“{q}” must find the food it names"
             );
         }
@@ -11339,7 +11575,7 @@ mod tests {
         let mut branded = pack("Crunch", 40.0, vec![]);
         branded.brand = Some("NESTLÉ".into());
         save_custom_food(&mut c, None, &branded).unwrap();
-        assert_eq!(search_custom_foods(&c, "nestlé", 20).unwrap().len(), 1);
+        assert_eq!(search_custom_foods(&c, "nestlé", 20, false).unwrap().len(), 1);
     }
 
     #[test]
@@ -11399,7 +11635,7 @@ mod tests {
 
         assert!(list_custom_foods(&c).unwrap().is_empty(), "must not appear in My foods");
         assert!(
-            search_custom_foods(&c, "Imported", 20).unwrap().is_empty(),
+            search_custom_foods(&c, "Imported", 20, false).unwrap().is_empty(),
             "must not appear in search"
         );
 

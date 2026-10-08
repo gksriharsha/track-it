@@ -830,6 +830,8 @@ mod tests {
             last_ml: None,
             last_pieces: None,
             last_amount_label: "150 g".into(),
+            place: None,
+            restaurant: false,
         }
     }
 

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { addCountedLogEntry, addLogEntry, addMeasuredLogEntry, deleteLogEntry, recallTags } from "../api";
 import type { FrequentFood, Meal } from "../types";
-import { displayName } from "../lib/foodForms";
+import { dishLabel, oneTapName } from "../lib/foodForms";
 import { useAnnounce } from "./UndoBar";
 
 /**
@@ -61,16 +61,19 @@ export function useQuickLog(date: string, meal: Meal, onLogged: () => void) {
         // A drink last had by the can comes back by the can: measured in ml,
         // as the button says, rather than as the grams its sums ran on.
         // And three figs come back as three figs.
+        // A restaurant dish is written with its place, so the day can tell a
+        // biryani from one place from another's (see dishLabel).
+        const written = f.restaurant ? dishLabel(f.description, f.place) : f.description;
         const entryId =
           f.last_pieces !== null && f.custom_food_id !== null
-            ? await addCountedLogEntry(date, meal, f.custom_food_id, f.description, f.last_pieces, tags)
+            ? await addCountedLogEntry(date, meal, f.custom_food_id, written, f.last_pieces, tags)
             : f.last_ml !== null && f.custom_food_id !== null
-              ? await addMeasuredLogEntry(date, meal, f.custom_food_id, f.description, f.last_ml, tags)
-              : await addLogEntry(date, meal, source, f.description, f.last_grams, tags);
+              ? await addMeasuredLogEntry(date, meal, f.custom_food_id, written, f.last_ml, tags)
+              : await addLogEntry(date, meal, source, written, f.last_grams, tags);
         onLoggedRef.current();
         announce({
           // In the words the button carried before it was pressed.
-          message: `${displayName(f)}, ${f.last_amount_label} added to ${meal}`,
+          message: `${oneTapName(f)}, ${f.last_amount_label} added to ${meal}`,
           // Taking back an entry written seconds ago is removing it, not
           // rewriting history: nothing else can have been built on it yet.
           undo: async () => {

@@ -479,6 +479,21 @@ function frequent(limit: number, meal: Meal | null): FrequentFood[] {
   });
 }
 
+/**
+ * Restaurant dishes had lately, for "From restaurants": counted by the portion,
+ * as a pasted dish is. Two, so the row and its dedupe against "Usually" can be
+ * seen in a browser.
+ */
+const RESTAURANT_DISHES: FrequentFood[] = [
+  ["mock-dish-biryani", "Chicken biryani", "Paradise"],
+  ["mock-dish-biryani-2", "Chicken biryani", "Bawarchi"],
+  ["mock-dish-padthai", "Pad thai", null],
+].map(([id, name, place]) => ({
+  source_kind: "custom", key: `custom:${id}`, fdc_id: null, custom_food_id: id as string,
+  description: name as string, name: null, brand: place, place, restaurant: true, last_grams: 400, last_ml: null,
+  last_pieces: 1, last_amount_label: "1 portion",
+}));
+
 /* ── the library ────────────────────────────────────────────────────────── */
 
 const VESSELS: Vessel[] = [
@@ -539,6 +554,12 @@ const CUSTOM: CustomFood[] = [
   },
 ];
 OWN_KCAL_100.c1 = 410;
+// The restaurant dishes under "From restaurants": one portion each, so a tap
+// in the browser logs one as the app would.
+for (const d of RESTAURANT_DISHES) {
+  OWN_PIECE[d.custom_food_id!] = { each: d.last_grams, noun: "portion" };
+  OWN_KCAL_100[d.custom_food_id!] = 190;
+}
 let ownSeq = 0;
 
 function ownFood(id: string): CustomFood {
@@ -1046,6 +1067,7 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   get_food_detail: (a) => detail(Number(a.fdcId)),
   food_forms: (a) => familyOf(Number(a.fdcId)),
   frequent_foods: (a) => frequent(Number(a.limit ?? 6), (a.meal as Meal | null | undefined) ?? null),
+  recent_restaurant_dishes: (a) => RESTAURANT_DISHES.slice(0, Number(a.limit ?? 4)),
   logged_dates: (a) => {
     const since = String(a.since ?? "");
     return loggedDates().filter((d) => d >= since);

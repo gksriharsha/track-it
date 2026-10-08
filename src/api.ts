@@ -110,8 +110,13 @@ const tagArgs = (t: EntryTags = {}) => ({
  * `flat` turns the grouping off, each form its own entry named with its label
  * ("Mungo beans, raw"): for the picker where the form is the decision itself.
  */
-export const searchFoods = (query: string, limit = 40, includeOverridden = false, flat = false) =>
-  invoke<FoodHit[]>("search_foods", { query, limit, includeOverridden, flat });
+/**
+ * `dishes`: include restaurant dishes the user has had, for the log's own
+ * search (the Food screen, ⌘K). Never for an ingredient picker, where a whole
+ * restaurant portion has no business being weighed into a recipe or a pot.
+ */
+export const searchFoods = (query: string, limit = 40, includeOverridden = false, flat = false, dishes = false) =>
+  invoke<FoodHit[]>("search_foods", { query, limit, includeOverridden, flat, dishes });
 
 export const getFoodDetail = (fdcId: number) =>
   invoke<FoodDetail>("get_food_detail", { fdcId });
@@ -159,6 +164,14 @@ export const per100g = (items: WeighedSource[]) =>
  */
 export const frequentFoods = (limit = 6, meal?: Meal) =>
   invoke<FrequentFood[]>("frequent_foods", { limit, meal: meal ?? null });
+
+/**
+ * The restaurant dishes had lately, most recent first and one per name, each
+ * ready to log again as the one-tap rows are: the Food screen's "From
+ * restaurants". Every sitting's, and from the first order on.
+ */
+export const recentRestaurantDishes = (limit = 4) =>
+  invoke<FrequentFood[]>("recent_restaurant_dishes", { limit });
 
 export const getDay = (loggedOn: string) =>
   invoke<DayView>("get_day", { loggedOn });

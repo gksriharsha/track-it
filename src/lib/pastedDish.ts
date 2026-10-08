@@ -25,6 +25,12 @@ export interface PastedNutrient {
 
 export interface PastedDish {
   name: string;
+  /**
+   * Where it came from, as the user named it to the assistant ("from
+   * Paradise"), handed back under "restaurant". Their own words passed
+   * through, shown in the sheet to keep or change; null when none was named.
+   */
+  place: string | null;
   /** The whole dish's weight, if the reply estimated one. */
   grams: number | null;
   nutrients: PastedNutrient[];
@@ -45,12 +51,14 @@ export type PasteResult =
  * What to ask an assistant for. One shape, so the reply reads back cleanly.
  * Every figure in the template is null, never 0: a template handed back
  * unfilled must read as unknown, and pasting the prompt itself by mistake
- * must log nothing. Where it came from and what cuisine it is are the
- * user's own answers (D15), so the assistant is not asked for either.
+ * must log nothing. Whether it was ordered in or eaten out and what cuisine
+ * it is are the user's own answers (D15), so the assistant is not asked for
+ * either. The restaurant is asked for only as the user named it: the same dish
+ * differs from one place to the next, and a chain's portion may be known.
  */
-export const DISH_PROMPT = `Estimate the nutrition of the dish below for the whole portion I ate. Reply with only JSON, no prose, in this shape: one object, or a list of them for several dishes, with no total row. Use single numbers, not ranges. Leave any figure you cannot estimate as null; never put 0 for something unknown.
-{"name": "", "grams": null, "calories": null, "protein_g": null, "carbs_g": null, "fat_g": null, "saturated_fat_g": null, "fiber_g": null, "sugars_g": null, "sodium_mg": null, "cholesterol_mg": null, "potassium_mg": null, "calcium_mg": null, "iron_mg": null}
-Dish: `;
+export const DISH_PROMPT = `Estimate the nutrition of the dish below for the whole portion I ate. Reply with only JSON, no prose, in this shape: one object, or a list of them for several dishes, with no total row. Use single numbers, not ranges. Leave any figure you cannot estimate as null; never put 0 for something unknown. Put the restaurant in "restaurant" only if I name one, and size the portion for that place if you know it.
+{"name": "", "restaurant": null, "grams": null, "calories": null, "protein_g": null, "carbs_g": null, "fat_g": null, "saturated_fat_g": null, "fiber_g": null, "sugars_g": null, "sodium_mg": null, "cholesterol_mg": null, "potassium_mg": null, "calcium_mg": null, "iron_mg": null}
+Dish (and where from): `;
 
 /** A dish's name, best first: a later key only replaces an earlier one it outranks. */
 const NAME_RANK: Record<string, number> = {
@@ -66,6 +74,8 @@ const SITTINGS = new Set(["breakfast", "lunch", "dinner", "snack", "snacks", "br
  * the assistant talking about its own answer.
  */
 const QUIET_KEYS = new Set(["cuisine", "cuisine type", "origin", "source", "notes", "note", "assumptions", "confidence"]);
+/** Where the dish came from, in the words the user gave the assistant. */
+const PLACE_KEYS = new Set(["restaurant", "restaurant name", "place", "where from", "from", "outlet", "eatery", "vendor"]);
 /** A weight however it is written; a bare number is grams. */
 const WEIGHT_KEYS = new Set(["grams", "weight", "mass", "total weight"]);
 /** A serving's size only when it says grams: "portion": 1 is a count, not 1 g. */
@@ -114,7 +124,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 /** One object → one dish, or null when it carries no nutrient at all. */
 function readDish(obj: Record<string, unknown>, fallbackName: string): PastedDish | null {
-  const dish: PastedDish = { name: "", grams: null, nutrients: [], ignored: [] };
+  const dish: PastedDish = { name: "", place: null, grams: null, nutrients: [], ignored: [] };
   const seen = new Set<number>();
   let nameRank = Infinity;
 
@@ -133,6 +143,7 @@ function readDish(obj: Record<string, unknown>, fallbackName: string): PastedDis
         }
         continue;
       }
+      if (PLACE_KEYS.has(name)) { dish.place ??= text(v); continue; }
       if (QUIET_KEYS.has(name)) continue;
       if (v === null || v === "") continue; // left blank: not estimated, not zero
       const val = readValue(v);

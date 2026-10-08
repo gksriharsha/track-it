@@ -13,6 +13,7 @@ import {
   listOpenCooks,
   finishCook,
   frequentFoods,
+  recentRestaurantDishes,
   scanBarcode,
   humanDate,
   listSupplements,
@@ -48,7 +49,7 @@ import { fmtAmount } from "../lib/nutrient";
 import { digitsOf, weighing } from "../lib/amount";
 import { pieceText } from "../lib/pieces";
 import type { Readout } from "../lib/amount";
-import { displayName, familyOf, familyTitle, formsLine, readoutOnSwitch } from "../lib/foodForms";
+import { dishLabel, displayName, familyOf, familyTitle, formsLine, oneTapName, readoutOnSwitch } from "../lib/foodForms";
 import type { NamedServing } from "../lib/foodForms";
 import Amount, { AmountTitle, Dose } from "../components/Amount";
 import type { Serving } from "../components/Amount";
@@ -74,6 +75,11 @@ import type { Weighed } from "../components/WeightField";
 */
 const ADD_PACKAGED = "Add a food from its pack";
 const ADD_RESTAURANT = "Log a dish from a pasted estimate";
+
+/** Where a restaurant dish came from, when the user named the place. */
+function placeOf(f: FrequentFood): string | null {
+  return f.place ?? null;
+}
 
 /** The pack camera: a food added from the label in your hand. */
 function CameraGlyph() {
@@ -181,6 +187,8 @@ export default function Foods(p: Props) {
    * shortcut, and the screen then looks exactly as it did before this existed.
    */
   const [quick, setQuick] = useState<FrequentFood[]>([]);
+  /** Restaurant dishes had lately, for "From restaurants" (see loadQuick). */
+  const [dishes, setDishes] = useState<FrequentFood[]>([]);
   /* One tap writes the food at the weight printed on its button, and the way
      back out sits over the screen for eight seconds. `p.onLogged` is
      deliberately NOT called: that navigates to Today, and a person logging
@@ -486,6 +494,11 @@ export default function Foods(p: Props) {
     frequentFoods(4, p.meal)
       .then((f) => { if (mine === quickSeq.current) setQuick(f); })
       .catch(() => { if (mine === quickSeq.current) setQuick([]); });
+    // Read with the usual foods, and again whenever they are: a dish logged
+    // from either row moves up both.
+    recentRestaurantDishes(8)
+      .then((d) => { if (mine === quickSeq.current) setDishes(d); })
+      .catch(() => { if (mine === quickSeq.current) setDishes([]); });
   }, [p.meal]);
 
   useEffect(() => { loadQuick(); }, [loadQuick]);
@@ -510,7 +523,7 @@ export default function Foods(p: Props) {
   const runSearch = useCallback((q: string) => {
     const mine = ++seq.current;
     setBusy(true);
-    searchFoods(q)
+    searchFoods(q, 40, false, false, true)
       .then((r) => { if (mine === seq.current) setHits(r); })
       .catch((e) => setError(String(e)))
       .finally(() => { if (mine === seq.current) setBusy(false); });
@@ -1195,6 +1208,60 @@ export default function Foods(p: Props) {
     };
   }, [tab, p.active]);
 
+  /**
+    One tap, at last time's amount, into this meal, with Undo — the same entry
+    the long way round would write (see QuickLog.tsx).
+  */
+  const oneTap = (f: FrequentFood) => (
+    <button
+      key={f.key}
+      className="usual__chip"
+      onClick={() => void qlog.log(f)}
+      disabled={qlog.pending !== null}
+      aria-busy={qlog.pending === f.key}
+      aria-label={`Log ${oneTapName(f)}, ${f.last_amount_label}, to ${p.meal}`}
+    >
+      <PlusGlyph />
+      <span className="usual__name">{oneTapName(f)}</span>
+      <span className="usual__amt tnum">{f.last_amount_label}</span>
+    </button>
+  );
+  /*
+    A restaurant dish, again in one tap: the dish on top and where it came
+    from under it, two to a row, so a biryani from one place and one from
+    another read as the two different dishes they are. The amount a tap logs
+    is printed on it, as on every one-tap control (see QuickLog.tsx).
+  */
+  const dishTile = (f: FrequentFood) => (
+    <button
+      key={f.key}
+      className="dishtile"
+      onClick={() => void qlog.log(f)}
+      disabled={qlog.pending !== null}
+      aria-busy={qlog.pending === f.key}
+      aria-label={`Log ${oneTapName(f)}, ${f.last_amount_label}, to ${p.meal}`}
+    >
+      <PlusGlyph />
+      <span className="dishtile__text">
+        <span className="dishtile__name">{displayName(f)}</span>
+        <span className="dishtile__line">
+          {placeOf(f) && <span className="dishtile__place">{placeOf(f)}</span>}
+          <span className="dishtile__amt tnum">{f.last_amount_label}</span>
+        </span>
+      </span>
+    </button>
+  );
+  /* A restaurant dish already usual at this meal is offered there, not here
+     as well — by name and place too, since two pastes of one dish are two
+     foods. Only against restaurant rows: a pack or a USDA food that shares a
+     dish's name is a different thing. Room is asked for beyond the four
+     shown, so the tiles do not come up short after it. */
+  const dishKey = (f: FrequentFood) =>
+    `${displayName(f)}\u0001${placeOf(f) ?? ""}`.toLowerCase().replace(/\s+/g, " ");
+  const usualKeys = new Set(quick.filter((q) => q.restaurant).map(dishKey));
+  const fromRestaurants = dishes.filter((d) =>
+    !quick.some((q) => q.key === d.key) && !usualKeys.has(dishKey(d))).slice(0, 4);
+
   /** A row of the list: what leads it, what it is, and what is on its right. */
   const row = (key: string, i: number | null, lead: React.ReactNode, title: string,
     sub: React.ReactNode, right: React.ReactNode, open: () => void) => (
@@ -1220,7 +1287,8 @@ export default function Foods(p: Props) {
   const recalledNote = recalled ? "From the last time you logged this — change it if today was different." : null;
   const weigh = (lead: React.ReactNode, name: string, sub: React.ReactNode, servings: Serving[],
     onCommit: () => void, foot: React.ReactNode, note: string | null = recalledNote,
-    unit: ServingUnit = "g", piece?: { noun: string; each: number }, forms: FoodFamily | null = null) => ({
+    unit: ServingUnit = "g", piece?: { noun: string; each: number }, forms: FoodFamily | null = null,
+    countOnly = false) => ({
     title: <AmountTitle lead={lead} name={name} sub={sub} />,
     body: (
       /* Keyed by the pick, so a change of form, or a food's forms arriving
@@ -1233,7 +1301,7 @@ export default function Foods(p: Props) {
         readout={readout} setReadout={setReadout}
         ticked={unit === "ml" || (piece && counting) ? NO_VESSELS : ticked} setTicked={setTicked}
         servings={servings} unit={unit} per100={pickedPer100}
-        piece={piece} counting={counting} onCounting={countIn}
+        piece={piece} counting={counting} onCounting={countOnly ? undefined : countIn}
         vessels={vessels} onManageVessels={p.onManageVessels}
         meal={p.meal} saving={saving} onCommit={onCommit}
         origin={origin} cuisine={cuisine}
@@ -1276,7 +1344,12 @@ export default function Foods(p: Props) {
       </p>);
   } else if (pickedCustom) {
     const { food, nutrients, base_description, from_label, from_base, unknown } = pickedCustom;
+    const came = pickedCustom.came ?? "off the pack";
     const name = foodLabel(food);
+    // A restaurant dish is counted by the portion and nothing else: its
+    // serving weight is an estimate, or a stand-in 100 g, and weighing
+    // against either would log some multiple of a guess.
+    const dish = isRestaurantDish(food);
     // The pack's own serving, in the pack's own words: what every figure it
     // printed is per. A can's is the volume it holds, and it is measured in ml.
     const unit: ServingUnit = food.serving_ml != null ? "ml" : "g";
@@ -1291,26 +1364,34 @@ export default function Foods(p: Props) {
       ? { noun: food.piece_noun, each: (food.serving_ml ?? food.serving_g) / food.serving_pieces }
       : undefined;
     const byPiece = piece !== undefined && counting && food.serving_pieces != null;
-    panel = weigh(<span className="lead lead--own" aria-hidden>{initials(name)}</span>, name, "Your food",
+    panel = weigh(dish
+      ? <span className="lead lead--bought" aria-hidden><Glyph name="bag" size={20} /></span>
+      : <span className="lead lead--own" aria-hidden>{initials(name)}</span>,
+    name, dish ? "Restaurant dish" : "Your food",
       [byPiece
         ? { label: food.serving_label ?? pieceText(food.serving_pieces ?? 0, piece.noun), amount: food.serving_pieces ?? 0 }
         : { label: said ? worded : `${worded} · ${size} ${unit}`, amount: size }],
       commitCustom,
       <>
         <p className="amount__note">
-          {from_label} of {nutrients.length} values came off the pack
+          {from_label} of {nutrients.length} values came {came}
           {base_description ? `, ${from_base} are from “${base_description}”,` : ""} and {unknown} are
           unmeasured.
         </p>
-        <button className="link" onClick={() => setShowPanel((s) => !s)} aria-expanded={showPanel}>
-          {showPanel ? "Hide the values" : `All ${nutrients.length} values, per 100 ${unit}`}
-        </button>
-        {showPanel && (
+        {/* Not for a restaurant dish: it is only ever a portion, and figures
+            per 100 g of an estimated (or stand-in) weight would mean nothing.
+            Its values are on the entry once it is logged. */}
+        {!dish && (
+          <button className="link" onClick={() => setShowPanel((s) => !s)} aria-expanded={showPanel}>
+            {showPanel ? "Hide the values" : `All ${nutrients.length} values, per 100 ${unit}`}
+          </button>
+        )}
+        {!dish && showPanel && (
           <div className="rows amount__panel">
-            {nutrients.map((n) => <PanelRow key={n.id} n={n} base={base_description} />)}
+            {nutrients.map((n) => <PanelRow key={n.id} n={n} base={base_description} came={came} />)}
           </div>
         )}
-      </>, recalledNote, unit, piece);
+      </>, recalledNote, unit, piece, null, dish);
   } else if (picked) {
     // A food in several forms is titled by the name they share, with its
     // forms as chips under it; its full USDA name, the one the day will
@@ -1511,22 +1592,17 @@ export default function Foods(p: Props) {
                   {quick.length > 0 && (
                     <section className="food__sec" aria-label={`Usually at ${p.meal}`}>
                       <h2 className="food__h">Usually at {p.meal}</h2>
-                      <div className="usual__chips">
-                        {quick.map((f) => (
-                          <button
-                            key={f.key}
-                            className="usual__chip"
-                            onClick={() => void qlog.log(f)}
-                            disabled={qlog.pending !== null}
-                            aria-busy={qlog.pending === f.key}
-                            aria-label={`Log ${displayName(f)}, ${f.last_amount_label}, to ${p.meal}`}
-                          >
-                            <PlusGlyph />
-                            <span className="usual__name">{displayName(f)}</span>
-                            <span className="usual__amt tnum">{f.last_amount_label}</span>
-                          </button>
-                        ))}
-                      </div>
+                      <div className="usual__chips">{quick.map(oneTap)}</div>
+                    </section>
+                  )}
+
+                  {/* A restaurant dish had before, again in one tap, from its
+                      first order on: the usual list waits for a habit. One
+                      already in that list is not offered twice. */}
+                  {fromRestaurants.length > 0 && (
+                    <section className="food__sec" aria-label="From restaurants">
+                      <h2 className="food__h">From restaurants</h2>
+                      <div className="dishtiles">{fromRestaurants.map(dishTile)}</div>
                     </section>
                   )}
 
@@ -1542,7 +1618,8 @@ export default function Foods(p: Props) {
                     </section>
                   )}
 
-                  {cooks.length === 0 && quick.length === 0 && recipes.length === 0 && supplements.length === 0 && (
+                  {cooks.length === 0 && quick.length === 0 && fromRestaurants.length === 0
+                    && recipes.length === 0 && supplements.length === 0 && (
                     <div className="empty">
                       <h3>What did you eat?</h3>
                       <p>
@@ -1620,7 +1697,9 @@ export default function Foods(p: Props) {
                           doseLead, supplementLabel(x), doseText(x), chev, () => openSupplement(x)))}
                         {ownHits.map((h, i) => row(`c-${h.custom_food_id}`,
                           potHits.length + recipeHits.length + suppHits.length + i,
-                          <span className="lead lead--own" aria-hidden>{initials(h.description)}</span>,
+                          h.data_type === "restaurant_dish"
+                            ? <span className="lead lead--bought" aria-hidden><Glyph name="bag" size={20} /></span>
+                            : <span className="lead lead--own" aria-hidden>{initials(h.description)}</span>,
                           h.description, h.note ?? h.brand, chev, () => void pick(h)))}
                       </div>
                     </section>
@@ -1817,11 +1896,16 @@ export default function Foods(p: Props) {
   );
 }
 
+/** A restaurant dish pasted in from an estimate: see `restaurant_dish` in store.rs. */
+function isRestaurantDish(f: CustomFood): boolean {
+  return !!f.import_only && f.serving_pieces != null;
+}
+
 /** One line of a custom food's panel, per 100 g, with where its value came from. */
-function PanelRow({ n, base }: { n: CustomNutrientRow; base: string | null }) {
+function PanelRow({ n, base, came = "off the pack" }: { n: CustomNutrientRow; base: string | null; came?: string }) {
   const said =
     n.provenance === "label"
-      ? "off the pack"
+      ? came
       : n.provenance === "inherited"
         ? base ? `from ${base}` : "from the generic entry"
         : "not measured";
@@ -1871,6 +1955,8 @@ function valueText(v: NutrientValue, unit: string): string {
  * not become "Hershey's Hershey's Milk Chocolate" in every day it appears in.
  */
 function foodLabel(f: CustomFood): string {
+  // A restaurant dish's brand is its place, which follows the name.
+  if (isRestaurantDish(f)) return dishLabel(f.name, f.brand);
   if (!f.brand) return f.name;
   return f.name.toLowerCase().startsWith(f.brand.toLowerCase()) ? f.name : `${f.brand} ${f.name}`;
 }

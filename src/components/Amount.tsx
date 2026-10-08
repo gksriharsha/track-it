@@ -262,7 +262,9 @@ export default function Amount(p: Props) {
         </div>
         {/* Counted or weighed, for a pack that counts its serving: what the
             pack says a serving is, or what the scale says. */}
-        {p.piece && (
+        {/* Not for a food counted and never weighed (a restaurant dish), which
+            the panel opens with no `onCounting` to switch it. */}
+        {p.piece && p.onCounting && (
           <div className="chips readout__units" role="group" aria-label="Count or weigh">
             <button type="button" className="chip" aria-pressed={counting}
               onClick={() => p.onCounting?.(true)}>
