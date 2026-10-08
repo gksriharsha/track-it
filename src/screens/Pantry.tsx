@@ -70,10 +70,7 @@ export default function Pantry(p: Props) {
       {empty && (
         <div className="empty">
           <h3>No containers yet</h3>
-          <p>
-            Add the jar or bottle you cook from most, like salt or oil. Read it now and then, and
-            TrackIt learns how much you really add by feel.
-          </p>
+          <p>Add your salt or oil jar to learn how much you really use.</p>
           <button className="btn" onClick={p.onAdd}>Add a container</button>
         </div>
       )}

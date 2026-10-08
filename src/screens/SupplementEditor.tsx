@@ -10,8 +10,10 @@ import {
   scanSupplementPhoto,
 } from "../api";
 import CameraCapture from "../components/CameraCapture";
+import Glyph from "../components/Glyph";
 import PhotoSlot from "../components/PhotoSlot";
 import { useCameraRoute } from "../lib/camera";
+import { inPrintedOrder } from "../lib/printedOrder";
 import type {
   BarcodeScan,
   IngredientsScan,
@@ -23,6 +25,7 @@ import type {
   SupplementScan,
 } from "../types";
 import { formsFor } from "../types";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -59,6 +62,8 @@ interface Line {
   /** What the backend made of it: the converted row, or a refusal. */
   resolved: SupplementNutrient | null;
   error: string | null;
+  /** Read off the photo and not yet confirmed: tinted until "Looks right" or an edit. */
+  read?: boolean;
 }
 
 /**
@@ -100,6 +105,13 @@ export default function SupplementEditor(p: Props) {
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
   const [unitNoun, setUnitNoun] = useState("tablet");
+  /**
+   * Whether the serving boxes say something the user put there. A new bottle
+   * opens on "1 tablet", which nobody typed, so a serving read off the panel may
+   * stand in those boxes, tinted; once any of them is edited, or for a bottle
+   * already saved, the panel's serving is only offered under them.
+   */
+  const [servingEdited, setServingEdited] = useState(p.id !== null);
   const [servingUnits, setServingUnits] = useState("1");
   const [servingLabel, setServingLabel] = useState("");
   const [defaultUnits, setDefaultUnits] = useState("1");
@@ -272,7 +284,8 @@ export default function SupplementEditor(p: Props) {
     async (i: number, patch: Partial<Line>) => {
       const base = linesRef.current[i];
       if (!base) return;
-      const merged = { ...base, ...patch };
+      // Changing a read line makes it the user's.
+      const merged = { ...base, ...patch, read: false };
       // Write what was typed immediately — the field must not lag the keyboard
       // while a conversion is in flight.
       linesRef.current = linesRef.current.map((l, j) => (j === i ? merged : l));
@@ -335,6 +348,9 @@ export default function SupplementEditor(p: Props) {
    * hand is the path that always works and this only ever saves keystrokes.
    */
   async function runPanelScan(photoName: string) {
+    // The other-ingredients line usually sits right under the panel, in the
+    // same shot. Without a photo of it, read this one for it too.
+    if (photoIngredients === null) void runIngScan(photoName, true);
     const mine = ++panelSeq.current;
     setReadings(null);
     setPanelNote(null);
@@ -343,8 +359,10 @@ export default function SupplementEditor(p: Props) {
     try {
       const s = await scanSupplementPhoto(photoName);
       if (mine !== panelSeq.current) return;
-      setReadings(s.readings.length > 0 ? s.readings : null);
-      setPanelNote(noteOf(s));
+      placeReadings(s.readings);
+      // What was read waits in its lines; only a photo that gave nothing says so.
+      const note = noteOf(s);
+      setPanelNote(note.kind === "read" ? null : note);
       setServingHint(
         s.serving_units !== null || s.unit_noun !== null || s.serving_label !== null
           ? { units: s.serving_units, noun: s.unit_noun, label: s.serving_label }
@@ -358,15 +376,22 @@ export default function SupplementEditor(p: Props) {
     }
   }
 
-  /** Read the other-ingredients line off its own photo. */
-  async function runIngScan(photoName: string) {
+  /**
+   * Read the other-ingredients line off its own photo — or, `quiet`, off the
+   * panel photo, where a line found is offered and anything else says nothing.
+   */
+  async function runIngScan(photoName: string, quiet = false) {
     const mine = ++ingSeq.current;
     setIngHint(null);
     setIngNote(null);
-    setIngScanning(true);
+    if (!quiet) setIngScanning(true);
     try {
       const s = await scanIngredientsPhoto(photoName);
       if (mine !== ingSeq.current) return;
+      if (quiet) {
+        if (s.text.trim() !== "") setIngHint(s);
+        return;
+      }
       if (s.text.trim() !== "" || s.contains) {
         setIngHint(s);
         // A CONTAINS statement without the list above it is half an answer.
@@ -384,8 +409,8 @@ export default function SupplementEditor(p: Props) {
         );
       }
     } catch (e) {
-      if (mine !== ingSeq.current) return;
-      setIngNote(`The photo is saved, but reading it failed — ${sentence(String(e))} Type the list in below.`);
+      if (mine !== ingSeq.current || quiet) return;
+      setIngNote(`Reading the photo failed — ${sentence(String(e))} Type the list in below.`);
     } finally {
       if (mine === ingSeq.current) setIngScanning(false);
     }
@@ -415,10 +440,6 @@ export default function SupplementEditor(p: Props) {
 
   /** A reading whose figure this app has somewhere to put. */
   const takeableUnit = (r: PanelReading) => unitOf(r.label_unit);
-
-  /** The line this reading would overwrite — one that already carries a figure. */
-  const clashOf = (r: PanelReading) =>
-    lines.find((l) => l.nutrientId === r.nutrient_id && l.amount.trim() !== "") ?? null;
 
   /**
    * One reading confirmed. This is the ONLY way a reading becomes a line.
@@ -457,13 +478,52 @@ export default function SupplementEditor(p: Props) {
     [settle],
   );
 
-  /** Every reading at once — offered only when none of them would overwrite a figure. */
-  function takeAllReadings() {
-    for (const r of readings ?? []) void takeReading(r);
+  /**
+   * Put what the photo read into the lines, tinted, in the order the panel
+   * prints them, so the form reads down like the bottle. A line already typed
+   * keeps its figure: the photo's sits under it, to take or to leave. A unit
+   * this app has nowhere to put is said under the lines and goes nowhere.
+   */
+  function placeReadings(rs: PanelReading[]) {
+    const next = [...linesRef.current];
+    const left: PanelReading[] = [];
+    for (const r of rs) {
+      const unit = unitOf(r.label_unit);
+      if (unit === null) {
+        left.push(r);
+        continue;
+      }
+      const amount = printed(r.label_amount);
+      const at = next.findIndex((l) => l.nutrientId === r.nutrient_id);
+      if (at >= 0 && next[at].amount.trim() !== "") {
+        // The same figure is no question; a different one is offered under it.
+        if (next[at].amount.trim() !== amount || next[at].unit !== unit) left.push(r);
+        continue;
+      }
+      const line: Line = {
+        nutrientId: r.nutrient_id,
+        amount,
+        unit,
+        form: formFor(r.nutrient_id, unit, r.label_form),
+        resolved: null,
+        error: null,
+        read: true,
+      };
+      if (at >= 0) next[at] = line;
+      else next.push(line);
+    }
+    const ordered = inPrintedOrder(next, (l) => l.nutrientId, rs.map((r) => r.nutrient_id));
+    linesRef.current = ordered;
+    setLines(ordered);
+    setReadings(left.length > 0 ? left : null);
+    // Every line, not only the read ones: moving a line moves its index, and a
+    // conversion still in flight for the old index must not land on another.
+    ordered.forEach((l, i) => void settle(i, l));
   }
 
   function takeServing() {
     if (!servingHint) return;
+    setServingEdited(true);
     if (servingHint.units !== null) setServingUnits(String(servingHint.units));
     if (servingHint.noun) setUnitNoun(servingHint.noun);
     if (servingHint.label) setServingLabel(servingHint.label);
@@ -492,8 +552,35 @@ export default function SupplementEditor(p: Props) {
     forgetIngScan();
   }
 
+  /* What was read off the photos and still waits for a yes. */
+  const servingTint = servingHint !== null && !servingEdited;
+  const servingOffer = servingHint !== null && servingEdited &&
+    (servingHint.units !== null || !!servingHint.noun || !!servingHint.label);
+  const ingTint = ingHint !== null && otherIngredients.trim() === "" && ingText(ingHint) !== "";
+  const ingOffer = ingHint !== null && !ingTint && otherIngredients.trim() !== ingText(ingHint).trim();
+  const lineOffers = (readings ?? []).filter((r) => takeableUnit(r) !== null);
+  const tintedCount = lines.filter((l) => l.read).length + (servingTint ? 1 : 0) + (ingTint ? 1 : 0);
+  const waiting = tintedCount + lineOffers.length + (servingOffer ? 1 : 0) + (ingOffer ? 1 : 0);
+
+  /**
+   * "Looks right": everything tinted goes in as it reads. A figure typed before
+   * the photo was read stays as typed.
+   */
+  function confirmReads() {
+    linesRef.current = linesRef.current.map((l) => (l.read ? { ...l, read: false } : l));
+    setLines(linesRef.current);
+    if (servingTint) takeServing();
+    setServingHint(null);
+    if (ingTint) takeIngredients();
+    else forgetIngScan();
+    setReadings(null);
+  }
+
   async function save() {
     setError(null);
+    if (tintedCount > 0) {
+      return setError("Check the tinted lines against the bottle, then tap Looks right.");
+    }
     const su = Number(servingUnits);
     if (!name.trim()) return setError("Give it a name — whatever is on the bottle.");
     if (!unitNoun.trim()) return setError("Say what one of these is called: a tablet, a capsule, a gummy.");
@@ -563,11 +650,9 @@ export default function SupplementEditor(p: Props) {
     );
   }
 
-  const allTakeable =
-    readings !== null && readings.every((r) => takeableUnit(r) !== null && clashOf(r) === null);
 
   return (
-    <div className="screen">
+    <div className="screen" style={waiting > 0 ? { paddingBottom: "var(--s8)" } : undefined}>
       <ScreenHead
         title={p.id ? "Edit supplement" : "Add a supplement"}
         action={<button className="btn btn--quiet" onClick={p.onCancel}>Cancel</button>}
@@ -591,17 +676,23 @@ export default function SupplementEditor(p: Props) {
           </label>
           <label>
             <span className="group__name">One of these is a…</span>
-            <input className="field" value={unitNoun} onChange={(e) => setUnitNoun(e.target.value)}
+            <input className={`field${servingTint && servingHint?.noun ? " is-read" : ""}`}
+              value={servingTint && servingHint?.noun ? servingHint.noun : unitNoun}
+              onChange={(e) => { setServingEdited(true); setUnitNoun(e.target.value); }}
               placeholder="tablet" />
           </label>
           <label>
             <span className="group__name">Serving is how many</span>
-            <input className="field tnum" type="number" min="0" step="0.5" value={servingUnits}
-              onChange={(e) => setServingUnits(e.target.value)} />
+            <input className={`field tnum${servingTint && servingHint?.units != null ? " is-read" : ""}`}
+              type="number" min="0" step="0.5"
+              value={servingTint && servingHint?.units != null ? printed(servingHint.units) : servingUnits}
+              onChange={(e) => { setServingEdited(true); setServingUnits(e.target.value); }} />
           </label>
           <label>
             <span className="group__name">Serving, as printed</span>
-            <input className="field" value={servingLabel} onChange={(e) => setServingLabel(e.target.value)}
+            <input className={`field${servingTint && servingHint?.label ? " is-read" : ""}`}
+              value={servingTint && servingHint?.label ? servingHint.label : servingLabel}
+              onChange={(e) => { setServingEdited(true); setServingLabel(e.target.value); }}
               placeholder="2 tablets daily" />
           </label>
           <label>
@@ -702,33 +793,18 @@ export default function SupplementEditor(p: Props) {
           )
         )}
 
-        {/* Offered, not filled in. A serving read wrong divides every figure on
-            the panel by the wrong number of tablets, so it is the last thing to
-            take on trust. */}
-        {servingHint && (
-          <Say
-            onDismiss={() => setServingHint(null)}
-            act={
-              servingHint.units !== null || servingHint.noun ? (
-                <button className="btn vrow__btn" onClick={takeServing}>Use it</button>
-              ) : null
-            }
-          >
+        {/* The boxes say what the user put there; the panel's serving sits
+            under them, to take or to leave. */}
+        {servingOffer && servingHint && (
+          <Say onDismiss={() => setServingHint(null)}
+            act={<button className="btn vrow__btn" onClick={takeServing}>Use it</button>}>
             The panel reads {servingWords(servingHint)}.
-            {servingHint.units !== null && (
-              <> The boxes say <span className="num">{servingUnits || "?"}</span>{" "}
-                {unitNoun || "unit"}{Number(servingUnits) === 1 ? "" : "s"}.</>
-            )}
-            {servingHint.units === null && !servingHint.noun && (
-              <> It gives no number of {unitNoun || "unit"}s, so that box is yours to fill.</>
-            )}
           </Say>
         )}
 
         <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Every figure below is per <strong>{servingUnits || "?"} {unitNoun || "unit"}
-          {Number(servingUnits) === 1 ? "" : "s"}</strong> — the panel's own serving. Taking a
-          different number is recorded on the day you take it, not here.
+          Figures below are per <strong>{servingUnits || "?"} {unitNoun || "unit"}
+          {Number(servingUnits) === 1 ? "" : "s"}</strong>.
         </p>
       </section>
 
@@ -782,34 +858,51 @@ export default function SupplementEditor(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>Photos of the bottle</h2>
-          <span className="card__note">so you only hold it once</span>
+          <Info title="What a photo reads">
+            <p>
+              Nothing a photo reads is stored on its own: every figure it finds is offered for you
+              to check against the bottle first.
+            </p>
+            <p>
+              Neither photo answers which panel is on it, or whether the panel lists everything —
+              no picture can say that.
+            </p>
+            <p>
+              Each figure is shown in the panel's own words, down to the suffix. A misread digit is
+              wrong again on every day you take this, so check it against the photo. A form the
+              bottle names only matters for a figure printed in IU.
+            </p>
+          </Info>
+          <span className="card__note">deleted when you save</span>
         </div>
         <div className="idrow">
           <PhotoSlot
             scanKind="supplement"
             label="Supplement Facts panel"
-            hint="The figures you are about to type. It stays with the bottle's record, and the app has a go at reading it."
+            hint="Read for you, then deleted when you save."
             name={photoPanel}
             /* A reading belongs to one photo. Drop the panel photo and the
                figures taken off it go with it, rather than lingering over a
                form that no longer has anything to check them against. */
-            onChange={(n) => { setPhotoPanel(n); if (n === null) forgetPanelScan(); }}
+            onChange={(n) => {
+              setPhotoPanel(n);
+              if (n === null) {
+                forgetPanelScan();
+                // So does a line read off it, when no photo of the line stands in.
+                if (photoIngredients === null) forgetIngScan();
+              }
+            }}
             onScan={runPanelScan}
           />
           <PhotoSlot
             scanKind="ingredients"
             label="Other ingredients"
-            hint="The line under the panel — fillers, capsule shell, colours. Kept as it was printed."
+            hint="Optional if it is in the panel photo."
             name={photoIngredients}
             onChange={(n) => { setPhotoIngredients(n); if (n === null) forgetIngScan(); }}
             onScan={runIngScan}
           />
         </div>
-        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Nothing a photo reads is stored on its own: every figure it finds is offered for you to
-          check against the bottle first. Neither photo touches the two answers above — no picture
-          can say which market printed a panel, or that the panel lists everything in the product.
-        </p>
       </section>
 
       <section className="card">
@@ -829,78 +922,6 @@ export default function SupplementEditor(p: Props) {
 
         {panelNote && <PanelSays note={panelNote} onDismiss={() => setPanelNote(null)} />}
 
-        {readings && (
-          <div className="scanbox">
-            <div className="scanbox__head">
-              <span className="group__name">Read off the photo</span>
-              {allTakeable && readings.length > 1 && (
-                <button className="btn btn--quiet scanbox__all" onClick={takeAllReadings}>
-                  Take all {readings.length}
-                </button>
-              )}
-            </div>
-            <ul className="scanbox__list">
-              {readings.map((r) => {
-                const unit = takeableUnit(r);
-                const clash = clashOf(r);
-                const form = formWords(r.label_form);
-                return (
-                  <li className="scanrow" key={r.nutrient_id}>
-                    <span className="scanrow__main">
-                      <span className="scanrow__top">
-                        <span className="scanrow__name">{nameOf(r.nutrient_id)}</span>
-                        <span className="scanrow__read num">
-                          {printed(r.label_amount)} {r.label_unit}
-                        </span>
-                      </span>
-                      {form && <span className="scanrow__aside">as {form}</span>}
-                      {unit === null && (
-                        <span className="scanrow__aside">
-                          “{r.label_unit}” is not a magnitude this app can store, so there is
-                          nothing to put this on. Add the line yourself if the bottle prints it
-                          another way too.
-                        </span>
-                      )}
-                      {clash && (
-                        <span className="scanrow__aside">
-                          The line below already says{" "}
-                          <span className="num">{clash.amount}</span> {UNIT_LABEL[clash.unit]} —
-                          taking this replaces it.
-                        </span>
-                      )}
-                    </span>
-                    <span className="scanbox__btns">
-                      {unit !== null && (
-                        <button className="btn vrow__btn" onClick={() => void takeReading(r)}>
-                          {clash ? "Replace" : "Use it"}
-                        </button>
-                      )}
-                      <button
-                        className="btn btn--quiet vrow__btn"
-                        onClick={() =>
-                          setReadings((rs) => {
-                            const left = (rs ?? []).filter((x) => x.nutrient_id !== r.nutrient_id);
-                            return left.length > 0 ? left : null;
-                          })
-                        }
-                      >
-                        Ignore
-                      </button>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-            <p className="scanbox__note">
-              Each figure is shown in the panel's own words, down to the suffix — check it against
-              the photo before you take it, because a misread digit is wrong again on every day
-              you take this. Where the bottle names a form, it is shown here; it only moves the
-              arithmetic on a figure printed in IU, since a panel's mg and mcg figures are already
-              on the basis this app stores.
-            </p>
-          </div>
-        )}
-
         {lines.length === 0 && (
           <p className="t-sm" style={{ color: "var(--ink-3)", margin: "var(--s3) 0" }}>
             Nothing yet. Add the lines the pack prints, in the order it prints them.
@@ -912,15 +933,22 @@ export default function SupplementEditor(p: Props) {
             const meta = metaOf(l.nutrientId);
             const forms = formsFor(l.nutrientId, l.unit);
             const refused = l.resolved?.kind === "not_converted";
+            /* A figure typed before the photo was read, and a different one read off it. */
+            const offer = lineOffers.find((r) => r.nutrient_id === l.nutrientId);
             return (
-              <div className="supline" key={`${l.nutrientId}-${i}`}>
+              <div className={`supline${l.read ? " is-read" : ""}`} key={`${l.nutrientId}-${i}`}>
                 <div className="supline__top">
-                  <span className="supline__name">{meta?.short_name ?? l.nutrientId}</span>
+                  <span className="supline__name">
+                    {l.read && <span className="supline__cam"><Glyph name="camera" size={15} /></span>}
+                    {meta?.short_name ?? l.nutrientId}
+                  </span>
                   <input
-                    className="field tnum supline__amt"
+                    className={`field tnum supline__amt${l.read ? " is-read" : ""}`}
                     inputMode="decimal"
                     value={l.amount}
                     placeholder="0"
+                    aria-label={(l.read ? "Read from the photo, not yet confirmed: " : "") +
+                      `${meta?.short_name ?? "line"} amount`}
                     onChange={(e) => update(i, { amount: e.target.value })}
                   />
                   <select
@@ -962,6 +990,15 @@ export default function SupplementEditor(p: Props) {
                   </div>
                 )}
 
+                {offer && (
+                  <span className="lrow__photo">
+                    <span>The photo reads <strong className="num">{printed(offer.label_amount)} {offer.label_unit}</strong></span>
+                    <button className="chip chip--sm lrow__use" type="button" onClick={() => void takeReading(offer)}>
+                      Use it
+                    </button>
+                  </span>
+                )}
+
                 {refused ? (
                   <p className="supline__refused">{l.resolved?.convert_note}</p>
                 ) : l.error ? (
@@ -976,6 +1013,13 @@ export default function SupplementEditor(p: Props) {
             );
           })}
         </div>
+
+        {(readings ?? []).filter((r) => takeableUnit(r) === null).map((r) => (
+          <p className="supline__refused" key={`unit-${r.nutrient_id}`}>
+            The photo also read {nameOf(r.nutrient_id)} {printed(r.label_amount)} {r.label_unit}, in a
+            unit this app cannot store.
+          </p>
+        ))}
 
         {adding ? (
           <div style={{ marginTop: "var(--s4)" }}>
@@ -1016,56 +1060,64 @@ export default function SupplementEditor(p: Props) {
           <h2>Other ingredients</h2>
           <span className="card__note">as printed</span>
         </div>
-        <textarea
-          className="field"
-          rows={3}
-          value={otherIngredients}
-          onChange={(e) => setOtherIngredients(e.target.value)}
-          placeholder="Microcrystalline cellulose, magnesium stearate…"
-        />
+        <span className="lrow__box">
+          <textarea
+            className={`field${ingTint ? " is-read" : ""}`}
+            rows={3}
+            value={ingTint && ingHint ? ingText(ingHint) : otherIngredients}
+            onChange={(e) => {
+              setOtherIngredients(e.target.value);
+              // Typed over: the line is the user's now.
+              if (ingTint) forgetIngScan();
+            }}
+            aria-label={(ingTint ? "Read from the photo, not yet confirmed: " : "") + "Other ingredients as printed"}
+            placeholder="Microcrystalline cellulose, magnesium stearate…"
+            style={{ width: "100%" }}
+          />
+          {ingTint && <span className="ing__tag"><Glyph name="camera" size={14} />From the photo</span>}
+        </span>
 
         {ingScanning && (
           <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-            Reading the ingredients in the photo… nothing here will be overwritten.
+            Reading the photo…
           </p>
         )}
 
         {ingNote && <Say onDismiss={() => setIngNote(null)}>{ingNote}</Say>}
 
-        {ingHint && (
-          <div className="scanbox">
-            <div className="scanbox__head">
-              <span className="group__name">Read off the photo</span>
-            </div>
-            <p className="scanbox__text">{ingText(ingHint)}</p>
-            <div className="scanbox__foot">
-              {otherIngredients.trim() === "" ? (
-                <button className="btn vrow__btn" onClick={takeIngredients}>Use it</button>
-              ) : (
-                <>
-                  <button className="btn vrow__btn" onClick={takeIngredients}>
-                    Replace what is typed
-                  </button>
-                  <button className="btn btn--quiet vrow__btn" onClick={appendIngredients}>
-                    Add it below
-                  </button>
-                </>
-              )}
-              <button className="btn btn--quiet vrow__btn" onClick={forgetIngScan}>Ignore</button>
-            </div>
-            <p className="scanbox__note">
-              Word for word as the camera read it, punctuation and capitals included — check it
-              against the photo, and correct it in the box afterwards.
-              {otherIngredients.trim() !== "" && " The box keeps what you typed until you pick one of these."}
-            </p>
+        {ingOffer && ingHint && (
+          <div className="ing__photo" role="group" aria-label="Read from the ingredients photo">
+            <span>The photo reads a different list</span>
+            <p className="ing__read">{ingText(ingHint)}</p>
+            <span className="ing__acts">
+              <button className="chip chip--sm lrow__use" type="button" onClick={takeIngredients}>
+                Use the photo's
+              </button>
+              <button className="chip chip--sm" type="button" onClick={appendIngredients}>
+                Add it underneath
+              </button>
+            </span>
           </div>
         )}
 
         <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Kept as written and never parsed. Anything here that this app tracks has to be added
-          as a line above to count towards a day.
+          For reference only — add a line above for anything to count.
         </p>
       </section>
+
+      {/* One confirm for everything read off the photos, at the foot of the screen. */}
+      {waiting > 0 && (
+        <div className="readbar readbar--auto" role="region" aria-label="Read from the photo">
+          <span className="readbar__glyph"><Glyph name="camera" size={20} /></span>
+          <span className="readbar__t">
+            <strong>Read from the photo</strong>
+            <span>{tintedCount > 0 ? "Check the tinted lines against it" : "Keep what you typed, or use the photo's"}</span>
+          </span>
+          <button className="btn readbar__ok" type="button" onClick={confirmReads}>
+            {tintedCount > 0 ? "Looks right" : "Keep mine"}
+          </button>
+        </div>
+      )}
 
       <div className="commit">
         <button className="btn btn--quiet" onClick={p.onCancel}>Cancel</button>
@@ -1162,7 +1214,7 @@ function PanelSays({ note, onDismiss }: { note: PanelNote; onDismiss: () => void
       )}
       {note.kind === "trouble" && note.text}
       {note.kind === "failed" && (
-        <>The photo is saved, but reading it failed — {note.text} Type the panel in below.</>
+        <>Reading the photo failed — {note.text} Type the panel in below.</>
       )}
     </Say>
   );
@@ -1252,33 +1304,6 @@ function formFor(nutrientId: number, unit: LabelUnit, asRead: LabelForm | ""): L
   const offered = formsFor(nutrientId, unit);
   const found = offered?.find((f) => f.id === asRead);
   return found ? found.id : "unspecified";
-}
-
-/**
- * The form the bottle named, worded to follow "as".
- *
- * Not the chips' own labels: those answer a question ("mcg of retinol") and
- * would read as "as mcg of retinol" here. This says what the pack said.
- */
-const FORM_WORDS: Record<LabelForm, string> = {
-  unspecified: "",
-  retinol: "retinol or a retinyl ester",
-  beta_carotene_supplemental: "supplemental beta-carotene",
-  beta_carotene_dietary: "beta-carotene from a food ingredient",
-  vitamin_d: "vitamin D",
-  alpha_tocopherol_natural: "natural d-alpha-tocopherol",
-  alpha_tocopherol_synthetic: "synthetic dl-alpha-tocopherol",
-  folic_acid: "folic acid",
-  food_folate: "food folate",
-  methylfolate: "L-5-methylfolate",
-};
-
-// `""` is what a scan reports when the bottle named no form, and it is not a
-// key of FORM_WORDS — so it is turned away before the lookup rather than
-// indexing the record with something that is not a LabelForm.
-function formWords(form: LabelForm | ""): string | null {
-  if (form === "") return null;
-  return FORM_WORDS[form] || null;
 }
 
 /** A backend error is a fragment; it is quoted mid-sentence, so it needs an end. */

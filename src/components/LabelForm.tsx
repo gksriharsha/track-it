@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { labelPercentTable } from "../api";
 import type {
   CustomNutrient,
@@ -11,6 +10,9 @@ import type {
 } from "../types";
 import { LABEL_NUTRIENTS } from "../types";
 import { plural } from "../lib/nutrient";
+import { inPrintedOrder } from "../lib/printedOrder";
+import Glyph from "./Glyph";
+import Info from "./Info";
 
 interface Props {
   /** The serving as typed upstairs — the basis every figure here is per. */
@@ -39,12 +41,21 @@ interface Props {
    */
   onAcceptSuggestion?: (n: CustomNutrient) => void;
   /**
-   * The whole set confirmed at once. Fires only when this form is showing all of
-   * it and nothing was held back — a reading that contradicts a typed figure, or
-   * one already waved off, is reported singly through `onAcceptSuggestion`
-   * instead, because a callback that takes "all of them" cannot express either.
+   * A reading no longer on offer: typed over, which makes the line the user's,
+   * or the same as what the line already said.
    */
-  onAcceptAll?: () => void;
+  onDropSuggestion?: (nutrientId: number) => void;
+  /**
+   * Which readings are on screen right now, tinted in their boxes or set under a
+   * figure they disagree with, so the one confirm upstairs takes exactly what
+   * the user could see and nothing a line was missing for.
+   */
+  onShown?: (shown: { tinted: number[]; clashes: number[] }) => void;
+  /**
+   * The order the pack prints its lines in, when it is known: from a photo just
+   * read, or as the food was saved. Lines it names come first, in that order.
+   */
+  order?: readonly number[] | null;
   /**
    * Which Daily Values the pack's percentages are of. A statement about the
    * pack, owned by the food, so it is a prop rather than state here: it is
@@ -84,52 +95,11 @@ const CEILING: Record<number, number> = {
 };
 
 /**
- * A reading is drawn as a dashed inset UNDER the line it belongs to, never inside
- * the line's own boxes. The field stays empty until the user puts the figure in it,
- * so there is no state in which the form looks filled in with something nobody read
- * off the pack themselves.
+ * A reading waits IN its box, tinted, until the user confirms it upstairs or
+ * types over it. The tint is the whole difference between read and typed, so
+ * it is never used for anything else on this form.
  */
-const STRIP: CSSProperties = {
-  gridColumn: "1 / -1",
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  gap: "var(--s2) var(--s3)",
-  margin: "var(--s1) 0 var(--s2)",
-  padding: "var(--s2) var(--s3)",
-  border: "1px dashed var(--ink-3)",
-  borderRadius: "var(--r-md)",
-  background: "var(--sunken)",
-};
 
-/** Set in `.t-sm` by the elements that use it — the size is the type scale's. */
-const STRIP_TEXT: CSSProperties = {
-  flex: "1 1 220px",
-  minWidth: 0,
-  color: "var(--ink-2)",
-};
-
-const BANNER: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  gap: "var(--s3)",
-  marginTop: "var(--s4)",
-  padding: "var(--s3) var(--s4)",
-  border: "1px dashed var(--ink-3)",
-  borderRadius: "var(--r-md)",
-  background: "var(--sunken)",
-};
-
-/**
- * These sit between rows, under a thumb, and `.btn` already gives them the
- * button's own height (--btn-h) — so all this adds is the narrower padding of
- * a control inside a row, and no wrapping.
- */
-const ACT: CSSProperties = {
-  paddingInline: "var(--s4)",
-  whiteSpace: "nowrap",
-};
 
 /**
  * What is typed on one line. The figure is held as TEXT, not as a number: "0." and
@@ -332,7 +302,9 @@ export default function LabelForm(p: Props) {
   // figure in it or added by hand.
   const have = new Set<number>(p.nutrients.map((n) => n.nutrient_id));
   for (const [id, r] of rows) if (r.text.trim() !== "" || r.lt) have.add(id);
-  const lines = linesFor(p.dvBasis, table, added, have);
+  // A line the photo read gets a line too, so a reading never waits unseen.
+  for (const s of p.suggestions ?? []) have.add(s.nutrient_id);
+  const lines = inPrintedOrder(linesFor(p.dvBasis, table, added, have), (l) => l.id, p.order);
   const lineIds = new Set(lines.map((l) => l.id));
 
   // Anything the food carries that this form has no line for — a nutrient
@@ -382,9 +354,25 @@ export default function LabelForm(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.dvBasis, table]);
 
+  /** What a line shows: its reading while one waits in it, else what is typed. */
+  const rowFor = (id: number): Row => {
+    const s = tinted.get(id);
+    return s ? rowOf(s) : rows.get(id) ?? blankFor(id);
+  };
+
+  /**
+   * Change a line. On a line holding a reading, the change starts from the
+   * reading and makes the line the user's: typing over a tinted figure is
+   * taking it, corrected.
+   */
   function edit(id: number, patch: Partial<Row>) {
+    const s = tinted.get(id);
+    if (s) {
+      setHandled((h) => new Set(h).add(id));
+      p.onDropSuggestion?.(id);
+    }
     const next = new Map(rows);
-    next.set(id, { ...(rows.get(id) ?? blankFor(id)), ...patch });
+    next.set(id, { ...rowFor(id), ...patch });
     commit(next);
   }
 
@@ -395,7 +383,7 @@ export default function LabelForm(p: Props) {
    * rather than left to mean something else.
    */
   function writeAs(id: number, pct: boolean) {
-    const row = rows.get(id) ?? blankFor(id);
+    const row = rowFor(id);
     if (row.pct === pct) return;
     const t = row.text.trim();
     const n = Number(t);
@@ -408,7 +396,7 @@ export default function LabelForm(p: Props) {
   const printed = resolved.filter((x) => x.r.state !== "none" && x.r.state !== "snag").length;
   const snags = resolved.filter((x) => x.r.state === "snag").length;
 
-  // Readings still awaiting an answer, in the panel's own order.
+  // Readings still awaiting an answer.
   const live = new Map<number, CustomNutrient>();
   for (const s of p.suggestions ?? []) {
     // A reading with no figure in it cannot be confirmed, so it is not offered.
@@ -420,11 +408,29 @@ export default function LabelForm(p: Props) {
     const s = live.get(n.id);
     if (s) offers.set(n.id, offer(s, r, n.unit));
   }
-  const pending = [...offers.values()];
-  const clashes = pending.filter((o) => o.clash !== null).length;
+  /** Readings sitting in an empty line's box, tinted, until confirmed. */
+  const tinted = new Map<number, CustomNutrient>();
+  for (const [id, o] of offers) if (o.clash === null && !o.agrees) tinted.set(id, o.s);
+  const clashIds = [...offers].filter(([, o]) => o.clash !== null).map(([id]) => id);
+  const agreeIds = [...offers].filter(([, o]) => o.agrees).map(([id]) => id);
+
+  // A reading that says what the line already says is not a question.
+  const agreeKey = agreeIds.join(",");
+  useEffect(() => {
+    if (agreeIds.length === 0) return;
+    setHandled((h) => new Set([...h, ...agreeIds]));
+    for (const id of agreeIds) p.onDropSuggestion?.(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agreeKey]);
+
+  const shownKey = `${[...tinted.keys()].join(",")}|${clashIds.join(",")}`;
+  useEffect(() => {
+    p.onShown?.({ tinted: [...tinted.keys()], clashes: clashIds });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey]);
 
   /**
-   * Put one reading into the lines.
+   * Put the photo's figure on a line that already had one typed.
    *
    * The parent owns the food and the set of readings, so when it is listening the
    * value goes in through it and comes back down as an ordinary outside edit —
@@ -442,49 +448,6 @@ export default function LabelForm(p: Props) {
     commit(next);
   }
 
-  function dismiss(id: number) {
-    // The line is left exactly as it was — which for an untouched line means
-    // "not printed", and never a zero.
-    setHandled((h) => new Set(h).add(id));
-  }
-
-  function acceptAll() {
-    // Never in bulk over something typed. A figure read off the pack by hand
-    // outranks one read off it by a camera, so a clash keeps its own accept.
-    const taken = pending.filter((o) => o.clash === null);
-    setHandled((h) => {
-      const set = new Set(h);
-      for (const o of taken) set.add(o.s.nutrient_id);
-      return set;
-    });
-
-    // The bulk callback takes the parent's WHOLE set, so it may only be used when
-    // this form is showing all of it and holding nothing back — otherwise a
-    // reading the user has already waved off would go in with the rest.
-    const showingAll = (p.suggestions ?? []).length === pending.length;
-    if (clashes === 0 && showingAll && p.onAcceptAll) {
-      p.onAcceptAll();
-      return;
-    }
-    if (p.onAcceptSuggestion) {
-      // An agreeing reading is already what the line says; there is nothing to put.
-      for (const o of taken) if (!o.agrees) p.onAcceptSuggestion(o.s);
-      return;
-    }
-    if (taken.length === 0) return;
-    const next = new Map(rows);
-    for (const o of taken) next.set(o.s.nutrient_id, rowOf(o.s));
-    commit(next);
-  }
-
-  function dismissAll() {
-    setHandled((h) => {
-      const set = new Set(h);
-      for (const o of pending) set.add(o.s.nutrient_id);
-      return set;
-    });
-  }
-
   return (
     <div className="lform">
       <div className="lform__head">
@@ -492,6 +455,31 @@ export default function LabelForm(p: Props) {
         <span className="lform__count num">
           {printed} of {lines.length}
         </span>
+        <Info title="Typing in a panel">
+          <p>
+            {per100 !== null ? (
+              <>
+                Every figure here is per serving — per {fig(serving)} {p.unit}. Each is converted to
+                a figure {basis} when the food is saved.
+              </>
+            ) : (
+              <>These figures are per serving, so set the serving size first.</>
+            )}
+          </p>
+          <p>
+            Leave a line blank when the pack does not print it. A blank line stays unknown
+            {p.baseName ? <> and takes its value from <strong>{p.baseName}</strong></> : <>, never zero</>}.
+          </p>
+          <p>
+            A figure read from a photo waits in its box, tinted, until you confirm it — a camera
+            can read a 5 as a 6. Typing over one makes it yours.
+          </p>
+          <p>
+            An older label, from before 2020, prints vitamins as a percentage only and ends with
+            a table for 2,000 and 2,500 calorie diets. Its percentages are of the older Daily
+            Values — calcium 1,000 mg, vitamin D 400 IU.
+          </p>
+        </Info>
       </div>
 
       {table !== null && (
@@ -514,80 +502,18 @@ export default function LabelForm(p: Props) {
               Older label, before 2020
             </button>
           </div>
-          <p className="lform__basis">
-            {p.dvBasis === "older" ? (
-              <>
-                Percentages are read against the older Daily Values — calcium 1,000 mg, vitamin
-                D 400 IU — not today's.
-              </>
-            ) : (
-              <>
-                An older label prints vitamins as a percentage only (Vitamin A 10% • Vitamin C
-                4%) and ends with a table for 2,000 and 2,500 calorie diets.
-              </>
-            )}
-          </p>
-        </div>
-      )}
-
-      <p className="lform__basis">
-        {per100 !== null ? (
-          <>
-            Every figure below is per serving — per {fig(serving)} {p.unit}. They are converted to
-            a figure {basis} when the food is saved.
-          </>
-        ) : (
-          <>
-            These figures are per serving, so set the serving size above first. Without it
-            every number here is wrong by whatever the serving turns out to be.
-          </>
-        )}
-      </p>
-      <p className="lform__basis">
-        Leave a line blank when the pack does not print it — that is the ordinary case, not an
-        omission. A blank line stays unknown{" "}
-        {p.baseName ? (
-          <>
-            and takes its value from <strong>{p.baseName}</strong>.
-          </>
-        ) : (
-          <>and is counted as unmeasured, never as zero.</>
-        )}
-      </p>
-
-      {pending.length > 0 && (
-        <div style={BANNER} role="group" aria-label="Read from the photo">
-          <p className="t-sm" style={{ ...STRIP_TEXT, margin: 0, flexBasis: "260px" }}>
-            <strong>{plural(pending.length, "figure")} read from the photo.</strong> None is
-            entered yet — a camera can read a 5 as a 6, so check each against the pack before
-            you take it.
-            {clashes > 0 && (
-              <>
-                {" "}
-                {clashes === 1
-                  ? "One of them disagrees with what you typed, and is left for you."
-                  : `${clashes} of them disagree with what you typed, and are left for you.`}
-              </>
-            )}
-          </p>
-          {pending.length > clashes && (
-            <button className="btn btn--quiet" style={ACT} type="button" onClick={acceptAll}>
-              {clashes > 0 ? `Accept the other ${pending.length - clashes}` : "Accept all"}
-            </button>
-          )}
-          <button className="btn btn--quiet" style={ACT} type="button" onClick={dismissAll}>
-            Ignore all
-          </button>
         </div>
       )}
 
       <div className="lrows">
-        {resolved.map(({ n, r }) => {
-          const row = rows.get(n.id) ?? blankFor(n.id);
+        {resolved.map(({ n, r: typed }) => {
           const o = offers.get(n.id);
+          const read = tinted.has(n.id);
+          const row = rowFor(n.id);
+          const r = read ? resolveRow(n.id, row) : typed;
           const info = infoOf(n.id);
           return (
-            <div className={`lrow${r.state === "none" ? " is-blank" : ""}`} key={n.id}>
+            <div className={`lrow${r.state === "none" ? " is-blank" : ""}${read ? " is-read" : ""}`} key={n.id}>
               <span className="lrow__name">
                 {n.name}
                 {info || row.pct ? (
@@ -616,21 +542,25 @@ export default function LabelForm(p: Props) {
                 )}
               </span>
 
-              <input
-                className="field tnum lrow__amt"
-                type="number"
-                min="0"
-                step="any"
-                inputMode="decimal"
-                placeholder="—"
-                value={row.text}
-                onChange={(e) => edit(n.id, { text: e.target.value })}
-                aria-label={
-                  row.pct
-                    ? `${n.name} on the pack, as a percentage of the Daily Value`
-                    : `${n.name} on the pack, in ${n.unit} per serving`
-                }
-              />
+              <span className="lrow__box">
+                {read && <span className="lrow__cam"><Glyph name="camera" size={16} /></span>}
+                <input
+                  className={`field tnum lrow__amt${read ? " is-read" : ""}`}
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  placeholder="—"
+                  value={row.text}
+                  onChange={(e) => edit(n.id, { text: e.target.value })}
+                  aria-label={
+                    (read ? "Read from the photo, not yet confirmed: " : "") +
+                    (row.pct
+                      ? `${n.name} on the pack, as a percentage of the Daily Value`
+                      : `${n.name} on the pack, in ${n.unit} per serving`)
+                  }
+                />
+              </span>
 
               {/* A bound, not a figure: "contains less than 1 g of fat" is a ceiling
                   with no floor under it, and storing it as 1 g would invent one. */}
@@ -664,47 +594,20 @@ export default function LabelForm(p: Props) {
                 {says(r, n.unit, per100, basis, p.baseName ?? null, row.pct ? info : null)}
               </span>
 
-              {o && (
-                <div style={STRIP} role="group" aria-label={`Read from the photo for ${n.name}`}>
-                  <span className="t-sm" style={STRIP_TEXT}>
-                    {o.clash !== null ? (
-                      <>
-                        You typed <span className="num">{o.clash}</span>. The photo reads{" "}
-                        <span className="num">{o.reads}</span>.
-                      </>
-                    ) : o.agrees ? (
-                      <>
-                        The photo reads <span className="num">{o.reads}</span> too.
-                      </>
-                    ) : (
-                      <>
-                        Read from the photo: <span className="num">{o.reads}</span>. Not entered
-                        until you take it.
-                      </>
-                    )}
-                  </span>
-
-                  {!o.agrees && (
-                    <button
-                      className="btn btn--quiet"
-                      style={ACT}
-                      type="button"
-                      onClick={() => accept(o.s)}
-                      aria-label={`Use the photo's ${n.name}, ${o.reads}`}
-                    >
-                      {o.clash !== null ? "Use the photo's" : "Use this"}
-                    </button>
-                  )}
+              {/* A figure typed before the photo was read stays; the photo's
+                  sits under it, to take or to leave. */}
+              {o && o.clash !== null && (
+                <span className="lrow__photo" role="group" aria-label={`Read from the photo for ${n.name}`}>
+                  <span>The photo reads <strong className="num">{o.reads}</strong></span>
                   <button
-                    className="btn btn--quiet"
-                    style={ACT}
+                    className="chip chip--sm lrow__use"
                     type="button"
-                    onClick={() => dismiss(n.id)}
-                    aria-label={`Discard the photo's reading of ${n.name}`}
+                    onClick={() => accept(o.s)}
+                    aria-label={`Use the photo's ${n.name}, ${o.reads}`}
                   >
-                    {o.clash !== null ? "Keep mine" : o.agrees ? "Got it" : "Ignore"}
+                    Use {o.reads}
                   </button>
-                </div>
+                </span>
               )}
             </div>
           );

@@ -210,7 +210,7 @@ export default function WeightField(p: Props) {
           <p className="wf__note">
             {sel.length > 0
               ? `Coming off: ${sel.map((v) => v.name).join(" + ")}`
-              : "Tick everything the scale is carrying — a katori on a thali means both."}
+              : "Tick everything the scale is carrying — a bowl on a plate means both."}
           </p>
         </>
       )}

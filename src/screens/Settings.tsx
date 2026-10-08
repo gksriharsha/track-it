@@ -3,6 +3,7 @@ import { getGoals, setNutrientTarget } from "../api";
 import type { GoalRow, GoalsView } from "../types";
 import { BASIS_LABEL, BASIS_NOTE } from "../types";
 import { displayUnit, fmtAmount } from "../lib/nutrient";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -114,6 +115,18 @@ export default function Settings(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>Where your targets come from</h2>
+          <Info title="Where targets come from">
+            <p>
+              With your age and sex, targets come from the DRI tables for your group. Without
+              them, from the FDA Daily Values — one adult column off a food label. That column says
+              18 mg of iron for everybody, where the recommendation is 8 mg for an adult man and
+              18 mg for a woman under 50.
+            </p>
+            <p>
+              Fat and carbohydrate get a range rather than one figure, because there is no single
+              right amount of either.
+            </p>
+          </Info>
           <button className="link card__note" onClick={p.onOpenProfile}>Edit profile</button>
         </div>
         <div className="rows">
@@ -133,7 +146,7 @@ export default function Settings(p: Props) {
               <span className="row__title">Energy</span>
               <span className="row__sub">
                 {energy === null
-                  ? "No target — the day shows what you ate with no progress bar"
+                  ? "No target set"
                   : energy.basis === "user_set"
                     ? `${Math.round(energy.kcal).toLocaleString()} kcal, set by you`
                     : `about ${Math.round(energy.kcal).toLocaleString()} kcal, estimated`}
@@ -147,9 +160,7 @@ export default function Settings(p: Props) {
             <div className="row" style={{ gridTemplateColumns: "1fr auto" }}>
               <span className="row__main">
                 <span className="row__title">Macronutrients</span>
-                <span className="row__sub">
-                  Acceptable ranges, as a share of that energy — not single targets.
-                </span>
+                <span className="row__sub">Ranges, not single figures</span>
               </span>
               <span className="pill is-on">ranges</span>
             </div>
@@ -158,10 +169,8 @@ export default function Settings(p: Props) {
 
         {!placed && (
           <div className="card__foot">
-            A Daily Value is one adult column off a food label. It says 18 mg of iron for everybody,
-            where the actual recommendation is 8 mg for an adult man and 18 mg for a woman under 50.{" "}
-            <button className="link" onClick={p.onOpenProfile}>Add your age and sex</button> and every
-            row below switches to the figure for you.
+            <button className="link" onClick={p.onOpenProfile}>Add your age and sex</button> for
+            targets that fit you.
           </div>
         )}
       </section>
@@ -170,6 +179,12 @@ export default function Settings(p: Props) {
         <section className="card">
           <div className="card__head">
             <h2>Macronutrient ranges</h2>
+            <Info title="Why a range">
+              <p>
+                There is no single right amount of fat or carbohydrate. The day is shown as inside
+                or outside the range, never scored against a midpoint nobody published.
+              </p>
+            </Info>
             <span className="card__note">share of energy</span>
           </div>
           <div className="rows">
@@ -190,17 +205,19 @@ export default function Settings(p: Props) {
               );
             })}
           </div>
-          <div className="card__foot">
-            A range, because there is no single right amount of fat or carbohydrate. The dashboard
-            says whether the day landed inside it rather than scoring it against a midpoint nobody
-            published.
-          </div>
         </section>
       )}
 
       <section className="card">
         <div className="card__head">
           <h2>Every nutrient</h2>
+          <Info title="Setting your own target">
+            <p>A figure you set beats both reference tables.</p>
+            <p>
+              Nothing here changes a day you already logged — a target is a lens on what you ate,
+              never part of it.
+            </p>
+          </Info>
           <span className="card__note">
             {mine > 0 ? `${mine} set by you` : "none set by you"}
           </span>
@@ -306,11 +323,6 @@ export default function Settings(p: Props) {
                 : "Nothing in this filter."}
             </p>
           )}
-        </div>
-
-        <div className="card__foot">
-          A figure you set beats both reference tables. Nothing here changes a day you already
-          logged — a target is a lens on what you ate, never part of it.
         </div>
       </section>
     </div>

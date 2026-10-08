@@ -3,6 +3,7 @@ import { exportLog, saveExportedFile, shiftIso, todayIso } from "../api";
 import { buildExportFile } from "../lib/exportSheet";
 import type { ExportKind } from "../lib/exportSheet";
 import type { ExportLog } from "../types";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -168,9 +169,7 @@ export default function ExportData({ onBack }: Props) {
           ))}
         </div>
         <p className="exp-note">
-          {kind === "csv"
-            ? "A csv holds one sheet, so it carries the food and leaves out the supplements and the water."
-            : "Three sheets: the food, then the supplements and the water behind it. Only the first sheet is the one this app reads back."}
+          {kind === "csv" ? "Food only." : "Food, supplements and water, on three sheets."}
         </p>
       </section>
 
@@ -178,6 +177,38 @@ export default function ExportData({ onBack }: Props) {
       <section className="card">
         <div className="card__head">
           <h2>What is in the file</h2>
+          {log && !nothingToWrite && (
+            <Info title="What is in the file">
+              <p>
+                Each row carries the fifteen figures a nutrition label prints — energy, the
+                macronutrients, sodium, vitamin D, calcium, iron and potassium. Anything else a
+                pack or a panel told this app is not in the file.
+              </p>
+              {log.blanks > 0 && (
+                <p>
+                  {log.blanks.toLocaleString()} cells are left blank, because those entries were
+                  not exactly known for that nutrient. A blank is not a zero, on the way out or on
+                  the way back in.
+                </p>
+              )}
+              {log.rows_without_values > 0 && (
+                <p>
+                  {log.rows_without_values === 1
+                    ? "One row names what was eaten with no figures at all. It is written down anyway; read back in, it is reported and nothing is added."
+                    : `${log.rows_without_values.toLocaleString()} rows name what was eaten with no figures at all. They are written down anyway; read back in, they are reported and nothing is added.`}
+                </p>
+              )}
+              <p>
+                Your recipes, own foods, supplements, bowls and bottles are not in it, and there is
+                no separate export for them yet. Only the first sheet is read back by this app.
+              </p>
+              <p>
+                Reading this file back in on this device adds a second copy of every entry in it —
+                it does not replace what is already here. It is for keeping, and for a device that
+                does not have this log.
+              </p>
+            </Info>
+          )}
           <span className="card__note">
             {range.from} to {range.to}
           </span>
@@ -201,57 +232,17 @@ export default function ExportData({ onBack }: Props) {
                 {aside(log.doses.length, log.water.length, kind)}
               </p>
 
-              {/* The fifteen columns are the importer's own vocabulary, which
-                  is what makes the file readable back. It is also a real limit
-                  on what the file records, and one worth saying: a supplement
-                  panel can list nutrients no nutrition label prints, and those
-                  have no column here. */}
-              <p className="exp-what__line">
-                Each row carries the fifteen figures a nutrition label prints — energy, the
-                macronutrients, sodium, vitamin D, calcium, iron and potassium. Anything else a
-                pack or a panel told this app is not in the file.
-              </p>
-
-              {log.blanks > 0 && (
-                <p className="exp-what__line">
-                  {log.blanks.toLocaleString()} cells will be left
-                  blank, because those entries were not exactly known for that nutrient. A blank
-                  is not a zero, on the way out or on the way back in.
-                </p>
-              )}
-
-              {log.rows_without_values > 0 && (
-                <p className="exp-what__line">
-                  {log.rows_without_values === 1
-                    ? "One row names what was eaten with no figures at all. It is written down anyway; read back in, it is reported and nothing is added."
-                    : `${log.rows_without_values.toLocaleString()} rows name what was eaten with no figures at all. They are written down anyway; read back in, they are reported and nothing is added.`}
-                </p>
-              )}
-
               {log.unexportable > 0 && (
                 <p className="exp-what__line">
-                  {log.unexportable}{" "}
-                  {log.unexportable === 1 ? "entry has" : "entries have"} no stored nutrition, so{" "}
-                  {log.unexportable === 1 ? "it is" : "they are"} left out. Reopening the day they
-                  are on records what the app can still work out for them.
+                  {log.unexportable} {log.unexportable === 1 ? "entry is" : "entries are"} left out:
+                  no stored nutrition. Reopening its day fixes that.
                 </p>
               )}
 
-              <p className="exp-what__line">
-                This is the log. Your recipes, your own foods, your supplements, your vessels and
-                your bottles are not in it, and there is no separate export for them yet.
-              </p>
-
-              {/* The one warning on this screen, and it is about what happens
-                  next rather than about the file. The importer's duplicate
-                  guard only recognises days that already carry an IMPORT, so a
-                  first-generation export re-imported here passes it silently
-                  and doubles every day it covers. */}
-              <p className="exp-what__line">
-                Reading this file back in on this device adds a second copy of every entry in it —
-                it does not replace what is already here. It is for keeping, and for a device that
-                does not have this log.
-              </p>
+              {/* The one warning kept on screen: the importer's duplicate
+                  guard only recognises days that already carry an IMPORT, so
+                  a re-import here doubles every day it covers. */}
+              <p className="exp-what__line">Importing it back here adds a second copy.</p>
             </div>
           )
         )}
@@ -268,14 +259,6 @@ export default function ExportData({ onBack }: Props) {
         )}
       </div>
 
-      {/* Said here rather than in the subtitle, where it would be a caption
-          nobody reads: on Android the picker lists Drive and every other
-          document provider on the phone beside its own storage, so where this
-          file ends up is a choice being made in the next tap. */}
-      <p className="exp-note">
-        The next step is your device's own save panel. Wherever you point it — this device, or a
-        cloud account it offers you — is where the file goes.
-      </p>
     </div>
   );
 }

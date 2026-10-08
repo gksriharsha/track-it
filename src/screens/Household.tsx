@@ -13,6 +13,7 @@ import {
 } from "../api";
 import type { HouseholdView, PairingOffer, PairingState, Peer } from "../types";
 import CameraCapture from "../components/CameraCapture";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 import { useCameraRoute } from "../lib/camera";
 
@@ -311,7 +312,23 @@ export default function Household(p: Props) {
           {shared && (
             <section className="ledger" aria-label="What is shared with your household">
               <div className="ledger__side">
-                <h2 className="ledger__head">Shared with your household</h2>
+                <h2 className="ledger__head">
+                  Shared with your household{" "}
+                  <Info title="What is shared">
+                    <p>
+                      Your kitchen is shared: pots, recipes, foods off packs, supplements, bowls
+                      and bottles.
+                    </p>
+                    <p>
+                      Helpings out of a shared pot travel too — how much came out and when, so the
+                      pot says the same thing on both devices. Not what it was worth to you.
+                    </p>
+                    <p>
+                      Your diary, profile and targets never leave this device. Two people can eat
+                      from one pot and keep two separate diaries.
+                    </p>
+                  </Info>
+                </h2>
                 <dl className="ledger__list">
                   <Count n={shared.pots} of="pots you have going" />
                   <Count n={shared.recipes} of="recipes" />
@@ -328,10 +345,6 @@ export default function Household(p: Props) {
                   device has no entry for it, no nutrition off it and nothing
                   about it in any total.
                 */}
-                <p className="ledger__why">
-                  Helpings out of a shared pot travel too — how much came out and when, so the
-                  pot says the same thing on both devices. Not what it was worth to you.
-                </p>
               </div>
 
               <div className="ledger__side ledger__side--kept">
@@ -350,10 +363,6 @@ export default function Household(p: Props) {
                   <li>Your profile</li>
                   <li>Your targets</li>
                 </ul>
-                <p className="ledger__why">
-                  Not counted here either. Two people can eat from one pot and keep two
-                  separate diaries.
-                </p>
               </div>
             </section>
           )}
@@ -380,10 +389,7 @@ export default function Household(p: Props) {
                 {peers.length === 0 ? (
                   <div className="empty">
                     <h3>Nothing else in the house yet</h3>
-                    <p>
-                      Pair a phone and you both see the same fridge: a pot cooked here shows up
-                      there, and a helping taken there comes off it here.
-                    </p>
+                    <p>Pair a phone to share pots and recipes.</p>
                   </div>
                 ) : (
                   <div className="rows">
@@ -506,9 +512,7 @@ export default function Household(p: Props) {
                   {renaming ? "Saving…" : "Rename"}
                 </button>
                 <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-                  What the rest of the house sees when a pot goes down. Nothing reads your
-                  computer’s own name for this — that is a fact about a network, and this is a
-                  list of things in a kitchen.
+                  What other devices call this one.
                 </p>
               </div>
             </aside>
@@ -557,8 +561,7 @@ function Pairing(p: {
         <h2 className="pair__ask">Do these match?</h2>
         <p className="pair__digits num">{p.state.digits}</p>
         <p className="pair__say">
-          <strong>{p.state.peer_name}</strong> answered. Both screens should show the same six
-          digits. If they differ, the device that answered is not the one in your hand.
+          Same six digits on <strong>{p.state.peer_name}</strong>? If not, don’t pair.
         </p>
         <div className="pair__acts">
           <button className="btn" onClick={() => p.onAnswer(true)}>They match</button>
@@ -575,8 +578,7 @@ function Pairing(p: {
       <section className="pair">
         <h2 className="pair__ask">Talking to the other device</h2>
         <p className="pair__say">
-          The code has been read. Both screens are about to show the same six digits, and
-          neither device is written down until both of you say they match.
+          Code read. Both screens will show six digits to compare.
         </p>
         <div className="pair__acts">
           <button className="btn btn--quiet" onClick={p.onCancel}>Cancel</button>
@@ -590,9 +592,8 @@ function Pairing(p: {
       <h2 className="pair__ask">Scan this on the other device</h2>
       <QrBlock svg={p.offer.svg} />
       <p className="pair__say">
-        Open this screen on the other device, press “Scan a code”, and point its camera here.
-        The code carries where to find this device and how to talk to it. Nothing goes over the
-        internet, and no server is involved. It stops working in two minutes.
+        On the other device, tap “Scan a code” and point it here. Stays on your network;
+        expires in two minutes.
       </p>
       <div className="pair__acts">
         <button className="btn btn--quiet" onClick={p.onCancel}>Cancel</button>

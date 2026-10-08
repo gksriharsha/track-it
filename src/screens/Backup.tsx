@@ -10,6 +10,7 @@ import {
   setAutoReseal,
 } from "../api";
 import type { BackupStatus, RestoreOutcome } from "../types";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -53,18 +54,18 @@ function keystoreLine(s: BackupStatus): string {
   if (!s.keystore.available || !s.keystore_holds_key) {
     return (
       s.keystore.note ??
-      "this phone's keystore is not holding the key, so you will be asked for the passphrase each time"
+      "You’ll be asked for the passphrase each time."
     );
   }
   switch (s.keystore.hardware) {
     case "strongbox":
-      return "The key that lets this app open the log without asking you is held by Android's keystore, in a separate security chip.";
+      return "Its key is held in a separate security chip.";
     case "tee":
-      return "The key that lets this app open the log without asking you is held by Android's keystore, in secure hardware.";
+      return "Its key is held in secure hardware.";
     case "software":
-      return "The key that lets this app open the log without asking you is held by Android's keystore, in software on this device.";
+      return "Its key is held in software on this phone.";
     default:
-      return "The key that lets this app open the log without asking you is held by Android's keystore. This phone did not say what is holding it.";
+      return "Its key is held by Android's keystore.";
   }
 }
 
@@ -154,10 +155,7 @@ export default function Backup(p: Props) {
       <div className="screen">
         <ScreenHead title="Backup" onBack={back} />
         <section className="card">
-          <p className="note">
-            Encrypting the log and backing it up through Google are Android features. This
-            build is running on the desktop, where the log is a file you can copy yourself.
-          </p>
+          <p className="note">Android only. On a desktop, copy the log file yourself.</p>
         </section>
       </div>
     );
@@ -179,20 +177,25 @@ export default function Backup(p: Props) {
         limitation moved to the end of a page is a limitation nobody read.
       */}
       <section className="card">
-        <div className="card__head"><h2>What leaves this phone</h2></div>
-        <p className="note">
-          One file: an encrypted copy of your log. It is sealed on this phone, with a
-          passphrase you choose, before anything can pick it up. Google carries that file
-          into your own Google account and cannot read it. The passphrase is never sent
-          anywhere, and is not kept on this phone either.
-        </p>
-        <p className="note">
-          Your photographs of packs are not carried, and neither is the reference food
-          database — that one is already inside the app.
-        </p>
-        {s?.sealed_dir && (
-          <p className="note">The file lives at {s.sealed_dir}/trackit-backup.tkb, and nothing else in that folder travels.</p>
-        )}
+        <div className="card__head">
+          <h2>What leaves this phone</h2>
+          <Info title="What leaves this phone">
+            <p>
+              One file: an encrypted copy of your log. It is sealed on this phone, with a
+              passphrase you choose, before anything can pick it up. Google carries that file
+              into your own Google account and cannot read it. The passphrase is never sent
+              anywhere, and is not kept on this phone either.
+            </p>
+            <p>
+              No photos are kept to carry, and the reference food database is not carried —
+              it is already inside the app.
+            </p>
+            {s?.sealed_dir && (
+              <p>The file lives at {s.sealed_dir}/trackit-backup.tkb, and nothing else in that folder travels.</p>
+            )}
+          </Info>
+        </div>
+        <p className="note">One encrypted file. Google can carry it but can’t read it.</p>
       </section>
 
       {/*
@@ -204,6 +207,33 @@ export default function Backup(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>The log on this phone</h2>
+          <Info title="Encrypting the log">
+            <p>
+              Unencrypted, the log is an ordinary database file. Anything that can already read
+              this app's private storage can read it — on a phone with a screen lock, the phone's
+              own storage encryption is what protects it.
+            </p>
+            <p>
+              Encrypting it takes a recovery passphrase: the key is held by this phone's keystore
+              so the app can open the log without asking you, and if the phone ever loses that key
+              the passphrase is the only thing left that can get the log back. Nothing can reset
+              it.
+            </p>
+            <p>
+              Your passphrase is wrapped around a copy of the key, in the sealed file and in a file
+              beside the database — so a new phone with only the passphrase can still open a copy.
+            </p>
+            <p>
+              Changing the passphrase changes what opens the log straight away. A copy sealed
+              before still opens with the old one until you seal a fresh copy; so does any copy
+              already carried somewhere else.
+            </p>
+            <p>
+              Turning encryption off needs the current passphrase and rewrites the log as an
+              ordinary file. The encrypted one is renamed and kept, not deleted. Encrypting does
+              not upload anything.
+            </p>
+          </Info>
           <span className="card__note">
             {s === null ? "…" : s.encrypted ? "encrypted" : "not encrypted"}
           </span>
@@ -212,16 +242,7 @@ export default function Backup(p: Props) {
         {s && !s.encrypted && (
           <>
             <p className="note">
-              Right now the log is an ordinary database file. Anything that can already read
-              this app's private storage can read it — which on a phone with a screen lock
-              means the phone's own storage encryption is what protects it, not this app.
-            </p>
-            <p className="note">
-              Encrypting it takes a recovery passphrase, and it takes one for a reason there
-              is no way around: the key is held by this phone's keystore so the app can open
-              the log without asking you, and if the phone ever loses that key the passphrase
-              is the only thing left that can get the log back. There is nothing that can
-              reset it. Choose something you will still have in a year.
+              Nothing can reset the passphrase. Pick one you’ll still have in a year.
             </p>
             <div className="formgrid">
               <label>
@@ -247,21 +268,12 @@ export default function Backup(p: Props) {
                 {busy === "enable" ? "Encrypting the log…" : "Set the passphrase and encrypt the log"}
               </button>
             </div>
-            <p className="note">
-              This does not upload anything. Making a copy Google may carry is a separate
-              choice, below, and it is not made for you.
-            </p>
           </>
         )}
 
         {s?.encrypted && (
           <>
             <p className="note">{keystoreLine(s)}</p>
-            <p className="note">
-              The log is encrypted with a key this app holds. Your recovery passphrase is
-              wrapped around a copy of that key, in the sealed file and in a file beside the
-              database — so a new phone with only the passphrase can still open a copy.
-            </p>
 
             <div className="card__head" style={{ marginTop: "var(--s4)" }}>
               <h2>Change the passphrase</h2>
@@ -291,13 +303,7 @@ export default function Backup(p: Props) {
                 {busy === "change" ? "Changing…" : "Change the passphrase"}
               </button>
             </div>
-            <p className="note">
-              This changes what opens the log, straight away. It does not re-seal the copy on
-              this phone: that copy still opens with the OLD passphrase until you seal a fresh
-              one, and it will say so below. The same is true of any copy you have already
-              carried somewhere else — the passphrase that sealed a file is recorded inside
-              that file, and this app cannot reach a file it no longer has.
-            </p>
+            <p className="note">Copies sealed before still open with the old passphrase.</p>
 
             <div className="commit">
               <button className="btn btn--danger" disabled={busy !== null}
@@ -306,11 +312,6 @@ export default function Backup(p: Props) {
                 {busy === "disable" ? "Decrypting…" : "Stop encrypting the log"}
               </button>
             </div>
-            <p className="note">
-              Turning it off needs the current passphrase, above, and rewrites the log as an
-              ordinary database file. The encrypted one it replaces is renamed and kept, not
-              deleted.
-            </p>
           </>
         )}
       </section>
@@ -324,6 +325,17 @@ export default function Backup(p: Props) {
         <section className="card">
           <div className="card__head">
             <h2>The sealed copy</h2>
+            <Info title="The sealed copy">
+              <p>
+                Sealing writes one encrypted file into the folder Android is allowed to carry.
+                Until you do, nothing about your log is eligible to leave this phone.
+              </p>
+              <p>
+                Sealing does not upload — only Google's backup service does that. Deleting the
+                copy removes it from this phone; whatever Google has already taken is Google's to
+                expire, and this app cannot reach it.
+              </p>
+            </Info>
             {sealed !== null && (
               <span className="nval">
                 <span className="nval__amt">{bytes(sealed)}</span>
@@ -335,10 +347,7 @@ export default function Backup(p: Props) {
           {sealed === null ? (
             <div className="empty">
               <h3>Nothing sealed yet</h3>
-              <p>
-                Sealing writes one encrypted file into the folder Android is allowed to carry.
-                Until you do, nothing about your log is eligible to leave this phone.
-              </p>
+              <p>Nothing can leave this phone until you seal a copy.</p>
               <button className="btn" disabled={busy !== null}
                 onClick={() => run("seal", sealBackupNow)}>
                 {busy === "seal" ? "Sealing…" : "Seal a copy Google may carry"}
@@ -354,11 +363,8 @@ export default function Backup(p: Props) {
                   : ""}
               </p>
               {s.over_quota && (
-                <p className="note">
-                  This file is larger than the {bytes(s.quota_bytes)} Google's backup service
-                  will carry, so it has stopped carrying it. Android does not say so — this is
-                  the app checking. Nothing is lost, the log on this phone is untouched, but
-                  there is no copy off it.
+                <p className="alert" role="status">
+                  Over Google’s {bytes(s.quota_bytes)} limit, so no copy is leaving this phone.
                 </p>
               )}
               <div className="commit">
@@ -375,11 +381,6 @@ export default function Backup(p: Props) {
                   Delete the sealed copy
                 </button>
               </div>
-              <p className="note">
-                Sealing writes the file. It does not upload it — only Google's backup service
-                does that. Deleting it removes the file from this phone; whatever Google has
-                already taken is Google's to expire, and this app cannot reach it.
-              </p>
             </>
           )}
         </section>
@@ -396,24 +397,30 @@ export default function Backup(p: Props) {
       */}
       {s !== null && (
         <section className="card">
-          <div className="card__head"><h2>What Google's backup actually does</h2></div>
+          <div className="card__head">
+            <h2>Google’s backup</h2>
+            <Info title="What Google's backup actually does">
+              <p>
+                It only runs if Backup by Google One is switched on in this phone's own settings.
+                TrackIt cannot switch it on and cannot tell whether it is.
+              </p>
+              <p>
+                It runs on the system's schedule — roughly once a day, while the phone is
+                charging, idle and on Wi-Fi. Not when you ask.
+              </p>
+              <p>
+                It carries at most {bytes(s.quota_bytes)} for one app. Over that, Android stops
+                backing the app up and tells nobody.
+              </p>
+              <p>
+                On Android 9 and later Google encrypts the backup again with your device PIN. This
+                app does not rely on that: the file is already sealed with your passphrase before
+                Google sees it. And TrackIt is never told that an upload happened.
+              </p>
+            </Info>
+          </div>
           <p className="note">
-            It only runs if Backup by Google One is switched on in this phone's own settings.
-            TrackIt cannot switch it on and cannot tell whether it is.
-          </p>
-          <p className="note">
-            It runs on the system's schedule — roughly once a day, while the phone is charging,
-            idle and on Wi-Fi. Not when you ask.
-          </p>
-          <p className="note">
-            It carries at most {bytes(s.quota_bytes)} for one app. Over that, Android stops
-            backing the app up and tells nobody.
-          </p>
-          <p className="note">
-            On Android 9 and later Google encrypts the backup again with your device PIN. This
-            app does not rely on that: the file is already sealed with your passphrase before
-            Google sees it. And TrackIt is never told that an upload happened — nothing on
-            this screen can confirm one.
+            Needs Backup by Google One switched on in Android settings. Runs about once a day.
           </p>
         </section>
       )}
@@ -432,23 +439,16 @@ export default function Backup(p: Props) {
                 the copy sealed {when(restored.sealed_at)}.
               </p>
               <p className="note">
-                The log this replaced is kept at {restored.superseded_path}. It is not deleted.
-                {restored.replaced_earlier_superseded
-                  ? " The copy an earlier restore had kept has been removed to make room for it — only the most recent one is held."
-                  : ""}
+                The old log is kept at {restored.superseded_path}.
+                {restored.replaced_earlier_superseded ? " An older kept copy was removed." : ""}
               </p>
               <p className="note">
-                This phone now carries the identity of the phone the copy came from. If both
-                phones still exist, unpair the old one on the Household screen before syncing.
+                If the old phone is still around, unpair it in Your devices before syncing.
               </p>
             </>
           ) : (
             <>
-              <p className="note">
-                This replaces the log on this phone with the sealed copy. The database being
-                replaced is renamed and kept, not deleted, and this screen will say where it
-                went.
-              </p>
+              <p className="note">Replaces this log. The current one is kept, not deleted.</p>
               <div className="formgrid">
                 <label>
                   <span className="group__name">Recovery passphrase</span>
@@ -475,9 +475,7 @@ export default function Backup(p: Props) {
               encryption off supersedes an encrypted one. Asserting either here
               would be right half the time. */}
           <p className="note">
-            Something on this phone kept the log it replaced, at {s.superseded_path}. It is not
-            deleted. Only the most recent one is held: the next thing that replaces the log
-            removes it.
+            Kept at {s.superseded_path}. The next replacement removes it.
           </p>
         </section>
       )}

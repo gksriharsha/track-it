@@ -64,7 +64,62 @@ pub struct SupPanel {
     /// Rows nothing could be attributed to. A ratio to judge the readings
     /// against, not a defect list — a panel's own furniture counts.
     pub unmatched_rows: usize,
+    /// Rows that named a nutrient with no figure beside it, and rows that were
+    /// figures alone with no name. On a round bottle these are one half of a
+    /// row each, the other half round the curve: see [`SupPanel::hidden_side`].
+    pub named_without_figure: usize,
+    pub figures_without_name: usize,
     pub trouble: Option<String>,
+}
+
+/// Which side of the panel is round the curve of a bottle, out of view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Hidden {
+    /// Names read without their amounts: the amounts are round to the right.
+    Right,
+    /// Amounts read without their names: the names are round to the left.
+    Left,
+}
+
+impl SupPanel {
+    /// Which way to turn the bottle, when the frame says one.
+    ///
+    /// A panel wrapped round a bottle loses whichever edge curves away from the
+    /// lens, and since a row runs name to amount, left to right, every row loses
+    /// the same half. So the sign is more rows broken one way than read whole,
+    /// and at least two of them: a panel's own furniture — a heading, a footnote
+    /// — can leave one half-row on a flat label too.
+    pub fn hidden_side(&self) -> Option<Hidden> {
+        let whole = self.readings.len();
+        let (names, figures) = (self.named_without_figure, self.figures_without_name);
+        if names >= 2 && names > whole && names > figures {
+            Some(Hidden::Right)
+        } else if figures >= 2 && figures > whole && figures > names {
+            Some(Hidden::Left)
+        } else {
+            None
+        }
+    }
+}
+
+/// Whether one recognised line names a nutrient this parser knows — what the
+/// camera marks as a line of the panel while it is being pointed.
+pub fn names_a_nutrient(line: &str) -> bool {
+    let toks = tokenize(line);
+    !toks.is_empty() && readings_from(line, &toks).0 > 0
+}
+
+/// A row that is figures and nothing else — "500 mg 556%" — with at least one
+/// carrying a unit, so a lone page number or a lot code is not one.
+fn figures_only(toks: &[Tok]) -> bool {
+    !numbers_in(toks).is_empty()
+        && toks.iter().all(|t| {
+            split_number(&t.clean).is_some()
+                || LabelUnit::parse(&t.norm).is_some()
+                || t.clean.ends_with('%')
+                || t.clean.chars().all(|c| !c.is_alphanumeric())
+        })
 }
 
 /// Every nutrient this parser can name, with the spellings packs really print.
@@ -262,6 +317,8 @@ pub fn parse(blocks: &[TextBlock]) -> SupPanel {
     // them. This is what separates "this is not a panel" from "this is a panel
     // I could not read", which are two different things for the user to do.
     let mut named_rows = 0usize;
+    let mut named_without_figure = 0usize;
+    let mut figures_without_name = 0usize;
 
     for row in &rows {
         let toks = tokenize(row);
@@ -285,6 +342,11 @@ pub fn parse(blocks: &[TextBlock]) -> SupPanel {
         let (named, found) = readings_from(row, &toks);
         if named > 0 {
             named_rows += 1;
+            if found.is_empty() {
+                named_without_figure += 1;
+            }
+        } else if !attributed && figures_only(&toks) {
+            figures_without_name += 1;
         }
         for r in found {
             // First row wins: a panel declares a nutrient once, and a second
@@ -308,6 +370,8 @@ pub fn parse(blocks: &[TextBlock]) -> SupPanel {
         unit_noun,
         readings,
         unmatched_rows,
+        named_without_figure,
+        figures_without_name,
         trouble,
     }
 }
@@ -975,6 +1039,43 @@ mod tests {
             .enumerate()
             .map(|(i, t)| b(t, 0.05, 0.10 + i as f64 * 0.05, 0.9))
             .collect()
+    }
+
+    #[test]
+    fn a_flat_panel_read_whole_says_nothing_is_round_the_curve() {
+        assert_eq!(parse(&multivitamin()).hidden_side(), None);
+    }
+
+    #[test]
+    fn names_without_their_amounts_mean_the_amounts_are_round_to_the_right() {
+        // The bottle turned too far: the amount and %DV columns curve away.
+        let names: Vec<TextBlock> = multivitamin().into_iter().filter(|t| t.x < 0.5).collect();
+        let p = parse(&names);
+        assert!(p.readings.is_empty());
+        assert_eq!(p.hidden_side(), Some(Hidden::Right));
+    }
+
+    #[test]
+    fn amounts_without_their_names_mean_the_names_are_round_to_the_left() {
+        let figures: Vec<TextBlock> = multivitamin().into_iter().filter(|t| t.x > 0.5).collect();
+        let p = parse(&figures);
+        assert_eq!(p.hidden_side(), Some(Hidden::Left));
+    }
+
+    #[test]
+    fn one_half_row_on_a_whole_panel_is_furniture_not_a_curve() {
+        let mut v = multivitamin();
+        v.push(b("Iron", 0.05, 0.700, 0.20));
+        v.push(b("500 mg 40%", 0.52, 0.760, 0.30));
+        assert_eq!(parse(&v).hidden_side(), None);
+    }
+
+    #[test]
+    fn a_line_naming_a_nutrient_is_marked_and_furniture_is_not() {
+        assert!(names_a_nutrient("Vitamin C (as ascorbic acid) 90 mg"));
+        assert!(names_a_nutrient("Magnesium"));
+        assert!(!names_a_nutrient("Supplement Facts"));
+        assert!(!names_a_nutrient("Other ingredients: magnesium stearate"));
     }
 
     #[test]

@@ -161,6 +161,12 @@ export interface LogEntry {
    */
   origin: Origin | null;
   cuisine: string | null;
+  /**
+   * The origin the entry has by what it is, so nobody is asked: a pack with a
+   * barcode was bought packaged, a recipe or a pot was made at home. Null
+   * where only the user can say.
+   */
+  implied_origin: Origin | null;
 }
 
 export type SourceKind = "food" | "recipe" | "cook" | "custom" | "supplement" | "water";
@@ -1459,6 +1465,21 @@ export interface Probe {
   panel_lines: number;
   /** True when the frame holds enough of a panel to be worth capturing. */
   ok: boolean;
+  /** Where each line sits in the frame, as fractions from the top-left. */
+  boxes: ProbeBox[];
+  /** On a bottle, the side of the panel round the curve and out of view. */
+  hidden: "left" | "right" | null;
+}
+
+export interface ProbeBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** A line of the panel, rather than other text in frame. */
+  panel: boolean;
+  /** Read with low confidence: glare, shadow or the curve. */
+  faint: boolean;
 }
 
 /* ── reading the rest of a pack from a photo ───────────────────────────── */

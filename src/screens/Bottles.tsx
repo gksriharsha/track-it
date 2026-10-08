@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteBottle, humanDate, listBottles, saveBottle, todayIso } from "../api";
 import type { Bottle } from "../types";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -129,6 +130,23 @@ export default function Bottles(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>{editing ? `Re-weigh ${editing.name}` : "Add a bottle"}</h2>
+          <Info title="How a bottle is weighed">
+            <p>
+              Weigh it empty, weigh it filled the way you normally fill it, and give the volume
+              printed on the label. Those three make the bottle its own measure: what you drink is
+              weighed, and read back in the unit the label puts it in — so a bottle sold as a litre
+              that really takes 940 g to your fill line still reads as a litre.
+            </p>
+            <p>
+              The empty weight and the volume are optional. Without them water is read at the
+              density of water, which is right to about two parts in a thousand — the app marks
+              that as an assumption rather than a measurement.
+            </p>
+            <p>
+              A full weight can drift a little — a new cap, a scratched label — so re-weigh a
+              bottle if a reading ever looks off.
+            </p>
+          </Info>
           {editing && (
             <button className="link card__note" onClick={cancelEdit}>cancel</button>
           )}
@@ -189,17 +207,6 @@ export default function Bottles(p: Props) {
             {saving ? "Saving…" : editing ? "Update" : "Save bottle"}
           </button>
         </div>
-        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Weigh it empty, weigh it filled the way you normally fill it, and give the volume
-          printed on the label. Those three make the bottle its own measure: what you drink is
-          weighed, and read back in the unit the label puts it in — so a bottle sold as a litre
-          that really takes 940 g to your fill line still reads as a litre.
-        </p>
-        <p className="rangenote">
-          The last two are optional. Without them water is read at the density of water, which
-          is right to about two parts in a thousand — the app marks that as an assumption rather
-          than a measurement.
-        </p>
       </section>
 
       {loading ? (
@@ -211,11 +218,7 @@ export default function Bottles(p: Props) {
       ) : bottles.length === 0 ? (
         <div className="empty">
           <h3>Nothing weighed yet</h3>
-          <p>
-            Weigh it empty, weigh it full, and give the volume on its label. After that,
-            logging water is just reading the bottle again — and what you drank comes back in
-            litres rather than grams.
-          </p>
+          <p>Weigh it once full, then log water by weighing it again.</p>
         </div>
       ) : (
         <section className="card">
@@ -253,11 +256,6 @@ export default function Bottles(p: Props) {
           </div>
         </section>
       )}
-
-      <p className="rangenote">
-        A bottle's full weight can drift a little — a new cap, a scratched label — so re-weigh it
-        here if a reading ever looks off, rather than trusting an old number forever.
-      </p>
     </div>
   );
 }

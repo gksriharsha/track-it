@@ -575,11 +575,11 @@ export default function CameraCapture(p: Props) {
         return;
       }
 
-      probeFrame(b64).then(
+      probeFrame(b64, p.scanKind).then(
         (r) => {
           probing.current = false;
           if (!mounted.current || epoch !== probeEpoch.current || gaugeNow.current !== "ready") return;
-          const seen = p.scanKind === "nutrition" ? r.panel_lines : r.lines;
+          const seen = p.scanKind === "ingredients" ? r.lines : r.panel_lines;
           misses.current = seen > 0 ? 0 : misses.current + 1;
           setProbe(r);
         },
@@ -630,6 +630,10 @@ export default function CameraCapture(p: Props) {
     : probe && ready
       ? probeSays(probe, misses.current, p.scanKind)
       : null;
+  /* The lines just read, drawn over the preview where they sit. Only while the
+     gauge says ready, which is when the probe runs: older boxes would mark
+     where the print WAS before the phone moved. */
+  const boxes = !isCode(p.scanKind) && ready && probe ? probe.boxes : [];
   const subject = SUBJECT[p.scanKind];
 
   return (
@@ -667,6 +671,10 @@ export default function CameraCapture(p: Props) {
           <div className="cam__guide" aria-hidden="true">
             <span className={`cam__box${ready ? " is-ready" : ""}`} />
           </div>
+        )}
+
+        {live && !done && boxes.length > 0 && video.current && (
+          <Lines key={probeEpoch.current} boxes={boxes} v={video.current} />
         )}
 
         {snag && (
@@ -975,6 +983,44 @@ function verdict(f: Frame, frameH: number): Gauge {
   return "ready";
 }
 
+/**
+ * The lines the last probe read, over the preview where they sit.
+ *
+ * Drawn on the video's own picture rather than its element: the view is
+ * contained, so the picture is letterboxed inside the element, and a box placed
+ * against the element would sit beside its line. A line of the panel is drawn
+ * solid, other text faintly, and a line read with little confidence dashed —
+ * which is where glare, a shadow or the curve of a bottle shows itself.
+ */
+function Lines(p: { boxes: Probe["boxes"]; v: HTMLVideoElement }) {
+  const { v } = p;
+  if (!v.videoWidth || !v.videoHeight) return null;
+  const s = Math.min(v.clientWidth / v.videoWidth, v.clientHeight / v.videoHeight);
+  const w = v.videoWidth * s;
+  const h = v.videoHeight * s;
+  return (
+    <svg
+      className="cam__lines"
+      aria-hidden="true"
+      viewBox="0 0 1 1"
+      preserveAspectRatio="none"
+      style={{ left: v.offsetLeft + (v.clientWidth - w) / 2, top: v.offsetTop + (v.clientHeight - h) / 2, width: w, height: h }}
+    >
+      {p.boxes.map((b, i) => (
+        <rect
+          key={i}
+          x={b.x}
+          y={b.y}
+          width={b.w}
+          height={b.h}
+          className={`cam__line${b.panel ? " is-panel" : ""}${b.faint ? " is-faint" : ""}`}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </svg>
+  );
+}
+
 /** What the recogniser actually found, in words. Never silent about a miss:
     two empty passes in a row is information the user can act on. */
 function probeSays(
@@ -982,11 +1028,19 @@ function probeSays(
   misses: number,
   kind: Exclude<ScanKind, "barcode" | "pair">,
 ): string | null {
-  const seen = kind === "nutrition" ? r.panel_lines : r.lines;
+  // Which way to turn a bottle comes first: it is the one thing in this line
+  // the user can fix with a flick of the wrist.
+  if (r.hidden === "right") return "Turn the bottle so its right side faces you";
+  if (r.hidden === "left") return "Turn the bottle so its left side faces you";
+  const panel = r.boxes.filter((b) => b.panel);
+  if (panel.length >= 3 && panel.filter((b) => b.faint).length * 3 >= panel.length) {
+    return "Faint lines — add light or avoid glare";
+  }
+  const seen = kind === "ingredients" ? r.lines : r.panel_lines;
   if (seen > 0) {
-    return kind === "nutrition"
-      ? `Seeing ${seen} ${seen === 1 ? "line" : "lines"} of the panel`
-      : `Seeing ${seen} ${seen === 1 ? "line" : "lines"} of text`;
+    return kind === "ingredients"
+      ? `Seeing ${seen} ${seen === 1 ? "line" : "lines"} of text`
+      : `Seeing ${seen} ${seen === 1 ? "line" : "lines"} of the panel`;
   }
   if (misses < 2) return null;
   if (kind !== "nutrition") return "Not finding readable text yet";

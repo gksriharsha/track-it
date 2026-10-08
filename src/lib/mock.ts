@@ -497,8 +497,8 @@ const RESTAURANT_DISHES: FrequentFood[] = [
 /* ── the library ────────────────────────────────────────────────────────── */
 
 const VESSELS: Vessel[] = [
-  { id: "v1", name: "Steel katori", grams: 68, last_used_at: "2026-09-05T18:20:00Z" },
-  { id: "v2", name: "Dinner thali", grams: 412, last_used_at: "2026-09-05T13:05:00Z" },
+  { id: "v1", name: "Small steel bowl", grams: 68, last_used_at: "2026-09-05T18:20:00Z" },
+  { id: "v2", name: "Dinner plate", grams: 412, last_used_at: "2026-09-05T13:05:00Z" },
   { id: "v3", name: "Small glass bowl", grams: 186, last_used_at: null },
   { id: "v4", name: "Melamine plate", grams: 240, last_used_at: "2026-09-01T20:00:00Z" },
 ];
@@ -513,7 +513,7 @@ const RECIPES: Recipe[] = [
   {
     id: "r-dal-makhani", name: "Dal makhani", yield_g: 1400, servings: null, notes: null,
     default_origin: "home", default_cuisine: "North Indian", ingredients: [],
-    serving_options: [{ id: "rs-katori", label: "1 katori", grams: 180 }],
+    serving_options: [{ id: "rs-bowl", label: "1 bowl", grams: 180 }],
   },
 ];
 function pot(id: string, name: string, daysAgo: number, yieldG: number, weighed: boolean, loggedG: number): Cook {
@@ -548,7 +548,7 @@ const CUSTOM: CustomFood[] = [
   {
     id: "c1", name: "Roasted chana, salted", brand: "Haldiram's", overrides_fdc_id: null,
     serving_g: 30, serving_ml: null, serving_pieces: null, piece_noun: null,
-    serving_label: "1 pack (30 g)", ingredients: null, barcode: null,
+    serving_label: "1 pack (30 g)", ingredients: null, barcode: "8904004400762",
     photo_label: null, photo_ingredients: null, import_only: false,
     nutrients: [{ nutrient_id: 1008, kind: "measured", amount: 123, upper: null }],
   },
@@ -1113,6 +1113,52 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
     return undefined;
   },
   label_percent_table: () => PERCENT_TABLE,
+  // Pack photos, for walking the editor's read-and-confirm in a browser. A
+  // photo is kept in memory for the life of the tab and "read" as the same
+  // Indian pack whatever it shows: energy, protein, carbohydrate, sugars and
+  // fat, in that order, with its list printed under the panel.
+  save_food_photo: (a) => {
+    const name = `${(++PHOTO_SEQ).toString(16).padStart(32, "0")}.jpg`;
+    PHOTOS.set(name, String(a.dataBase64));
+    return name;
+  },
+  read_food_photo: (a) => PHOTOS.get(String(a.name)) ?? "",
+  discard_food_photo: (a) => { PHOTOS.delete(String(a.name)); return undefined; },
+  scan_label_photo: () => ({
+    serving_g: 30, serving_ml: null, serving_label: "1 pack (30 g)",
+    readings: [
+      { nutrient_id: 1008, kind: "measured", amount: 123, upper: null },
+      { nutrient_id: 1003, kind: "measured", amount: 6.2, upper: null },
+      { nutrient_id: 1005, kind: "measured", amount: 17.4, upper: null },
+      { nutrient_id: 2000, kind: "measured", amount: 0.9, upper: null },
+      { nutrient_id: 1004, kind: "measured", amount: 2.1, upper: null },
+      { nutrient_id: 1093, kind: "measured", amount: 189, upper: null },
+    ],
+    missing: [1258, 1257, 1253, 1079, 1235, 1114, 1087, 1089, 1092],
+    lines: 14, unmatched_rows: 3, trouble: null,
+  }),
+  // Amounts in the nutrient's own magnitude pass through; nothing here does IU.
+  convert_label_figure: (a) => ({
+    nutrient_id: Number(a.nutrientId), position: 0, label_amount: Number(a.amount),
+    label_unit: a.unit, label_form: a.form,
+    kind: a.unit === "IU" ? "not_converted" : "measured",
+    amount: a.unit === "IU" ? null : Number(a.amount), upper: null,
+    convert_note: a.unit === "IU" ? "The browser fixture does not convert IU." : null,
+  }),
+  scan_supplement_photo: () => ({
+    serving_units: 2, serving_label: "2 capsules", unit_noun: "capsule",
+    readings: [
+      { nutrient_id: 1114, label_amount: 25, label_unit: "mcg", label_form: "" },
+      { nutrient_id: 1178, label_amount: 500, label_unit: "mcg", label_form: "" },
+      { nutrient_id: 1090, label_amount: 200, label_unit: "mg", label_form: "" },
+      { nutrient_id: 1095, label_amount: 91, label_unit: "% DV", label_form: "" },
+    ],
+    unmatched_rows: 2, lines: 12, trouble: null,
+  }),
+  scan_ingredients_photo: () => ({
+    text: "Bengal Gram (Chana) (88%), Edible Vegetable Oil (Cottonseed Oil), Salt, Turmeric Powder.",
+    contains: null, lines: 14, trouble: null,
+  }),
   list_cuisines: () => ["South Indian", "North Indian", "Gujarati", "Bengali"],
   recall_tags: () => ({ origin: null, cuisine: null }),
   set_entry_tags: () => undefined,
@@ -1282,6 +1328,10 @@ function exportLog(from: string, to: string): ExportLog {
 }
 
 /** Answers one command, or explains that the fixture does not cover it. */
+/** Pack photos taken in this tab, by the name `save_food_photo` gave them. */
+const PHOTOS = new Map<string, string>();
+let PHOTO_SEQ = 0;
+
 export async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const fn = TABLE[cmd];
   if (!fn) {

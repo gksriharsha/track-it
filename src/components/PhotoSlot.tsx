@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { readFoodPhoto, saveFoodPhoto } from "../api";
+import { discardFoodPhoto, readFoodPhoto, saveFoodPhoto } from "../api";
 import { useCameraRoute } from "../lib/camera";
 import { useHashSheet } from "../lib/hashSheet";
 import CameraCapture from "./CameraCapture";
@@ -123,6 +123,8 @@ export default function PhotoSlot(p: Props) {
       // Set the preview from the bytes we already hold, and claim the name before
       // telling the parent — otherwise the effect above reads back from disk what
       // is already in memory.
+      // A photo replaced is a photo nothing will read again.
+      if (p.name && p.name !== saved) void discardFoodPhoto(p.name).catch(() => {});
       shown.current = saved;
       setPreview(`data:image/jpeg;base64,${b64}`);
       p.onChange(saved);
@@ -149,6 +151,7 @@ export default function PhotoSlot(p: Props) {
   }
 
   function remove() {
+    if (p.name) void discardFoodPhoto(p.name).catch(() => {});
     shown.current = null;
     setPreview(null);
     setError(null);
@@ -227,9 +230,7 @@ export default function PhotoSlot(p: Props) {
               >
                 Use the camera
               </button>
-              <span className="pslot__hint">
-                It shows you whether the print is close enough to read before you take it.
-              </span>
+              <span className="pslot__hint">Shows if the print is readable first.</span>
             </div>
           )}
         </>

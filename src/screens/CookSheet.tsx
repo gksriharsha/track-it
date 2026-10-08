@@ -444,8 +444,7 @@ export default function CookSheet(p: Props) {
           ))}
         </div>
         <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Scaling moves every line at once. A line you have already dialled by hand keeps the
-          amount you gave it — that is a decision about this pot, not something to overwrite.
+          Lines you changed by hand keep their amount.
         </p>
       </section>
 
@@ -611,6 +610,8 @@ export default function CookSheet(p: Props) {
         <TagPicker
           origin={origin}
           cuisine={cuisine}
+          // A pot is made at home, so only its cuisine is asked.
+          origins={[]}
           onChange={(o, c) => { setOrigin(o); setCuisine(c); }}
           recalledNote={
             cook.recipe_id !== null && !p.cookId
