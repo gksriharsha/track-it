@@ -90,6 +90,16 @@ const amt = (d: PastedDish, id: number) => d.nutrients.find((n) => n.nutrient_id
   const template = JSON.parse(DISH_PROMPT.slice(DISH_PROMPT.indexOf("{"), DISH_PROMPT.lastIndexOf("}") + 1));
   check("template figures are null, never 0",
     Object.entries(template).every(([k, v]) => k === "name" || v === null), template);
+  check("template asks for the restaurant", "restaurant" in template);
+}
+
+// Where it came from, as named to the assistant; none when none was named.
+{
+  check("restaurant read", one(`{"name": "Chicken biryani", "restaurant": "Paradise", "calories": 780}`).place === "Paradise");
+  check("other spelling", one(`{"dish": "Dosa", "Restaurant Name": " Vidyarthi Bhavan ", "calories": 300}`).place === "Vidyarthi Bhavan");
+  check("null is no place", one(`{"name": "Dal", "restaurant": null, "calories": 200}`).place === null);
+  check("absent is no place", one(`{"name": "Dal", "calories": 200}`).place === null);
+  check("not left out", !one(`{"name": "A", "restaurant": "B", "calories": 1}`).ignored.includes("restaurant"));
 }
 
 // A unit in the key and a different one by the number is refused, not chosen between.

@@ -4,7 +4,7 @@ import type { DayView, EntryBreakdown, FrequentFood, LogEntry, Meal } from "../t
 import { MEALS } from "../types";
 import { dayFigure, energyShares, mealFigure, rowFigure } from "../lib/energy";
 import { leadOf, rowSub } from "../lib/entryText";
-import { displayName } from "../lib/foodForms";
+import { displayName, oneTapName } from "../lib/foodForms";
 import { useHashSheet, useHashSheetValue } from "../lib/hashSheet";
 import ActivityCard from "../components/ActivityCard";
 import DayNote from "../components/DayNote";
@@ -362,10 +362,10 @@ function MealGroup(p: {
                 onClick={() => q.log(f)}
                 disabled={q.pending !== null}
                 aria-busy={q.pending === f.key}
-                aria-label={`Log ${displayName(f)}, ${f.last_amount_label}, to ${p.meal}`}
+                aria-label={`Log ${oneTapName(f)}, ${f.last_amount_label}, to ${p.meal}`}
               >
                 <PlusGlyph />
-                <span className="usual__name">{displayName(f)}</span>
+                <span className="usual__name">{oneTapName(f)}</span>
                 <span className="usual__amt tnum">{f.last_amount_label}</span>
               </button>
             ))}

@@ -71,7 +71,7 @@ export default function CommandPalette(p: Props) {
     }
     const mine = ++seq.current;
     const t = setTimeout(() => {
-      searchFoods(q, 6)
+      searchFoods(q, 6, false, false, true)
         .then((r) => {
           if (mine === seq.current) setHits(r);
         })

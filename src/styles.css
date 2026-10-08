@@ -1192,6 +1192,34 @@ b, strong, th { font-weight: 600; }
   transition: border-color 140ms ease-out, background-color 140ms ease-out;
 }
 .usual__chip .plus { flex: none; width: 13px; height: 13px; color: var(--area-ink); }
+
+/* From restaurants: two-line tiles, two to a row — the dish, and where it
+   came from under it. Same edge, fill and states as the chips above. */
+.dishtiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+.dishtile {
+  display: flex; align-items: center; gap: var(--s2); min-width: 0;
+  min-height: 56px; padding: var(--s2) var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--surface); color: var(--ink); text-align: left;
+  transition: border-color 140ms ease-out, background-color 140ms ease-out;
+}
+.dishtile .plus { flex: none; width: 14px; height: 14px; color: var(--area-ink); }
+.dishtile__text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+/* The name takes two lines before it is cut, so "Paneer butter masala" fits. */
+.dishtile__name {
+  font-size: var(--t-sm); line-height: var(--t-sm-lh); font-weight: 600;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  overflow-wrap: anywhere;
+}
+/* The place, then the amount a tap logs; the place gives way first. */
+.dishtile__line { display: flex; gap: var(--s1); min-width: 0; color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }
+.dishtile__place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The separator rides on the amount, so it survives a place cut short. */
+.dishtile__place + .dishtile__amt::before { content: "· "; }
+.dishtile__amt { flex: none; }
+.dishtile:disabled { opacity: 0.55; cursor: default; }
+.dishtile[aria-busy="true"] { border-color: var(--area); }
+@media (hover: hover) { .dishtile:hover:not(:disabled) { border-color: var(--area); background: var(--area-wash); } }
 .usual__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usual__amt { flex: none; color: var(--ink-3); }
 .usual__chip:disabled { opacity: 0.55; cursor: default; }
@@ -4162,5 +4190,9 @@ b, strong, th { font-weight: 600; }
   .empty__acts { flex-direction: column; align-items: stretch; max-width: 18rem; margin-inline: auto; }
 }
 .paste__dish { display: grid; gap: var(--s1); }
+.paste__place { display: grid; gap: var(--s1); }
+/* Several dishes, several restaurants: each dish a group of its own. */
+.paste__dish + .paste__dish { padding-top: var(--s3); border-top: 1px solid var(--line); }
+.paste__place .group__name { margin-bottom: 0; }
 .paste__line { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 .paste__note { color: var(--ink-3); font-size: var(--t-cap); line-height: var(--t-cap-lh); }

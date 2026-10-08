@@ -12,9 +12,11 @@ import Info from "./Info";
  *
  * Ordered-in food has no pack and is not worth a recipe, so the user asks an
  * assistant for the figures and pastes the JSON reply here. It is written the
- * way a spreadsheet row is (`import_log_rows`): a one-off food that never
- * joins search or Your foods, and an entry frozen at once like any other —
- * counted as one portion, so the day never shows a weight nobody measured.
+ * way a spreadsheet row is (`import_log_rows`): a food of its own that never
+ * joins Your foods, and an entry frozen at once like any other — counted as
+ * one portion, so the day never shows a weight nobody measured. Unlike a
+ * spreadsheet row it is offered again: under "From restaurants" on the Food
+ * screen, in "Usually at" once it is a habit, and in search.
  *
  * Where it came from and its cuisine are the user's own answers (D15), so
  * both start unset and nothing from the reply fills them in. Having chosen
@@ -31,6 +33,22 @@ export default function PasteDish(p: {
   const dishes = parsed.ok ? parsed.dishes : [];
   /** Names as edited, by position; the reply's own name until touched. */
   const [names, setNames] = useState<Record<number, string>>({});
+  /**
+   * Where from, as typed here; null until touched, when it is the place the
+   * user named to the assistant (the reply's "restaurant"), if any.
+   */
+  const [placeTyped, setPlaceTyped] = useState<string | null>(null);
+  /*
+    One restaurant for the whole paste, which is the usual case — a few dishes
+    from one order. Only when the reply names more than one does each dish get
+    its own field, so a biryani from one place is not stamped with another's.
+  */
+  const [placesTyped, setPlacesTyped] = useState<Record<number, string>>({});
+  const replyPlaces = new Set(dishes.map((d) => d.place?.trim()).filter(Boolean));
+  const shared = replyPlaces.size <= 1;
+  const replyPlace = dishes.find((d) => d.place)?.place ?? "";
+  const place = placeTyped ?? replyPlace;
+  const placeFor = (i: number) => shared ? place : placesTyped[i] ?? dishes[i]?.place ?? "";
   /** The user's own answers, unset until given. */
   const [origin, setOrigin] = useState<Origin | null>(null);
   const [cuisine, setCuisine] = useState<string | null>(null);
@@ -59,6 +77,7 @@ export default function PasteDish(p: {
           cuisine,
           grams: d.grams,
           piece_noun: "portion",
+          place: placeFor(i).trim() || null,
         })),
       );
       if (summary.failed.length > 0) {
@@ -69,6 +88,8 @@ export default function PasteDish(p: {
       }
       setRaw("");
       setNames({});
+      setPlaceTyped(null);
+      setPlacesTyped({});
       setOrigin(null);
       setCuisine(null);
       p.onLogged();
@@ -90,8 +111,8 @@ export default function PasteDish(p: {
             stays unknown rather than counting as zero.
           </p>
           <p>
-            The dish is logged once, as one portion, and kept out of search, so restaurant dishes
-            don’t crowd your own foods.
+            The dish is logged as one portion. Next time it is one tap under From restaurants, and
+            search finds it, but it never joins the foods you added from packs.
           </p>
         </Info>
       </div>
@@ -99,7 +120,7 @@ export default function PasteDish(p: {
       <textarea
         className={`field paste__text${dishes.length > 0 ? " is-read" : ""}`}
         value={raw}
-        onChange={(e) => { setRaw(e.target.value); setNames({}); setError(null); }}
+        onChange={(e) => { setRaw(e.target.value); setNames({}); setPlaceTyped(null); setPlacesTyped({}); setError(null); }}
         placeholder={'{"name": "Paneer tikka", "calories": 540, …}'}
         aria-label="The dish's nutrition, as JSON"
         spellCheck={false}
@@ -115,7 +136,8 @@ export default function PasteDish(p: {
 
       {dishes.map((d, i) => (
         <div className="paste__dish" key={i}>
-          <input className="field" value={names[i] ?? d.name} aria-label="Dish name"
+          <input className="field" value={names[i] ?? d.name}
+            aria-label={dishes.length > 1 ? `Dish ${i + 1} name` : "Dish name"}
             onChange={(e) => setNames({ ...names, [i]: e.target.value })} />
           <p className="paste__line tnum">
             {[d.grams !== null ? `about\u00a0${Math.round(d.grams).toLocaleString()}\u00a0g` : null,
@@ -123,8 +145,28 @@ export default function PasteDish(p: {
               .filter(Boolean).join(" · ")}
           </p>
           {d.ignored.length > 0 && <p className="paste__note">Left out: {d.ignored.join(", ")}</p>}
+          {!shared && (
+            <label className="paste__place">
+              <span className="group__name">Restaurant</span>
+              <input className="field" value={placeFor(i)} placeholder="If you know it"
+                aria-label={`Restaurant for ${names[i] ?? d.name}`} autoCapitalize="words"
+                onChange={(e) => setPlacesTyped({ ...placesTyped, [i]: e.target.value })} />
+            </label>
+          )}
         </div>
       ))}
+
+      {dishes.length > 0 && shared && (
+        /* The same dish differs from one place to the next, so the place is
+           part of which dish this is: a biryani from here and one from there
+           come back as two, each with its own estimate. Called "Restaurant"
+           rather than "Where from", which read as the question below it. */
+        <label className="paste__place">
+          <span className="group__name">Restaurant</span>
+          <input className="field" value={place} placeholder="If you know it"
+            onChange={(e) => setPlaceTyped(e.target.value)} autoCapitalize="words" />
+        </label>
+      )}
 
       {dishes.length > 0 && (
         <TagPicker origin={origin} cuisine={cuisine} origins={RESTAURANT}

@@ -35,6 +35,22 @@ export function displayName(hit: Named): string {
 }
 
 /**
+ * A restaurant dish's name with where it came from: "Chicken biryani ·
+ * Paradise". The place is part of which dish it is — the same dish from two
+ * places is two dishes — so it goes wherever the dish is named on its own:
+ * the log, a one-tap chip, the Undo bar. Just the name when no place was given.
+ */
+export function dishLabel(name: string, place: string | null | undefined): string {
+  const p = place?.trim();
+  return p ? `${name} · ${p}` : name;
+}
+
+/** What a one-tap row is called: its name, and a restaurant dish's place. */
+export function oneTapName(f: Named & { restaurant?: boolean; place?: string | null }): string {
+  return f.restaurant ? dishLabel(displayName(f), f.place) : displayName(f);
+}
+
+/**
  * The hit's forms when it comes in two or more, under the name they share;
  * otherwise null, and the hit is one food like any other.
  */

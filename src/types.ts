@@ -766,6 +766,13 @@ export interface FrequentFood {
   last_pieces: number | null;
   /** The last amount already written out, e.g. "150 g", "330 ml" or "3 figs". */
   last_amount_label: string;
+  /**
+   * Where a restaurant dish came from, when the user named the place; null
+   * for everything else (a pack's brand is not shown on a one-tap chip).
+   */
+  place?: string | null;
+  /** True for a restaurant dish: counted by the portion, named with its place. */
+  restaurant?: boolean;
 }
 
 export interface Portion {
@@ -892,8 +899,10 @@ export interface CustomFood {
   dv_basis?: DvBasis;
   /**
    * True for a row `import_log_rows` created — a spreadsheet import, or a dish
-   * pasted in from an estimate — rather than a person typing a pack in. These
-   * are excluded from search and "Your foods" — a year of history
+   * pasted in from an estimate — rather than a person typing a pack in. Never
+   * in "Your foods". A spreadsheet row is kept out of search and the one-tap
+   * lists too; a pasted dish (counted, `serving_pieces` set) is offered again
+   * there with its place — see `offered_again` in store.rs — a year of history
    * would otherwise swarm both with entries nobody would ever search for or log
    * a second time — but a day that already logged one keeps resolving it. Never
    * set by the existing custom-food editor, so it is safe to default to false.
@@ -924,6 +933,8 @@ export interface CustomFoodDetail {
   from_label: number;
   from_base: number;
   unknown: number;
+  /** Where its figures came from: "off the pack", "from an estimate", "from your import". */
+  came?: string;
 }
 
 /**
@@ -1632,6 +1643,8 @@ export interface ImportRowInput {
   grams?: number | null;
   /** What one of a pasted dish is called ("portion"): logged as one, counted. */
   piece_noun?: string | null;
+  /** Where a pasted dish came from ("Paradise"): kept as its food's brand. */
+  place?: string | null;
 }
 
 /** Why one row of the batch did not become a log entry. `row` is 1-based,
