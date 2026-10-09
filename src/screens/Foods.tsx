@@ -885,10 +885,10 @@ export default function Foods(p: Props) {
     try {
       if (weighed) {
         await addWeighedLogEntry(p.date, p.meal, { cookId: pickedCook.id }, pickedCook.name,
-          weighed.grossG, weighed.vesselIds, { origin, cuisine });
+          weighed.grossG, weighed.vesselIds, sent);
       } else {
         await addLogEntry(p.date, p.meal, { cookId: pickedCook.id }, pickedCook.name, g,
-          { origin, cuisine });
+          sent);
       }
       setPickedCook(null); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
@@ -918,10 +918,10 @@ export default function Foods(p: Props) {
     try {
       if (weighed) {
         await addWeighedLogEntry(p.date, p.meal, { recipeId: pickedRecipe.id }, pickedRecipe.name,
-          weighed.grossG, weighed.vesselIds, { origin, cuisine });
+          weighed.grossG, weighed.vesselIds, sent);
       } else {
         await addLogEntry(p.date, p.meal, { recipeId: pickedRecipe.id }, pickedRecipe.name, g,
-          { origin, cuisine });
+          sent);
       }
       setPickedRecipe(null); setQuery(""); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
@@ -939,15 +939,15 @@ export default function Foods(p: Props) {
     try {
       if (counted) {
         // Pieces: the window read a count, and nothing was weighed.
-        await addCountedLogEntry(p.date, p.meal, food.id, name, g, { origin, cuisine });
+        await addCountedLogEntry(p.date, p.meal, food.id, name, g, sent);
       } else if (food.serving_ml != null) {
         // A can, a carton: the window read millilitres, and nothing was weighed.
-        await addMeasuredLogEntry(p.date, p.meal, food.id, name, g, { origin, cuisine });
+        await addMeasuredLogEntry(p.date, p.meal, food.id, name, g, sent);
       } else if (weighed) {
         await addWeighedLogEntry(p.date, p.meal, { customFoodId: food.id }, name,
-          weighed.grossG, weighed.vesselIds, { origin, cuisine });
+          weighed.grossG, weighed.vesselIds, sent);
       } else {
-        await addLogEntry(p.date, p.meal, { customFoodId: food.id }, name, g, { origin, cuisine });
+        await addLogEntry(p.date, p.meal, { customFoodId: food.id }, name, g, sent);
       }
       setPickedCustom(null); setQuery(""); setHits([]); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
@@ -1021,10 +1021,10 @@ export default function Foods(p: Props) {
       // stored vessel weights, so the log can never disagree with the library.
       if (weighed) {
         await addWeighedLogEntry(p.date, p.meal, { fdcId: picked.fdc_id }, picked.description,
-          weighed.grossG, weighed.vesselIds, { origin, cuisine });
+          weighed.grossG, weighed.vesselIds, sent);
       } else {
         await addLogEntry(p.date, p.meal, { fdcId: picked.fdc_id }, picked.description, g,
-          { origin, cuisine });
+          sent);
       }
       setPicked(null); setFamily(null); setQuery(""); setHits([]); setTicked([]);
       setOrigin(null); setCuisine(null); setRecalled(false);
@@ -1285,6 +1285,18 @@ export default function Foods(p: Props) {
      for a supplement, by count. What differs between the kinds is only what
      leads it, what it starts on and what is said at its foot. */
   const recalledNote = recalled ? "From the last time you logged this — change it if today was different." : null;
+  /*
+    Where it came from, when what is picked already says: a pack with a barcode
+    was bought, a recipe or a pot was made here. The backend holds the same
+    rule (`store::implied_origin`); this only stops the question being asked.
+  */
+  const implied: Origin | null = pickedCook || pickedRecipe ? "home"
+    : pickedCustom?.food.barcode?.trim() ? "packaged" : null;
+  /* A snack is not asked where it came from, so nothing recalled for it is
+     sent either. */
+  const sent = p.meal === "snack" ? { origin: null, cuisine: null }
+    : { origin: implied ?? origin, cuisine: (implied ?? origin) === "packaged" ? null : cuisine };
+
   const weigh = (lead: React.ReactNode, name: string, sub: React.ReactNode, servings: Serving[],
     onCommit: () => void, foot: React.ReactNode, note: string | null = recalledNote,
     unit: ServingUnit = "g", piece?: { noun: string; each: number }, forms: FoodFamily | null = null,
@@ -1304,7 +1316,7 @@ export default function Foods(p: Props) {
         piece={piece} counting={counting} onCounting={countOnly ? undefined : countIn}
         vessels={vessels} onManageVessels={p.onManageVessels}
         meal={p.meal} saving={saving} onCommit={onCommit}
-        origin={origin} cuisine={cuisine}
+        origin={origin} cuisine={cuisine} implied={implied}
         onTags={(o, c) => { setOrigin(o); setCuisine(c); setRecalled(false); }}
         recalledNote={note} foot={foot} keypad={keys} autoFocus={wide && !keys} />
     ),

@@ -84,6 +84,9 @@ function Body({ e, b, onClose, onChanged }: {
   const changedRef = useRef(onChanged);
   changedRef.current = onChanged;
 
+  /* What the entry is says where it came from, where it can: an entry logged
+     before that was worked out reads the same as one logged after. */
+  const shown = { ...tags, origin: e.implied_origin ?? tags.origin };
   const isSupplement = e.source_kind === "supplement";
   const isWater = e.source_kind === "water";
   const isCustom = e.source_kind === "custom";
@@ -159,21 +162,25 @@ function Body({ e, b, onClose, onChanged }: {
 
       {history && <p className="esheet__history">{history}</p>}
 
-      {/* Neither a supplement nor a bottle is a dish, and neither has a cuisine. */}
-      {!isSupplement && !isWater && (
+      {/* Neither a supplement nor a bottle is a dish, and neither has a cuisine.
+          A snack is not asked either, unless something was recorded for it,
+          and a pack with a barcode has nothing left to ask. */}
+      {!isSupplement && !isWater && e.implied_origin !== "packaged"
+        && (e.meal !== "snack" || shown.origin || shown.cuisine) && (
         <div className="esheet__tags">
           <div className="esheet__line">
-            <span className={tagText(tags) ? "" : "esheet__state"}>
-              {tagText(tags, ", ", false) || "Where it came from is not recorded"}
+            <span className={tagText(shown) ? "" : "esheet__state"}>
+              {tagText(shown, ", ", false) || "Where it came from is not recorded"}
             </span>
             <button className="link" onClick={() => setTagging((t) => !t)} aria-expanded={tagging}>
-              {tagging ? "Done" : tagText(tags) ? "Change" : "Add"}
+              {tagging ? "Done" : tagText(shown) ? "Change" : "Add"}
             </button>
           </div>
           {tagging && (
             <TagPicker
               origin={tags.origin}
               cuisine={tags.cuisine}
+              origins={e.implied_origin ? [] : undefined}
               onChange={async (origin, cuisine) => {
                 // Held here first so the next change in this sheet builds on
                 // this one rather than on whatever the last refetch returned.

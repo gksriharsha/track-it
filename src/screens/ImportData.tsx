@@ -5,6 +5,7 @@ import type { ParseReport } from "../lib/spreadsheet";
 import { LABEL_NUTRIENTS } from "../types";
 import type { ImportRowInput, ImportSummary } from "../types";
 import { fmtAmount } from "../lib/nutrient";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -141,6 +142,17 @@ export default function ImportData(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>Pick a file</h2>
+          <Info title="What a file needs">
+            <p>
+              One row per day (or per meal) you already tracked — a date, and whatever macros or
+              other nutrients you have for it.
+            </p>
+            <p>
+              Dates written as 3/4/2024 are read as March 4, not April 3 — spreadsheet exports
+              from the US write the month first. An ISO date like 2024-03-04 has no such ambiguity
+              and is read as written.
+            </p>
+          </Info>
           {fileName && !parsing && !checkingOverlap && !importing && (
             <button className="link card__note" onClick={reset}>
               choose a different file
@@ -156,10 +168,7 @@ export default function ImportData(p: Props) {
             disabled={parsing}
           >
             <span className="imp-drop__take">{parsing ? "Reading…" : "Choose a .csv or .xlsx file"}</span>
-            <span className="imp-drop__hint">
-              One row per day (or per meal) you already tracked — a date, and whatever macros or
-              other nutrients you have for it.
-            </span>
+            <span className="imp-drop__hint">A date on each row, and any nutrients</span>
           </button>
         ) : (
           <p className="imp-assume" style={{ margin: 0 }}>
@@ -168,12 +177,6 @@ export default function ImportData(p: Props) {
           </p>
         )}
 
-        <p className="imp-assume">
-          Dates written as <span className="num">3/4/2024</span> are read as{" "}
-          <strong>March 4</strong>, not April 3 — spreadsheet exports from the US write the month
-          first. An ISO date like <span className="num">2024-03-04</span> has no such ambiguity
-          and is read as written.
-        </p>
 
         <input
           ref={fileInput}
@@ -252,10 +255,7 @@ export default function ImportData(p: Props) {
                     );
                   })}
                 </div>
-                <p className="imp-note">
-                  Nothing under these columns was imported — a guessed match would be wrong in a
-                  way that is invisible later.
-                </p>
+                <p className="imp-note">Left out rather than guessed.</p>
               </>
             )}
           </section>

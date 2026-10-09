@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteVessel, humanDate, listVessels, saveVessel, todayIso } from "../api";
 import type { Vessel } from "../types";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -101,6 +102,18 @@ export default function Vessels(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>{editing ? `Re-weigh ${editing.name}` : "Add a vessel"}</h2>
+          <Info title="Weighing a bowl or plate">
+            <p>
+              Each row here is one physical object, weighed empty once — not a kind of vessel. Two
+              bowls off the same shelf differ by a few grams, and naming them apart (“blue bowl,
+              chipped rim”) is what keeps the subtraction honest.
+            </p>
+            <p>
+              Where your scale has a tare button, use it — zeroing the empty vessel is exact. This
+              is for the plate that is already served, and for the day a bowl is sitting on a
+              plate and both of them have to come off.
+            </p>
+          </Info>
           {editing && (
             <button className="link card__note" onClick={cancelEdit}>cancel</button>
           )}
@@ -112,7 +125,7 @@ export default function Vessels(p: Props) {
               className="field"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Steel katori, small"
+              placeholder="Small blue bowl"
               aria-label="Vessel name"
             />
           </label>
@@ -134,11 +147,6 @@ export default function Vessels(p: Props) {
             {saving ? "Saving…" : editing ? "Update" : "Save vessel"}
           </button>
         </div>
-        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Each row here is one physical object, weighed empty once — not a kind of vessel. Two
-          steel katoris off the same shelf differ by a few grams, and naming them apart
-          (“katori, chipped rim”) is what keeps the subtraction honest.
-        </p>
       </section>
 
       {loading ? (
@@ -150,11 +158,7 @@ export default function Vessels(p: Props) {
       ) : vessels.length === 0 ? (
         <div className="empty">
           <h3>Nothing weighed yet</h3>
-          <p>
-            Two steps, once per vessel: put it on the scale empty, then save what the scale
-            says. After that you never weigh it again — serve the food, put the whole plate
-            on, and tick the vessels underneath.
-          </p>
+          <p>Weigh a bowl empty once, then weigh food in it.</p>
         </div>
       ) : (
         <section className="card">
@@ -192,12 +196,6 @@ export default function Vessels(p: Props) {
           </div>
         </section>
       )}
-
-      <p className="rangenote">
-        Where your scale has a tare button, use it — zeroing the empty vessel is exact. This is
-        for the plate that is already served, and for the day the katori is sitting on a thali
-        and both of them have to come off.
-      </p>
     </div>
   );
 }

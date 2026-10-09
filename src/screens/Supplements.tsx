@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { deleteSupplement, listSupplements } from "../api";
 import type { Supplement } from "../types";
 import { plural } from "../lib/nutrient";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -83,11 +84,7 @@ export default function Supplements(p: Props) {
       ) : list.length === 0 ? (
         <div className="empty">
           <h3>No supplements yet</h3>
-          <p>
-            A multivitamin can carry more of a day's iodine or B12 than everything else you eat
-            put together. Transcribing one is what stops those nutrients reading as gaps when
-            they are not.
-          </p>
+          <p>Add one from a photo of its panel.</p>
           <button className="btn" onClick={() => p.onEdit(null)}>Add your first one</button>
         </div>
       ) : (
@@ -96,6 +93,12 @@ export default function Supplements(p: Props) {
               list it counts. */}
           <div className="card__head">
             <h2>{plural(list.length, "supplement")}</h2>
+            <Info title="How supplements count">
+              <p>
+                A supplement borrows nothing. What its panel does not list stays unknown unless you
+                said the panel lists everything.
+              </p>
+            </Info>
           </div>
           <div className="rows">
             {list.map((s) => (
@@ -122,10 +125,6 @@ export default function Supplements(p: Props) {
                 </button>
               </div>
             ))}
-          </div>
-          <div className="card__foot">
-            A supplement borrows nothing. What its panel does not list stays unknown unless you
-            said the panel lists everything.
           </div>
         </section>
       )}

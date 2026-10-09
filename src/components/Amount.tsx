@@ -84,6 +84,11 @@ interface Props {
   origin: Origin | null;
   cuisine: string | null;
   onTags: (origin: Origin | null, cuisine: string | null) => void;
+  /**
+   * Where it came from when what it is already says — packaged for a pack with
+   * a barcode, made at home for a recipe or a pot — so only the cuisine is asked.
+   */
+  implied?: Origin | null;
   /** Said when the tags were recalled rather than chosen here. */
   recalledNote: string | null;
   /** What only this kind of food has: a pot's links, a pack's values. */
@@ -206,7 +211,8 @@ export default function Amount(p: Props) {
   const energy = amountOf !== null && p.per100 ? atGrams(p.per100.energy, amountOf) : null;
   const protein = amountOf !== null && p.per100 ? atGrams(p.per100.protein, amountOf) : null;
 
-  const origin = p.origin ? ORIGIN_LABEL[p.origin] : null;
+  const said = p.implied ?? p.origin;
+  const origin = said ? ORIGIN_LABEL[said] : null;
   const tagLine = [origin, p.cuisine].filter(Boolean).join(", ");
 
   return (
@@ -350,8 +356,10 @@ export default function Amount(p: Props) {
       )}
 
       {/* Where it came from and its cuisine: usually recalled from the last
-          time, so one line saying so, opened only to change it. */}
-      <div className="amount__tags">
+          time, so one line saying so, opened only to change it. Not asked of
+          a snack at all, a snack being nearly always out of a pack, nor of a
+          pack with a barcode: it is packaged, and a pack has no cuisine. */}
+      {p.meal !== "snack" && p.implied !== "packaged" && <div className="amount__tags">
         <button type="button" className="amount__tagline" aria-expanded={showTags}
           onClick={() => setShowTags((s) => !s)}>
           <span className={tagLine ? undefined : "is-blank"}>
@@ -361,9 +369,10 @@ export default function Amount(p: Props) {
           <span className="amount__chev" aria-hidden><Chev open={showTags} /></span>
         </button>
         {showTags && (
-          <TagPicker origin={p.origin} cuisine={p.cuisine} onChange={p.onTags} recalledNote={p.recalledNote} />
+          <TagPicker origin={p.origin} cuisine={p.cuisine} onChange={p.onTags} recalledNote={p.recalledNote}
+            origins={p.implied ? [] : undefined} />
         )}
-      </div>
+      </div>}
 
       <button type="button" className="btn amount__log" onClick={p.onCommit}
         disabled={p.saving || net === null}>

@@ -15,7 +15,9 @@ interface Props {
   recalledNote?: string | null;
   /**
    * The origins worth offering, when a choice already made rules the rest out:
-   * a restaurant dish was never made at home. All four when not given.
+   * a restaurant dish was never made at home. All four when not given; none,
+   * and the question is not asked, where what the thing is already answers it
+   * — a barcode, a recipe, a pot.
    */
   origins?: Origin[];
 }
@@ -52,10 +54,12 @@ export default function TagPicker(p: Props) {
     p.onChange(p.origin, c);
   };
 
+  const asks = !p.origins || p.origins.length > 0;
+
   return (
     <div className="tags">
-      <div className="group__name">Where it came from</div>
-      <div className="chips">
+      {asks && <div className="group__name">Where it came from</div>}
+      {asks && <div className="chips">
         {ORIGINS.filter((o) => !p.origins || p.origins.includes(o.id)).map((o) => (
           <button
             key={o.id}
@@ -63,14 +67,16 @@ export default function TagPicker(p: Props) {
             aria-pressed={p.origin === o.id}
             // Tapping the selected one clears it: "not recorded" has to stay
             // reachable, or a mis-tap becomes permanent.
-            onClick={() => p.onChange(p.origin === o.id ? null : o.id, p.cuisine)}
+            onClick={() => p.onChange(p.origin === o.id ? null : o.id, o.id === "packaged" ? null : p.cuisine)}
           >
             {o.label}
           </button>
         ))}
-      </div>
+      </div>}
 
-      <div className="group__name" style={{ marginTop: "var(--s3)" }}>
+      {/* A pack has no cuisine worth keeping: Coke Zero is not "American". */}
+      {p.origin !== "packaged" && <>
+      <div className="group__name" style={asks ? { marginTop: "var(--s3)" } : undefined}>
         Cuisine
       </div>
       <div className="chips">
@@ -126,6 +132,8 @@ export default function TagPicker(p: Props) {
           </button>
         )}
       </div>
+
+      </>}
 
       {p.recalledNote && <p className="tags__note">{p.recalledNote}</p>}
     </div>

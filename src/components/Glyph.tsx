@@ -30,6 +30,8 @@ const PATHS = {
   jar: "M8 3.8h8v2.8H8zM8.6 6.6C7 7.6 6 9 6 11v7.2A1.8 1.8 0 0 0 7.8 20h8.4a1.8 1.8 0 0 0 1.8-1.8V11c0-2-1-3.4-2.6-4.4",
   /* The keypad's delete: a key pointing back at what it takes away. */
   del: "M9.2 5.5h10.3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9.2L3.5 12zM12.5 9.5l5 5M17.5 9.5l-5 5",
+  /* A camera: what a figure read off a photo carries until it is confirmed. */
+  camera: "M4 8.5h3l1.4-2h7.2L17 8.5h3a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1zM15.2 13.5a3.2 3.2 0 1 1-6.4 0a3.2 3.2 0 1 1 6.4 0",
 } as const;
 
 export type GlyphName = keyof typeof PATHS;

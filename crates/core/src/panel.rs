@@ -851,6 +851,30 @@ mod tests {
         ]
     }
 
+    #[test]
+    fn a_list_printed_beside_the_panel_changes_none_of_its_readings() {
+        // One shot of the back of a pack: the panel squeezed into the left
+        // half, the ingredient list down the right half at the same heights.
+        let mut both: Vec<TextBlock> = fig_bar()
+            .into_iter()
+            .map(|t| TextBlock { x: t.x * 0.5, w: t.w * 0.5, ..t })
+            .collect();
+        for (i, line) in [
+            "INGREDIENTS: Whole Wheat Flour, Fig Paste,",
+            "Cane Sugar, Brown Rice Syrup, Sunflower Oil,",
+            "Vegetable Glycerin, Salt, Baking Soda,",
+            "Natural Flavor. CONTAINS: WHEAT.",
+        ]
+        .iter()
+        .enumerate()
+        {
+            both.push(b(line, 0.55, 0.310 + i as f64 * 0.040, 0.42, 0.026));
+        }
+        let alone = parse(&fig_bar());
+        let beside = parse(&both);
+        assert_eq!(beside.readings, alone.readings);
+    }
+
     fn entry(p: &Panel, nutrient_id: i64) -> Option<LabelEntry> {
         p.readings
             .iter()

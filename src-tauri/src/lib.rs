@@ -17,6 +17,8 @@ mod keystore;
 mod percent_tests;
 #[cfg(test)]
 mod pasted_dish_tests;
+#[cfg(test)]
+mod photo_sweep_tests;
 mod store;
 mod sync;
 mod tidy;
@@ -1147,14 +1149,24 @@ fn get_supplement(id: String, user: State<'_, store::Store>) -> Result<store::Su
 
 /// One entry point for adding a supplement and for correcting one: pass an `id`
 /// to replace it in place, omit it to record a new one.
+///
+/// The bottle's photos go once it is saved: they were there to read the panel
+/// and to check the readings against while the editor was open, and once the
+/// figures are confirmed there is nothing left for them to do.
 #[tauri::command]
 fn save_supplement(
     id: Option<String>,
-    supplement: store::Supplement,
+    mut supplement: store::Supplement,
+    app: AppHandle,
     user: State<'_, store::Store>,
 ) -> Result<String, String> {
-    let mut conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::save_supplement(&mut conn, id.as_deref(), &supplement)
+    let photos = [supplement.photo_panel.take(), supplement.photo_ingredients.take()];
+    let saved = {
+        let mut conn = user.0.lock().map_err(|e| e.to_string())?;
+        store::save_supplement(&mut conn, id.as_deref(), &supplement)?
+    };
+    photos.iter().flatten().for_each(|n| discard_photo(n, &app));
+    Ok(saved)
 }
 
 /// Soft delete. Days that already took it keep what they were logged with.
@@ -1584,19 +1596,27 @@ fn get_custom_food(id: String, user: State<'_, store::Store>) -> Result<store::C
 }
 
 /// `id` absent records a new food, `id` present replaces the one it names.
+///
+/// The pack's photos go once it is saved, for the reason a supplement's do.
 #[tauri::command]
 fn save_custom_food(
     id: Option<String>,
-    food: store::CustomFood,
+    mut food: store::CustomFood,
+    app: AppHandle,
     user: State<'_, store::Store>,
 ) -> Result<String, String> {
-    let mut conn = user.0.lock().map_err(|e| e.to_string())?;
-    store::save_custom_food(&mut conn, id.as_deref(), &food)
+    let photos = [food.photo_label.take(), food.photo_ingredients.take()];
+    let saved = {
+        let mut conn = user.0.lock().map_err(|e| e.to_string())?;
+        store::save_custom_food(&mut conn, id.as_deref(), &food)?
+    };
+    photos.iter().flatten().for_each(|n| discard_photo(n, &app));
+    Ok(saved)
 }
 
 /// Soft delete: a day logged against this food still has to expand, so the row
-/// stays. Its photos are left on disk rather than unlinked, but nothing shows
-/// them once the food is deleted — what a past day keeps is its values.
+/// stays. Its photos went when it was saved; any an older build kept are taken
+/// by the start-up sweep — what a past day keeps is its values.
 #[tauri::command]
 fn delete_custom_food(
     id: String,
@@ -2606,6 +2626,76 @@ fn photo_bytes(name: &str, app: &AppHandle) -> Result<Vec<u8>, String> {
     std::fs::read(&path).map_err(|e| format!("read {name}: {e}"))
 }
 
+/// Delete one stored photo. One already gone is not an error: the point is
+/// that it is not on disk, and it is not.
+fn discard_photo(name: &str, app: &AppHandle) {
+    if !is_photo_name(name) {
+        return;
+    }
+    if let Ok(dir) = photo_dir(app) {
+        let _ = std::fs::remove_file(dir.join(name));
+    }
+}
+
+/// A photo taken off the form before it was saved: removed, or replaced.
+#[tauri::command]
+fn discard_food_photo(name: String, app: AppHandle) {
+    discard_photo(&name, &app);
+}
+
+/// How long a photo may sit on disk unsaved before the start-up sweep takes it.
+///
+/// Not zero: Android can end the app while its camera is open, and the editor
+/// comes back from its draft naming the photo it had just taken. A day covers
+/// that and any editor left open; nothing a pack photo is for lasts longer.
+pub(crate) const PHOTO_GRACE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Delete every photo older than [`PHOTO_GRACE`], and forget the names of any
+/// that are gone.
+///
+/// Saving a food deletes its photos, so what is left here is an editor that
+/// was closed without saving — and every photo an earlier build kept for good.
+/// The names are cleared without touching `updated_at`: the photo columns never
+/// travel to another device, so there is nothing for a sync to learn.
+fn sweep_photos(app: &AppHandle, conn: &rusqlite::Connection) -> Result<(), String> {
+    sweep_photo_dir(&photo_dir(app)?, conn, std::time::SystemTime::now())
+}
+
+pub(crate) fn sweep_photo_dir(
+    dir: &std::path::Path,
+    conn: &rusqlite::Connection,
+    now: std::time::SystemTime,
+) -> Result<(), String> {
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age >= PHOTO_GRACE);
+        if old && is_photo_name(&name) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    for (table, col) in [
+        ("custom_foods", "photo_label"),
+        ("custom_foods", "photo_ingredients"),
+        ("supplements", "photo_panel"),
+        ("supplements", "photo_ingredients"),
+    ] {
+        let names: Vec<String> = conn
+            .prepare(&format!("SELECT DISTINCT {col} FROM {table} WHERE {col} IS NOT NULL"))
+            .and_then(|mut st| st.query_map([], |r| r.get(0))?.collect())
+            .map_err(|e| e.to_string())?;
+        for n in names.iter().filter(|n| !dir.join(n).exists()) {
+            conn.execute(&format!("UPDATE {table} SET {col} = NULL WHERE {col} = ?1"), [n])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 /// Read one stored photo back as base64, by the base filename it was saved
 /// under.
 #[tauri::command]
@@ -2739,7 +2829,32 @@ pub struct Probe {
     pub panel_lines: usize,
     /// Whether a capture now would probably be worth taking.
     pub ok: bool,
+    /// Where each line sits in the frame, for the camera to draw over the
+    /// preview: which lines are being read, and which only barely.
+    pub boxes: Vec<ProbeBox>,
+    /// For a supplement bottle, the side of the panel round the curve and out
+    /// of view, so the camera can say which way to turn it.
+    pub hidden: Option<trackit_core::suppanel::Hidden>,
 }
+
+/// One recognised line, as a box in the frame: fractions of its width and
+/// height from the top-left. Never its text — the preview shows where the
+/// reading is, not what it says, so nothing here can be mistaken for a value.
+#[derive(Debug, Serialize)]
+pub struct ProbeBox {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    /// A line of the panel being pointed at, rather than other text in frame.
+    pub panel: bool,
+    /// The recogniser was unsure of it: glare, shadow or the curve.
+    pub faint: bool,
+}
+
+/// Recogniser confidence below which a line is drawn as faint. Both engines
+/// report well above this for print that is in focus and evenly lit.
+const FAINT_BELOW: f32 = 0.5;
 
 /// Panel lines needed before a frame is called worth capturing.
 ///
@@ -2960,17 +3075,46 @@ fn scan_label_photo(name: String, app: AppHandle) -> Result<Scan, String> {
 /// of a claim on it: this one fires every 1.2 seconds while the camera sheet is
 /// open, so each pass would hitch the very preview it is measuring.
 #[tauri::command(async)]
-fn probe_frame(data_base64: String, app: AppHandle) -> Result<Probe, String> {
+fn probe_frame(
+    data_base64: String,
+    kind: Option<String>,
+    app: AppHandle,
+) -> Result<Probe, String> {
     let (bytes, _ext) = decode_photo(&data_base64)?;
     let lines = crate::vision::recognize(&app, &bytes, true)?;
-    let panel_lines = lines
+    let supplement = kind.as_deref() == Some("supplement");
+    let is_panel = |text: &str| {
+        if supplement {
+            trackit_core::suppanel::names_a_nutrient(text)
+        } else {
+            looks_like_panel_line(text)
+        }
+    };
+    let boxes: Vec<ProbeBox> = lines
         .iter()
-        .filter(|l| looks_like_panel_line(&l.text))
-        .count();
+        .map(|l| ProbeBox {
+            x: l.x,
+            y: l.y,
+            w: l.w,
+            h: l.h,
+            panel: is_panel(&l.text),
+            faint: l.confidence < FAINT_BELOW,
+        })
+        .collect();
+    let panel_lines = boxes.iter().filter(|b| b.panel).count();
+    // Only a bottle is round. A pack's panel is flat, and a half-row there is
+    // the frame's edge, which the distance gauge already speaks to.
+    let hidden = if supplement {
+        trackit_core::suppanel::parse(&blocks_from(&lines)).hidden_side()
+    } else {
+        None
+    };
     Ok(Probe {
         lines: lines.len(),
         panel_lines,
         ok: panel_lines >= PANEL_LINES_OK,
+        boxes,
+        hidden,
     })
 }
 
@@ -5487,6 +5631,13 @@ pub fn run() {
                 eprintln!("\n!! TrackIt failed to start: {e}\n");
                 return Err(e.into());
             }
+            // Housekeeping, never a reason not to start.
+            let user = app.state::<store::Store>();
+            if let Ok(conn) = user.0.lock() {
+                if let Err(e) = sweep_photos(app.handle(), &conn) {
+                    eprintln!("photo sweep: {e}");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -5551,6 +5702,7 @@ pub fn run() {
             get_custom_food_detail,
             save_food_photo,
             read_food_photo,
+            discard_food_photo,
             scan_label_photo,
             scan_ingredients_photo,
             scan_supplement_photo,

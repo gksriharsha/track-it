@@ -90,6 +90,7 @@ function blank(id: string, meal: Meal | null, description: string): LogEntry {
     tare_note: null,
     origin: null,
     cuisine: null,
+    implied_origin: null,
   };
 }
 

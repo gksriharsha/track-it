@@ -1131,6 +1131,9 @@ pub struct LogEntry {
     /// they could give, and must never be filled in with one.
     pub origin: Option<String>,
     pub cuisine: Option<String>,
+    /// The origin the entry has by what it is, when that leaves nothing to
+    /// ask: see [`implied_origin`]. `None` when only the user can say.
+    pub implied_origin: Option<String>,
 }
 
 /// One supplement, as its Supplement Facts panel describes it.
@@ -3458,6 +3461,30 @@ pub fn check_origin(origin: Option<&str>) -> Result<(), String> {
     }
 }
 
+/// Where a thing came from when what it is already says so, and nothing is
+/// asked: a pack with a barcode was bought packaged, and a recipe or a pot was
+/// made at home. `None` for everything else, where the user's answer stands.
+pub fn implied_origin(source_kind: &str, barcoded: bool) -> Option<&'static str> {
+    match source_kind {
+        "recipe" | "cook" => Some("home"),
+        "custom" if barcoded => Some("packaged"),
+        _ => None,
+    }
+}
+
+/// Whether one of the user's own foods carries a barcode.
+fn custom_barcoded(conn: &Connection, id: &str) -> Result<bool, String> {
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT COALESCE(TRIM(barcode), '') <> '' FROM custom_foods WHERE id = ?1",
+        [id],
+        |r| r.get::<_, bool>(0),
+    )
+    .optional()
+    .map(|b| b.unwrap_or(false))
+    .map_err(|e| e.to_string())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn add(
     conn: &Connection,
@@ -3534,7 +3561,13 @@ pub fn add(
         return Err("pieces counted do not come off a scale, so they cannot carry a tare".into());
     }
     check_origin(tags.origin.as_deref())?;
-    let cuisine = opt_trim(tags.cuisine.as_ref());
+    let barcoded = match source {
+        Source::Custom(id) => custom_barcoded(conn, id)?,
+        _ => false,
+    };
+    let origin = implied_origin(kind, barcoded).or(tags.origin.as_deref());
+    // A pack has no cuisine worth keeping: a can of Coke Zero is not "American".
+    let cuisine = if origin == Some("packaged") { None } else { opt_trim(tags.cuisine.as_ref()) };
     let cuisine_key = cuisine.as_deref().map(folded);
 
     let (fdc_id, recipe_id, cook_id, custom_food_id, supplement_id, bottle_id) = match source {
@@ -3589,7 +3622,7 @@ pub fn add(
             tare.map(|t| t.gross_g),
             tare.map(|t| t.tare_g),
             tare.map(|t| t.note.as_str()),
-            tags.origin.as_deref(),
+            origin,
             cuisine,
             cuisine_key,
             now,
@@ -4969,8 +5002,11 @@ fn get_custom_food_inner(
 
     let mut stmt = conn
         .prepare(
+            // In the order they were saved, which is the order the pack prints
+            // them: the editor lists them that way, so a pack is checked against
+            // the form by reading down both at once.
             "SELECT nutrient_id, kind, amount, upper, printed_pct, label_form
-             FROM custom_food_nutrients WHERE food_id = ?1 ORDER BY nutrient_id",
+             FROM custom_food_nutrients WHERE food_id = ?1 ORDER BY rowid",
         )
         .map_err(|e| e.to_string())?;
     food.nutrients = stmt
@@ -5406,9 +5442,11 @@ pub fn day(conn: &Connection, logged_on: &str) -> Result<Vec<LogEntry>, String> 
             "SELECT e.id, e.logged_on, e.meal, e.source_kind, e.fdc_id, e.recipe_id,
                     e.custom_food_id, e.description, e.grams, e.gross_g, e.tare_g, e.tare_note,
                     e.supplement_id, e.units, e.origin, e.cuisine, e.bottle_id, e.cook_id,
-                    b.empty_g, b.full_g, b.volume_ml, e.ml, e.pieces, e.piece_noun
+                    b.empty_g, b.full_g, b.volume_ml, e.ml, e.pieces, e.piece_noun,
+                    COALESCE(TRIM(cf.barcode), '') <> ''
              FROM log_entries e
              LEFT JOIN bottles b ON b.id = e.bottle_id
+             LEFT JOIN custom_foods cf ON cf.id = e.custom_food_id
              WHERE e.logged_on = ?1 AND e.deleted_at IS NULL
              ORDER BY e.created_at",
         )
@@ -5452,6 +5490,8 @@ pub fn day(conn: &Connection, logged_on: &str) -> Result<Vec<LogEntry>, String> 
                 piece_noun: r.get(23)?,
                 origin: r.get(14)?,
                 cuisine: r.get(15)?,
+                implied_origin: implied_origin(&r.get::<_, String>(3)?, r.get(24)?)
+                    .map(str::to_string),
                 bottle_id: r.get(16)?,
                 cook_id: r.get(17)?,
             })
@@ -6352,7 +6392,24 @@ pub fn recent_restaurant_dishes(
 /// was logged in a hurry gets its origin added afterwards.
 pub fn set_tags(conn: &Connection, id: &str, tags: &Tags) -> Result<(), String> {
     check_origin(tags.origin.as_deref())?;
-    let cuisine = opt_trim(tags.cuisine.as_ref());
+    use rusqlite::OptionalExtension;
+    // An origin the entry has by what it is stays, whatever is sent.
+    let (kind, custom): (String, Option<String>) = conn
+        .query_row(
+            "SELECT source_kind, custom_food_id FROM log_entries
+              WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or("that entry is not in the log")?;
+    let barcoded = match custom.as_deref() {
+        Some(c) => custom_barcoded(conn, c)?,
+        None => false,
+    };
+    let origin = implied_origin(&kind, barcoded).or(tags.origin.as_deref());
+    let cuisine = if origin == Some("packaged") { None } else { opt_trim(tags.cuisine.as_ref()) };
     let cuisine_key = cuisine.as_deref().map(folded);
     let now = now_iso(conn)?;
     let n = conn
@@ -6360,7 +6417,7 @@ pub fn set_tags(conn: &Connection, id: &str, tags: &Tags) -> Result<(), String> 
             "UPDATE log_entries
                 SET origin = ?2, cuisine = ?3, cuisine_key = ?4, updated_at = ?5
               WHERE id = ?1 AND deleted_at IS NULL",
-            rusqlite::params![id, tags.origin.as_deref(), cuisine, cuisine_key, now],
+            rusqlite::params![id, origin, cuisine, cuisine_key, now],
         )
         .map_err(|e| e.to_string())?;
     if n == 0 {
@@ -7604,7 +7661,9 @@ pub fn entry_by_id(conn: &Connection, id: &str) -> Result<LogEntry, String> {
         .prepare(
             "SELECT id, logged_on, meal, source_kind, fdc_id, recipe_id, custom_food_id,
                     description, grams, gross_g, tare_g, tare_note,
-                    supplement_id, units, origin, cuisine, bottle_id, cook_id, ml, pieces, piece_noun
+                    supplement_id, units, origin, cuisine, bottle_id, cook_id, ml, pieces, piece_noun,
+                    COALESCE((SELECT TRIM(barcode) FROM custom_foods
+                               WHERE id = log_entries.custom_food_id), '') <> ''
              FROM log_entries WHERE id = ?1",
         )
         .map_err(|e| e.to_string())?;
@@ -7634,6 +7693,8 @@ pub fn entry_by_id(conn: &Connection, id: &str) -> Result<LogEntry, String> {
             piece_noun: r.get(20)?,
             origin: r.get(14)?,
             cuisine: r.get(15)?,
+            implied_origin: implied_origin(&r.get::<_, String>(3)?, r.get(21)?)
+                .map(str::to_string),
             bottle_id: r.get(16)?,
             cook_id: r.get(17)?,
         })
@@ -11364,6 +11425,70 @@ mod tests {
             .is_err());
         let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(v, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn a_food_keeps_its_lines_in_the_order_the_pack_prints_them() {
+        let mut c = db();
+        // An Indian pack: energy, protein, carbohydrate, then fat.
+        let f = pack(
+            "Roasted chana",
+            30.0,
+            vec![measured(1008, 120.0), measured(1003, 6.0), measured(1005, 18.0), measured(1004, 2.0)],
+        );
+        let id = save_custom_food(&mut c, None, &f).unwrap();
+        let order: Vec<i64> = get_custom_food(&c, &id).unwrap().nutrients.iter().map(|n| n.nutrient_id).collect();
+        assert_eq!(order, vec![1008, 1003, 1005, 1004]);
+
+        // Edited and saved again in a new order, it reads back in that one.
+        let mut again = get_custom_food(&c, &id).unwrap();
+        again.nutrients.reverse();
+        save_custom_food(&mut c, Some(&id), &again).unwrap();
+        let order: Vec<i64> = get_custom_food(&c, &id).unwrap().nutrients.iter().map(|n| n.nutrient_id).collect();
+        assert_eq!(order, vec![1004, 1005, 1003, 1008]);
+    }
+
+    #[test]
+    fn a_pack_with_a_barcode_is_packaged_whatever_is_sent() {
+        let mut c = db();
+        let mut coded = pack("Granola bar", 40.0, vec![measured(1008, 190.0)]);
+        coded.barcode = Some("034000002405".into());
+        let coded = save_custom_food(&mut c, None, &coded).unwrap();
+        let plain = save_custom_food(&mut c, None, &pack("Dosa batter", 100.0, vec![])).unwrap();
+        let said = |o: &str| Tags { origin: Some(o.into()), cuisine: Some("American".into()) };
+        let log = |c: &Connection, id: &str, tags: &Tags| {
+            add(c, "2026-10-08", Some("lunch"), Source::Custom(id), "x",
+                Quantity::Grams(40.0), None, tags).unwrap()
+        };
+        let a = log(&c, &coded, &Tags::default());
+        let b = log(&c, &coded, &said("home"));
+        let d = log(&c, &plain, &said("home"));
+        // Retagging cannot move it off packaged either.
+        set_tags(&c, &a, &said("ordered_in")).unwrap();
+
+        let entries = day(&c, "2026-10-08").unwrap();
+        let of = |id: &str| entries.iter().find(|e| e.id == id).unwrap();
+        for id in [&a, &b] {
+            assert_eq!(of(id).origin.as_deref(), Some("packaged"));
+            assert_eq!(of(id).implied_origin.as_deref(), Some("packaged"));
+            // and a pack keeps no cuisine.
+            assert_eq!(of(id).cuisine, None);
+        }
+        // Without a barcode it is the user's to say.
+        assert_eq!(of(&d).origin.as_deref(), Some("home"));
+        assert_eq!(of(&d).cuisine.as_deref(), Some("American"));
+        assert_eq!(of(&d).implied_origin, None);
+        assert_eq!(entry_by_id(&c, &a).unwrap().implied_origin.as_deref(), Some("packaged"));
+    }
+
+    #[test]
+    fn a_recipe_or_a_pot_is_made_at_home_and_nothing_else_is_implied() {
+        assert_eq!(implied_origin("recipe", false), Some("home"));
+        assert_eq!(implied_origin("cook", false), Some("home"));
+        assert_eq!(implied_origin("custom", true), Some("packaged"));
+        assert_eq!(implied_origin("custom", false), None);
+        assert_eq!(implied_origin("food", false), None);
+        assert_eq!(implied_origin("supplement", false), None);
     }
 
     #[test]

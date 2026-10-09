@@ -36,7 +36,8 @@ pub struct Ingredients {
 /// Supplement Facts panel and only the excipients are listed underneath.
 /// Whichever appears first starts the list; the other ends it.
 pub fn parse(blocks: &[TextBlock]) -> Ingredients {
-    let rows = panel::rows_from(blocks);
+    let column = column_of_list(blocks);
+    let rows = panel::rows_from(&column);
 
     // The allergen statement is looked for across the whole photo rather than
     // only after the header. A frame cropped to the bottom of a pack can catch
@@ -105,6 +106,35 @@ pub fn parse(blocks: &[TextBlock]) -> Ingredients {
         contains,
         trouble,
     }
+}
+
+/// The blocks in the list's own column, when the heading says where that is.
+///
+/// A pack often prints the panel and the list side by side, and a photo of the
+/// back catches both. Rows are built across the whole frame, so "Calories 190"
+/// and "Almonds, Sunflower Oil," at the same height would become one row, and
+/// the figures would either join the list or end it. Keeping only the blocks
+/// that overlap the heading's block across the frame reads the list's column
+/// alone. A list printed full width overlaps everything, so nothing changes for
+/// it; and with no heading block there is no column to keep, so the whole photo
+/// is read as before.
+fn column_of_list(blocks: &[TextBlock]) -> Vec<TextBlock> {
+    let Some(head) = blocks
+        .iter()
+        .filter(|b| b.x.is_finite() && b.w.is_finite() && b.w > 0.0 && b.y.is_finite())
+        .filter(|b| strip_header(&b.text).is_some())
+        .min_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+    else {
+        return blocks.to_vec();
+    };
+    blocks
+        .iter()
+        .filter(|b| {
+            let overlap = (b.x + b.w).min(head.x + head.w) - b.x.max(head.x);
+            overlap > 0.5 * b.w.min(head.w)
+        })
+        .cloned()
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +542,43 @@ mod tests {
             g.contains, None,
             "\"Contains 2% or less of\" is not an allergen statement"
         );
+    }
+
+    #[test]
+    fn a_panel_photo_with_the_list_under_it_gives_the_list_alone() {
+        // One shot of the back of a pack: the panel, then the list below it.
+        let g = parse(&stack(&[
+            "Nutrition Facts",
+            "Serving size 1 bar (40g)",
+            "Calories 190",
+            "Total Fat 8g 10%",
+            "Total Carbohydrate 27g 10%",
+            "Protein 4g",
+            "INGREDIENTS: Rolled Oats, Honey, Almonds,",
+            "Sunflower Oil, Salt.",
+            "CONTAINS: ALMONDS.",
+        ]));
+        assert_eq!(g.text, "Rolled Oats, Honey, Almonds, Sunflower Oil, Salt.");
+        assert_eq!(g.contains.as_deref(), Some("ALMONDS."));
+    }
+
+    #[test]
+    fn a_panel_photo_with_the_list_beside_it_keeps_the_figures_out() {
+        // The panel down the left half, the list down the right, row for row.
+        let left = |t: &str, y: f64| TextBlock { text: t.into(), x: 0.03, y, w: 0.42, h: 0.03 };
+        let right = |t: &str, y: f64| TextBlock { text: t.into(), x: 0.55, y, w: 0.42, h: 0.03 };
+        let g = parse(&[
+            left("Nutrition Facts", 0.10),
+            right("INGREDIENTS: Rolled Oats, Honey,", 0.10),
+            left("Calories 190", 0.14),
+            right("Almonds, Sunflower Oil, Salt.", 0.14),
+            left("Total Fat 8g 10%", 0.18),
+            left("Protein 4g", 0.22),
+        ]);
+        assert!(g.text.contains("Rolled Oats") && g.text.contains("Salt."), "{}", g.text);
+        for figure in ["Calories", "Total Fat", "Protein", "190", "8g"] {
+            assert!(!g.text.contains(figure), "panel figure {figure} leaked into: {}", g.text);
+        }
     }
 
     #[test]

@@ -455,8 +455,8 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
               it.
             </p>
             <p>
-              Dry rajma roughly triples as it cooks, so a katori read as if it were still dry
-              would count about three times over.
+              Dry beans roughly triple as they cook, so a bowl read as if it were still dry would
+              count about three times over.
             </p>
             <p>
               A dish that neither soaks up water nor cooks down, like a chutney, a salad or a
@@ -489,8 +489,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
           <h2 className="rb__h">Portions</h2>
           <Info title="What a portion is for">
             <p>
-              Name a helping, like 1 katori or 1 dosa, and log it later without weighing. A katori
-              is usually taken as 150 g.
+              Name a helping, like 1 bowl or 1 slice, and log it later without weighing.
             </p>
           </Info>
         </div>
@@ -507,7 +506,7 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
           </div>
         )}
         <div className="rb__line">
-          <input className="field rb__plabel" placeholder="1 katori"
+          <input className="field rb__plabel" placeholder="1 bowl"
             value={soLabel} onChange={(e) => setSoLabel(e.target.value)} aria-label="Portion name" />
           <input className="field grams tnum" type="number" min="1" inputMode="decimal" placeholder="150"
             value={soGrams} onChange={(e) => setSoGrams(e.target.value)} aria-label="Portion grams" />
@@ -530,6 +529,8 @@ export default function RecipeBuilder({ onDone, onCancel }: { onDone: () => void
         <TagPicker
           origin={defaultOrigin}
           cuisine={defaultCuisine}
+          // A recipe is made at home, so only its cuisine is asked.
+          origins={[]}
           onChange={(o, c) => { setDefaultOrigin(o); setDefaultCuisine(c); }}
         />
       </section>

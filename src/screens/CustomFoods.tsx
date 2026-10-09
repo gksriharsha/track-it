@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { deleteCustomFood, listCustomFoods } from "../api";
 import { plural } from "../lib/nutrient";
 import type { CustomFood } from "../types";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -98,12 +99,7 @@ export default function CustomFoods(p: Props) {
       ) : foods.length === 0 ? (
         <div className="empty">
           <h3>No foods of your own yet</h3>
-          <p>
-            A generic entry for milk chocolate is not the bar you are eating. Transcribe what the
-            pack prints — from a photo of it, so you only have to hold the pack once — and this
-            food ranks above the 13,694 bundled ones in search, or replaces the generic entry it
-            was built from.
-          </p>
+          <p>Add a pack from a photo of its label.</p>
           <button className="btn" onClick={() => p.onEdit(null)}>Add your first food</button>
         </div>
       ) : (
@@ -113,6 +109,16 @@ export default function CustomFoods(p: Props) {
               foods you have, and the rows under it say which ones match. */}
           <div className="card__head">
             <h2>{foods.length} saved</h2>
+            <Info title="Foods you added">
+              <p>
+                A serving weight is what makes these usable: the pack prints its figures per serving
+                and the rest of the app works per 100 g.
+              </p>
+              <p>
+                Edit a food to see how many of its 47 nutrients came off the label, how many were
+                borrowed, and how many nothing measured.
+              </p>
+            </Info>
           </div>
           {/* A filter rather than a search command: these are the user's own foods,
               a few hundred at most, and all of them are already in memory. */}
@@ -173,13 +179,6 @@ export default function CustomFoods(p: Props) {
         </section>
       )}
 
-      {foods.length > 0 && (
-        <p className="rangenote">
-          A serving weight is what makes these usable: the pack prints its figures per serving and
-          the rest of the app works per 100 g. Edit a food to see how many of its 47 nutrients came
-          off the label, how many were borrowed, and how many nothing measured.
-        </p>
-      )}
     </div>
   );
 }

@@ -592,6 +592,9 @@ export const saveFoodPhoto = (dataBase64: string) =>
 export const readFoodPhoto = (name: string) =>
   invoke<string>("read_food_photo", { name });
 
+/** Delete a photo taken off a form before it was saved. Saving deletes the rest. */
+export const discardFoodPhoto = (name: string) => invoke<void>("discard_food_photo", { name });
+
 /**
  * Read the nutrition panel in a stored photo, by the base filename
  * `saveFoodPhoto` returned. Recognition runs on this device.
@@ -650,8 +653,8 @@ export const scanBarcode = (dataBase64: string) =>
  * repeatedly while the camera is open, so send a small frame: it answers "is a
  * panel in shot", not "what does it say".
  */
-export const probeFrame = (dataBase64: string) =>
-  invoke<Probe>("probe_frame", { dataBase64 });
+export const probeFrame = (dataBase64: string, kind?: string) =>
+  invoke<Probe>("probe_frame", { dataBase64, kind: kind ?? null });
 
 /** Most recently used first, never-used last — the vessel you reached for last. */
 export const listVessels = () => invoke<Vessel[]>("list_vessels");

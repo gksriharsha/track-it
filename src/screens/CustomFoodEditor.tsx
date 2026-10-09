@@ -17,6 +17,8 @@ import { useCameraRoute } from "../lib/camera";
 import { displayName } from "../lib/foodForms";
 import { useHashSheet } from "../lib/hashSheet";
 import { nounFor, pieceText } from "../lib/pieces";
+import { inPrintedOrder } from "../lib/printedOrder";
+import Glyph from "../components/Glyph";
 import LabelForm from "../components/LabelForm";
 import PhotoSlot from "../components/PhotoSlot";
 import type {
@@ -31,6 +33,7 @@ import type {
   ServingUnit,
 } from "../types";
 import { LABEL_NUTRIENTS } from "../types";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -145,6 +148,14 @@ export default function CustomFoodEditor(p: Props) {
 
   /** Which scan is the current one, so a second photo's result cannot land after it. */
   const scanSeq = useRef(0);
+  /**
+   * The order the pack prints its lines in: as read off the photo, or as the
+   * food was saved. The label form lists its lines in it, so checking the form
+   * against the pack is reading down both at once.
+   */
+  const [order, setOrder] = useState<number[] | null>(null);
+  /** The readings the label form has on screen, tinted or under a typed figure. */
+  const [shownReads, setShownReads] = useState<{ tinted: number[]; clashes: number[] }>({ tinted: [], clashes: [] });
 
   function forgetScan() {
     scanSeq.current++;
@@ -161,6 +172,9 @@ export default function CustomFoodEditor(p: Props) {
    * the path that always works and this only ever saves keystrokes.
    */
   async function runScan(photoName: string) {
+    // A pack often prints its ingredients beside the panel, in the same shot.
+    // Without a photo of the list itself, read this one for it too.
+    if (photoIngredients === null) void runIngredientScan(photoName, true);
     const mine = ++scanSeq.current;
     setSuggestions(null);
     setScanNote(null);
@@ -170,7 +184,14 @@ export default function CustomFoodEditor(p: Props) {
       const s = await scanLabelPhoto(photoName);
       if (mine !== scanSeq.current) return;
       setSuggestions(s.readings.length > 0 ? s.readings : null);
-      setScanNote(noteOf(s));
+      if (s.readings.length > 0) setOrder(s.readings.map((x) => x.nutrient_id));
+      // What was read waits in its boxes; only a photo that gave nothing says so.
+      const note = noteOf(s);
+      setScanNote(note.kind === "read" ? null : note);
+      // An empty serving box follows the unit the pack printed its serving in.
+      if (!serving.trim() && (s.serving_g === null) !== (s.serving_ml === null)) {
+        setServingUnit(s.serving_ml !== null ? "ml" : "g");
+      }
       setServingHint(s.serving_g !== null || s.serving_ml !== null || s.serving_label !== null
         ? { g: s.serving_g, ml: s.serving_ml, label: s.serving_label }
         : null);
@@ -199,24 +220,12 @@ export default function CustomFoodEditor(p: Props) {
     });
   }
 
-  /** Every reading taken at once — the form fires this only when none was held back. */
-  function acceptAll() {
-    const all = suggestions ?? [];
-    if (all.length === 0) return;
-    setNutrients((cur) => merge(cur, all));
-    setSuggestions(null);
-  }
-
-  /** Take the photo's serving, in the unit the button named. */
-  function acceptServing(unit: ServingUnit) {
-    if (!servingHint) return;
-    const amount = unit === "ml" ? servingHint.ml : servingHint.g;
-    if (amount !== null) {
-      setServing(String(amount));
-      setServingUnit(unit);
-    }
-    if (servingHint.label !== null && !servingLabel.trim()) setServingLabel(servingHint.label);
-    setServingHint(null);
+  /** A reading the label form no longer has on offer. */
+  function dropSuggestion(id: number) {
+    setSuggestions((cur) => {
+      const left = (cur ?? []).filter((c) => c.nutrient_id !== id);
+      return left.length > 0 ? left : null;
+    });
   }
 
   /**
@@ -247,17 +256,25 @@ export default function CustomFoodEditor(p: Props) {
    * panel scan: it runs after the photo is on disk, it says what it found beside
    * the box rather than in it, and every branch leaves typing the list out by
    * hand exactly as available as it was.
+   *
+   * `quiet` is the panel photo read for a list it may or may not hold: a list
+   * found is offered as usual, and anything else says nothing, since that photo
+   * was never meant to show one.
    */
-  async function runIngredientScan(photoName: string) {
+  async function runIngredientScan(photoName: string, quiet = false) {
     const mine = ++ingSeq.current;
     setIngRead(null);
     setIngNote(null);
-    setIngScanning(true);
+    if (!quiet) setIngScanning(true);
     try {
       const s: IngredientsScan = await scanIngredientsPhoto(photoName);
       if (mine !== ingSeq.current) return;
       const text = s.text.trim();
       const contains = s.contains?.trim() || null;
+      if (quiet) {
+        if (text) setIngRead({ text, contains });
+        return;
+      }
       if (text || contains) {
         setIngRead({ text, contains });
         // A frame cropped to the bottom of a pack catches the allergen line
@@ -273,7 +290,7 @@ export default function CustomFoodEditor(p: Props) {
         setIngNote({ kind: "none", lines: s.lines });
       }
     } catch (e) {
-      if (mine !== ingSeq.current) return;
+      if (mine !== ingSeq.current || quiet) return;
       setIngNote({ kind: "failed", text: sentence(String(e)) });
     } finally {
       if (mine === ingSeq.current) setIngScanning(false);
@@ -298,6 +315,37 @@ export default function CustomFoodEditor(p: Props) {
 
   /** The reading and the box already say the same thing — nothing to put anywhere. */
   const ingSame = ingText !== "" && ingredients.trim() === ingText.trim();
+
+  /** What was read off the photos and is still tinted, waiting for a yes. */
+  const servingRead = !serving.trim() && servingHint
+    ? (servingUnit === "ml" ? servingHint.ml : servingHint.g)
+    : null;
+  const labelRead = !servingLabel.trim() && servingHint?.label ? servingHint.label : null;
+  const ingTinted = ingText !== "" && ingredients.trim() === "";
+  const tintedCount = shownReads.tinted.length + (servingRead !== null ? 1 : 0)
+    + (labelRead !== null ? 1 : 0) + (ingTinted ? 1 : 0);
+  /** A list typed before the photo was read, and a different one read off it. */
+  const ingClash = ingText !== "" && !ingTinted && !ingSame;
+  const waiting = tintedCount + shownReads.clashes.length + (ingClash ? 1 : 0);
+
+  /**
+   * "Looks right": everything tinted goes in as it reads. A figure typed before
+   * the photo was read stays as typed — the user had the photo's figure in front
+   * of them under it and did not take it.
+   */
+  function confirmReads() {
+    const take = new Set(shownReads.tinted);
+    const taken = (suggestions ?? []).filter((x) => take.has(x.nutrient_id));
+    if (taken.length > 0) setNutrients((cur) => merge(cur, taken));
+    setSuggestions(null);
+    if (servingRead !== null) {
+      setServing(String(servingRead));
+    }
+    if (labelRead !== null) setServingLabel(labelRead);
+    setServingHint(null);
+    if (ingTinted) setIngredients(ingText);
+    if (ingText) forgetIngredientScan();
+  }
 
   /**
    * The reading into the box. The only way it gets there, and never over typed
@@ -406,6 +454,7 @@ export default function CustomFoodEditor(p: Props) {
     // A draft written before percentages existed has no basis, and every
     // figure in it was typed as an amount — which is what "current" assumes.
     setDvBasis(d.dvBasis ?? "current");
+    setOrder(d.order ?? null);
   }, []);
 
   // One place decides what the form starts as: an unsaved draft for this exact
@@ -475,10 +524,11 @@ export default function CustomFoodEditor(p: Props) {
       JSON.stringify({
         forId: p.id, name, brand, barcode, overridesFdcId, serving, servingUnit, pieces, pieceNoun,
         servingLabel, ingredients, photoLabel, photoIngredients, nutrients: settled(nutrients), dvBasis,
+        order,
       } satisfies Persisted),
     [p.id, name, brand, barcode, overridesFdcId, serving, servingUnit, pieces, pieceNoun, servingLabel,
       ingredients,
-      photoLabel, photoIngredients, nutrients, dvBasis],
+      photoLabel, photoIngredients, nutrients, dvBasis, order],
   );
 
   const dirty = baseline === null || snapshot !== baseline;
@@ -582,6 +632,11 @@ export default function CustomFoodEditor(p: Props) {
   async function save() {
     setError(null);
     if (!name.trim()) return setError("Give the food a name — what the pack calls it.");
+    // Before the serving's own check: an unconfirmed serving is still tinted in
+    // its box, and "enter the serving" would be the wrong thing to say about it.
+    if (tintedCount > 0) {
+      return setError("Check the tinted figures against the pack, then tap Looks right.");
+    }
     const amount = Number(serving);
     if (!serving.trim() || !Number.isFinite(amount) || amount <= 0) {
       return setError(servingUnit === "ml"
@@ -624,7 +679,7 @@ export default function CustomFoodEditor(p: Props) {
       barcode: nz(barcode),
       photo_label: photoLabel,
       photo_ingredients: photoIngredients,
-      nutrients,
+      nutrients: inPrintedOrder(nutrients, (n) => n.nutrient_id, order),
       dv_basis: dvBasis,
     };
 
@@ -670,10 +725,43 @@ export default function CustomFoodEditor(p: Props) {
     );
   }
 
+  /*
+    One confirm for everything read off the photos, at the foot of the screen.
+    On a phone it takes the place of the photo strip and keeps the photo in it,
+    so the pack to check against is one tap from the button that says it was.
+  */
+  const readBar = waiting > 0 && (
+    <div className={`readbar ${wide ? "readbar--wide" : "readbar--phone"}`} role="region" aria-label="Read from the photo">
+      {aside.url && !wide ? (
+        <button className="readbar__thumb" type="button" onClick={() => viewer.show()} aria-label="Open the photo full screen">
+          <img src={aside.url} alt="" />
+        </button>
+      ) : (
+        <span className="readbar__glyph"><Glyph name="camera" size={20} /></span>
+      )}
+      <span className="readbar__t">
+        <strong>Read from the photo</strong>
+        <span>{tintedCount > 0 ? "Check the tinted lines against it" : "Keep what you typed, or use the photo's"}</span>
+      </span>
+      <button className="btn readbar__ok" type="button" onClick={confirmReads}>
+        {tintedCount > 0 ? "Looks right" : "Keep mine"}
+      </button>
+    </div>
+  );
+
   const form = (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--s6)", minWidth: 0 }}>
       <section className="card">
-        <div className="card__head"><h2>What it is</h2></div>
+        <div className="card__head">
+          <h2>What it is</h2>
+          <Info title="Brand and barcode">
+            <p>
+              Both are optional, and both are searchable — the barcode is the fastest way back to a
+              food you have already transcribed.
+            </p>
+            <p>A food with a barcode is always logged as packaged.</p>
+          </Info>
+        </div>
         <div className="group__name">Name</div>
         <input
           className="field"
@@ -717,7 +805,7 @@ export default function CustomFoodEditor(p: Props) {
                 >
                   {barcodeReading ? "Reading…" : "Scan it"}
                 </button>
-                <span className="pslot__hint">Nothing is stored — only the digits are read.</span>
+                <span className="pslot__hint">Only the digits are kept.</span>
               </div>
             )}
           </div>
@@ -792,11 +880,6 @@ export default function CustomFoodEditor(p: Props) {
             </button>
           </div>
         )}
-
-        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Brand and barcode are optional, and both are searchable — the barcode is the fastest way
-          back to a food you have already transcribed.
-        </p>
       </section>
 
       {/*
@@ -812,24 +895,31 @@ export default function CustomFoodEditor(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>Photos of the pack</h2>
-          <span className="card__note">so you only hold it once</span>
+          <span className="card__note">deleted when you save</span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "var(--s4)" }}>
           <PhotoSlot
             scanKind="nutrition"
             label="Nutrition panel"
-            hint="The numbers you are about to type. It stays beside the form while you transcribe, and the app has a go at reading it."
+            hint="Read for you, then deleted when you save."
             name={photoLabel}
             /* A reading belongs to one photo. Drop the panel photo and the
                suggestions taken off it go with it, rather than lingering over a
                form that no longer has anything to check them against. */
-            onChange={(n) => { setPhotoLabel(n); if (n === null) forgetScan(); }}
+            onChange={(n) => {
+              setPhotoLabel(n);
+              if (n === null) {
+                forgetScan();
+                // So does a list read off it, when no photo of the list stands in.
+                if (photoIngredients === null) forgetIngredientScan();
+              }
+            }}
             onScan={runScan}
           />
           <PhotoSlot
             scanKind="ingredients"
             label="Ingredient list"
-            hint="Kept as it was printed, and the app has a go at reading it out for you."
+            hint="Optional if it is in the panel photo."
             name={photoIngredients}
             /* As with the panel: the reading belongs to this photo, so dropping
                the photo drops what was read off it rather than leaving the text
@@ -843,6 +933,18 @@ export default function CustomFoodEditor(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>Does this replace a generic entry?</h2>
+          <Info title="Replacing a generic entry">
+            <p>
+              The food takes that entry’s place in search, and borrows its values for everything
+              the pack does not print. Every borrowed value is marked as borrowed wherever it is
+              shown.
+            </p>
+            <p>
+              Leave it empty and anything the pack does not print stays unmeasured — never counted
+              as zero, though it lowers the day’s coverage.
+            </p>
+            <p>Only a bundled entry can be replaced, not another food of your own.</p>
+          </Info>
           <span className="card__note">optional</span>
         </div>
 
@@ -860,11 +962,6 @@ export default function CustomFoodEditor(p: Props) {
                 Remove
               </button>
             </div>
-            <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-              This food takes that entry’s place in search, and borrows its values for everything
-              the pack does not print. Every borrowed value is marked as borrowed wherever it is
-              shown.
-            </p>
           </>
         ) : (
           <>
@@ -896,20 +993,28 @@ export default function CustomFoodEditor(p: Props) {
             )}
             {hidCustom && (
               <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-                Foods of your own matched too and are not listed: a food can only replace a
-                bundled entry.
+                Your own foods are not listed here.
               </p>
             )}
-            <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-              Leave this empty and anything the pack does not print stays unmeasured — never
-              counted as zero, and it will drag the day’s coverage down where it matters.
-            </p>
           </>
         )}
       </section>
 
       <section className="card">
-        <div className="card__head"><h2>Serving</h2></div>
+        <div className="card__head">
+          <h2>Serving</h2>
+          <Info title="Why the serving matters">
+            <p>
+              Every figure in the label below is per this serving. A serving that is wrong makes
+              every figure wrong by the same factor, so take it from the pack rather than from the
+              scale.
+            </p>
+            <p>
+              A pack printed per ml, a can or a carton, is logged in millilitres — by the can, or
+              as much as was poured.
+            </p>
+          </Info>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--s3)", marginTop: "var(--s4)" }}>
           {/* Not a <label> around the input: the unit chips sit in this cell,
               and a button inside a label is a click that also lands on the box. */}
@@ -917,15 +1022,21 @@ export default function CustomFoodEditor(p: Props) {
             <span className="group__name">Serving size</span>
             <div className="vform__amt">
               <input
-                className="field tnum"
                 type="number"
                 min="0"
                 step="any"
                 inputMode="decimal"
-                value={serving}
-                onChange={(e) => setServing(e.target.value)}
+                className={`field tnum${servingRead !== null ? " is-read" : ""}`}
+                value={servingRead !== null ? String(servingRead) : serving}
+                onChange={(e) => {
+                  setServing(e.target.value);
+                  // Typed over: the figure is the user's now. The pack's wording
+                  // of it is still on offer in its own box.
+                  setServingHint((h) => (h ? { ...h, g: null, ml: null } : h));
+                }}
                 placeholder={servingUnit === "ml" ? "330" : "43"}
-                aria-label={servingUnit === "ml" ? "Serving size in millilitres" : "Serving size in grams"}
+                aria-label={(servingRead !== null ? "Read from the photo, not yet confirmed: " : "") +
+                  (servingUnit === "ml" ? "Serving size in millilitres" : "Serving size in grams")}
               />
               {/* Whichever the pack's figures are per: a weight for nearly every
                   pack, a volume for a can or a carton printed "per 100 ml". */}
@@ -967,54 +1078,18 @@ export default function CustomFoodEditor(p: Props) {
           <label className="vform__cell">
             <span className="group__name">As the pack words it</span>
             <input
-              className="field"
-              value={servingLabel}
-              onChange={(e) => setServingLabel(e.target.value)}
+              className={`field${labelRead !== null ? " is-read" : ""}`}
+              value={labelRead ?? servingLabel}
+              onChange={(e) => {
+                setServingLabel(e.target.value);
+                setServingHint((h) => (h ? { ...h, label: null } : h));
+              }}
               placeholder={servingUnit === "ml" ? "1 can (330 ml)" : "1 bar (43 g)"}
-              aria-label="Serving as worded on the pack"
+              aria-label={(labelRead !== null ? "Read from the photo, not yet confirmed: " : "") +
+                "Serving as worded on the pack"}
             />
           </label>
         </div>
-
-        {/* Offered, not filled in. The box stays as the user left it until they
-            press the button — a misread serving multiplies every figure on the
-            panel by the wrong factor, so this is the last number to guess at.
-            A row that prints both a volume and a weight offers each, by name:
-            which one the figures are per is the person's call, not the photo's. */}
-        {servingHint && !serving.trim() && (
-          <div className="t-sm" style={SUGGESTED}>
-            <span style={{ minWidth: 0, flex: 1 }}>
-              {servingHint.ml !== null || servingHint.g !== null ? (
-                <>
-                  The photo reads{" "}
-                  {servingHint.ml !== null && <><strong className="num">{servingHint.ml}</strong> ml</>}
-                  {servingHint.ml !== null && servingHint.g !== null && " and "}
-                  {servingHint.g !== null && <><strong className="num">{servingHint.g}</strong> g</>}
-                  {" "}per serving
-                  {servingHint.label && <> — “{servingHint.label}”</>}.
-                </>
-              ) : (
-                <>
-                  The photo reads the serving as “{servingHint.label}” but no weight or volume.
-                  Type the one the pack prints, or weigh one.
-                </>
-              )}
-            </span>
-            {servingHint.ml !== null && (
-              <button className="btn vrow__btn" onClick={() => acceptServing("ml")}>
-                {servingHint.g !== null ? `Use ${servingHint.ml} ml` : "Use it"}
-              </button>
-            )}
-            {servingHint.g !== null && (
-              <button className="btn vrow__btn" onClick={() => acceptServing("g")}>
-                {servingHint.ml !== null ? `Use ${servingHint.g} g` : "Use it"}
-              </button>
-            )}
-            <button className="btn btn--quiet vrow__btn" onClick={() => setServingHint(null)}>
-              Ignore
-            </button>
-          </div>
-        )}
 
         {pieceLine(serving, servingUnit, pieces, pieceNoun) && (
           <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
@@ -1022,21 +1097,6 @@ export default function CustomFoodEditor(p: Props) {
           </p>
         )}
 
-        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          {servingUnit === "ml" ? (
-            <>
-              Every figure in the label below is per this volume, and the food is logged in
-              millilitres — by the can, or as much as was poured. A serving that is wrong makes
-              every transcribed number wrong by the same factor, so take it from the pack.
-            </>
-          ) : (
-            <>
-              Every figure in the label below is per this weight. The app stores food per 100 g and
-              converts, so a serving size that is wrong makes every transcribed number wrong by the
-              same factor — take it from the pack rather than from the scale.
-            </>
-          )}
-        </p>
       </section>
 
 
@@ -1047,8 +1107,7 @@ export default function CustomFoodEditor(p: Props) {
         </div>
         {scanning && (
           <p className="rangenote" style={{ marginBottom: "var(--s4)" }}>
-            Reading the panel in the photo… you can start typing, nothing here will be
-            overwritten.
+            Reading the photo…
           </p>
         )}
         {scanNote && <ScanLine note={scanNote} onDismiss={forgetScan} />}
@@ -1064,7 +1123,9 @@ export default function CustomFoodEditor(p: Props) {
           baseName={baseName}
           suggestions={suggestions}
           onAcceptSuggestion={acceptSuggestion}
-          onAcceptAll={acceptAll}
+          onDropSuggestion={dropSuggestion}
+          onShown={setShownReads}
+          order={order}
           dvBasis={dvBasis}
           onDvBasisChange={setDvBasis}
         />
@@ -1084,67 +1145,43 @@ export default function CustomFoodEditor(p: Props) {
         </div>
         {ingScanning && (
           <p className="rangenote" style={{ marginBottom: "var(--s4)" }}>
-            Reading the list in the photo… carry on typing, nothing here will be overwritten.
+            Reading the photo…
           </p>
         )}
 
-        <textarea
-          className="field"
-          value={ingredients}
-          onChange={(e) => setIngredients(e.target.value)}
-          rows={4}
-          placeholder="Sugar, milk, chocolate, cocoa butter, milk fat, soy lecithin, vanillin"
-          aria-label="Ingredient list as printed"
-          style={{ resize: "vertical", lineHeight: 1.5 }}
-        />
+        <span className="lrow__box">
+          <textarea
+            className={`field${ingTinted ? " is-read" : ""}`}
+            value={ingTinted ? ingText : ingredients}
+            onChange={(e) => {
+              setIngredients(e.target.value);
+              // Typed over: the list is the user's now.
+              if (ingTinted) forgetIngredientScan();
+            }}
+            rows={4}
+            placeholder="Sugar, milk, chocolate, cocoa butter, milk fat, soy lecithin, vanillin"
+            aria-label={(ingTinted ? "Read from the photo, not yet confirmed: " : "") + "Ingredient list as printed"}
+            style={{ resize: "vertical", lineHeight: 1.5, width: "100%", fontWeight: ingTinted ? 500 : undefined }}
+          />
+          {ingTinted && (
+            <span className="ing__tag"><Glyph name="camera" size={14} />From the photo</span>
+          )}
+        </span>
 
-        {/* What was read, in full and side by side with what is in the box — the
-            two are shown together because only the user can tell which of them
-            says what the pack says. Nothing here reaches the box on its own. */}
-        {ingText && (
-          <div className="t-sm" style={SUGGESTED} role="group" aria-label="Read from the ingredient list photo">
-            <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-              <p style={{ margin: 0 }}>
-                {ingSame ? (
-                  <>The photo reads the same as what is in the box.</>
-                ) : ingredients.trim() === "" ? (
-                  <>
-                    Read from the photo. Check it against the pack before you take it — a
-                    recogniser drops words as readily as it misreads them.
-                  </>
-                ) : (
-                  <>
-                    Read from the photo, and you have already typed something. Both are here:
-                    take this instead, add it underneath, or keep what you wrote.
-                  </>
-                )}
-              </p>
-              {/* Pre-wrapped and verbatim: the commas, the brackets and the
-                  capitals are what the pack printed, and the allergen line has
-                  to stay a line of its own. */}
-              <p style={READ_BACK}>{ingText}</p>
-            </div>
-            {!ingSame && (
-              <button
-                className="btn vrow__btn"
-                type="button"
-                onClick={() => acceptIngredients("replace")}
-              >
-                {ingredients.trim() === "" ? "Use it" : "Use this instead"}
+        {/* A list typed before the photo was read stays; the photo's sits under
+            it, to take instead, to add, or to leave. */}
+        {ingClash && (
+          <div className="ing__photo" role="group" aria-label="Read from the ingredient list photo">
+            <span>The photo reads a different list</span>
+            <p className="ing__read">{ingText}</p>
+            <span className="ing__acts">
+              <button className="chip chip--sm lrow__use" type="button" onClick={() => acceptIngredients("replace")}>
+                Use the photo's
               </button>
-            )}
-            {!ingSame && ingredients.trim() !== "" && (
-              <button
-                className="btn btn--quiet vrow__btn"
-                type="button"
-                onClick={() => acceptIngredients("append")}
-              >
-                Add underneath
+              <button className="chip chip--sm" type="button" onClick={() => acceptIngredients("append")}>
+                Add it underneath
               </button>
-            )}
-            <button className="btn btn--quiet vrow__btn" type="button" onClick={forgetIngredientScan}>
-              {ingSame ? "Got it" : ingredients.trim() === "" ? "Ignore" : "Keep mine"}
-            </button>
+            </span>
           </div>
         )}
 
@@ -1152,16 +1189,14 @@ export default function CustomFoodEditor(p: Props) {
             the whole scan would take the statement away with the sentence. */}
         {ingNote && <IngLine note={ingNote} onDismiss={() => setIngNote(null)} />}
 
-        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
-          Nothing is parsed out of this. It is here so you can check what is in a food without
-          finding the pack again.
-        </p>
+        <p className="rangenote" style={{ marginTop: "var(--s3)" }}>For reference only.</p>
       </section>
+      {wide && readBar}
     </div>
   );
 
   return (
-    <div className="screen" style={showStrip ? { paddingBottom: "var(--s8)" } : undefined}>
+    <div className="screen" style={showStrip || (readBar && !wide) ? { paddingBottom: "var(--s8)" } : undefined}>
       <ScreenHead
         title={p.id ? "Edit food" : "New food"}
         action={
@@ -1243,7 +1278,8 @@ export default function CustomFoodEditor(p: Props) {
 
       {/* Phone: there is no room beside the form, so the photo pins itself above
           the nav bar as a strip and opens full screen on a tap. */}
-      {showStrip && (
+      {!wide && readBar}
+      {showStrip && !readBar && (
         <div
           className="card"
           style={{
@@ -1332,22 +1368,6 @@ const SUGGESTED: CSSProperties = {
 };
 
 /**
- * The list as it was read, shown back verbatim so it can be compared with the
- * pack word for word. Pre-wrapped, because the allergen statement is a line of
- * its own and a wrapped list has to break where the box breaks it.
- */
-const READ_BACK: CSSProperties = {
-  margin: "var(--s2) 0 0",
-  padding: "var(--s2) var(--s3)",
-  borderRadius: "var(--r-sm)",
-  background: "var(--bg)",
-  color: "var(--ink)",
-  whiteSpace: "pre-wrap",
-  overflowWrap: "anywhere",
-  lineHeight: 1.5,
-};
-
-/**
  * Whether this device can hand a live stream to the page at all — the same test
  * `PhotoSlot` makes before offering its camera. Without it the barcode Scan
  * button could only apologise, and the field is typeable either way.
@@ -1387,7 +1407,7 @@ function IngLine({ note, onDismiss }: { note: IngNote; onDismiss: () => void }) 
         )}
         {note.kind === "trouble" && note.text}
         {note.kind === "failed" && (
-          <>The photo is saved, but reading it failed — {note.text} Type the list in above.</>
+          <>Reading the photo failed — {note.text} Type the list in above.</>
         )}
       </span>
       <button className="btn btn--quiet vrow__btn" type="button" onClick={onDismiss}>
@@ -1470,7 +1490,7 @@ function ScanLine({ note, onDismiss }: { note: ScanNote; onDismiss: () => void }
         )}
         {note.kind === "trouble" && note.text}
         {note.kind === "failed" && (
-          <>The photo is saved, but reading it failed — {note.text} Type the panel in below.</>
+          <>Reading the photo failed — {note.text} Type the panel in below.</>
         )}
       </span>
       <button className="btn btn--quiet vrow__btn" onClick={onDismiss}>Dismiss</button>
@@ -1509,6 +1529,8 @@ interface Persisted {
   nutrients: CustomNutrient[];
   /** Optional only so a draft saved before percentages existed still loads. */
   dvBasis?: DvBasis;
+  /** The order the pack prints its lines in; optional for drafts from before it was kept. */
+  order?: number[] | null;
 }
 
 const blankDraft = (forId: string | null): Persisted => ({
@@ -1519,6 +1541,7 @@ const blankDraft = (forId: string | null): Persisted => ({
   photoLabel: null, photoIngredients: null,
   nutrients: [],
   dvBasis: "current",
+  order: null,
 });
 
 /**
@@ -1562,6 +1585,8 @@ const draftOf = (f: CustomFood): Persisted => ({
   photoIngredients: f.photo_ingredients,
   nutrients: settled(f.nutrients),
   dvBasis: f.dv_basis ?? "current",
+  // As saved, which is as the form listed them, which is as the pack prints them.
+  order: f.nutrients.map((n) => n.nutrient_id),
 });
 
 function loadDraft(forId: string | null): Persisted | null {

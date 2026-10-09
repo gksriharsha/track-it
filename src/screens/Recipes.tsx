@@ -101,7 +101,7 @@ export default function Recipes(p: Props) {
       ) : list.length === 0 ? (
         <div className="empty">
           <h3>No recipes yet</h3>
-          <p>Save a dish you cook often, and log a katori of it without weighing each ingredient.</p>
+          <p>Save a dish you cook often, and log a bowl of it without weighing each ingredient.</p>
           <button className="btn" onClick={builder.show}>Build your first recipe</button>
         </div>
       ) : (

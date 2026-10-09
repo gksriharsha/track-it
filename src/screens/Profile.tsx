@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getGoals, saveProfile } from "../api";
 import type { Activity, GoalsView, LifeStage, Profile as ProfileT, Sex } from "../types";
 import { ACTIVITIES, LIFE_STAGES } from "../types";
+import Info from "../components/Info";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -153,7 +154,7 @@ export default function Profile(p: Props) {
               <span className="row__sub">
                 {placed
                   ? `Read against the DRIs for ${placed.toLowerCase()}.`
-                  : "Falling back to FDA Daily Values — one adult column, the figure on a food label."}
+                  : "FDA Daily Values, until you add your age and sex."}
               </span>
             </span>
             <span className={`pill${placed ? " is-on" : ""}`}>
@@ -165,7 +166,7 @@ export default function Profile(p: Props) {
               <span className="row__title">Energy target</span>
               <span className="row__sub">
                 {inForce === null
-                  ? "No target. The day shows what you ate and draws no progress bar."
+                  ? "No target set."
                   : inForce.basis === "user_set"
                     ? `${Math.round(inForce.kcal).toLocaleString()} kcal, the figure you set.`
                     : `About ${Math.round(inForce.kcal).toLocaleString()} kcal, estimated from your body.`}
@@ -181,15 +182,27 @@ export default function Profile(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>Age and sex</h2>
-          <span className="card__note">places you in the DRI tables</span>
+          <Info title="Why age and sex">
+            <p>
+              These two do the most work. Without them every target is the FDA Daily Value, one
+              adult column: it puts iron at 18 mg for everyone, where the recommendation is 8 mg
+              for an adult man, 18 mg for a woman under 50, and 8 mg again after that.
+            </p>
+            <p>
+              The DRI tables have exactly two columns, so this is a lookup key rather than a
+              description of you. Leaving it blank is fine — the app falls back to the Daily Values
+              and says so.
+            </p>
+            <p>
+              Pregnancy and breastfeeding are not a small adjustment: folate goes from 400 to
+              600 µg, iron from 18 to 27 mg and iodine from 150 to 220 µg. The published tables stop
+              at 50, so beyond that this app has no column to read.
+            </p>
+          </Info>
+          <span className="card__note">sets your targets</span>
         </div>
-        <p className="rangenote">
-          These two do the most work. Without them every target is the FDA Daily Value, which is a
-          single adult column: it puts iron at 18 mg for everyone, where the actual recommendation
-          is 8 mg for an adult man, 18 mg for a woman under 50, and 8 mg again after that.
-        </p>
 
-        <div className="formgrid" style={{ marginTop: "var(--s4)" }}>
+        <div className="formgrid">
           <label>
             <span className="group__name">Birth year</span>
             <input
@@ -219,10 +232,6 @@ export default function Profile(p: Props) {
             </div>
           </div>
         </div>
-        <p className="tags__note">
-          The DRI tables have exactly two columns, so this is a lookup key rather than a description
-          of you. Leaving it blank is fine — the app falls back to the Daily Values and says so.
-        </p>
 
         <div className="group__name" style={{ marginTop: "var(--s5)" }}>
           Pregnant or breastfeeding
@@ -239,24 +248,27 @@ export default function Profile(p: Props) {
             </button>
           ))}
         </div>
-        <p className="tags__note">
-          Not a small adjustment: folate goes from 400 to 600 µg, iron from 18 to 27 mg and iodine
-          from 150 to 220 µg. The published tables stop at 50, so beyond that this app has no column
-          to read.
-        </p>
       </section>
 
       <section className="card">
         <div className="card__head">
           <h2>Body and activity</h2>
-          <span className="card__note">what an energy estimate needs</span>
+          <Info title="How energy is estimated">
+            <p>
+              All three, or none. An estimate built on a guessed weight is a fiction with a
+              plausible number attached, so the app would rather show no energy target than one it
+              made up.
+            </p>
+            <p>
+              Resting energy comes from the Mifflin–St Jeor equation, which predicts it to roughly
+              ±10% at best, times an activity factor — a round number standing in for something
+              that varies day to day. Treat it as a starting point, not a measurement of you.
+            </p>
+          </Info>
+          <span className="card__note">for an energy estimate</span>
         </div>
-        <p className="rangenote">
-          All three, or none. An estimate built on a guessed weight is a fiction with a plausible
-          number attached, so the app would rather show no energy target than one it made up.
-        </p>
 
-        <div className="formgrid" style={{ marginTop: "var(--s4)" }}>
+        <div className="formgrid">
           <label>
             <span className="group__name">Height (cm)</span>
             <input
@@ -301,15 +313,10 @@ export default function Profile(p: Props) {
 
         {estimate !== null && (
           <p className="rangenote" style={{ marginTop: "var(--s4)" }}>
-            That works out to about <strong>{Math.round(estimate).toLocaleString()} kcal</strong> a
-            day
+            About <strong>{Math.round(estimate).toLocaleString()} kcal</strong> a day
             {view?.estimated_resting != null && (
-              <> — {Math.round(view.estimated_resting).toLocaleString()} kcal at rest, times the
-              activity multiplier</>
+              <> ({Math.round(view.estimated_resting).toLocaleString()} at rest)</>
             )}
-            . It uses the Mifflin–St Jeor equation, which predicts resting expenditure to roughly
-            ±10% at best, and an activity factor that is a round number standing in for something
-            that genuinely varies day to day. Treat it as a starting point, not a measurement of you.
           </p>
         )}
       </section>
@@ -317,13 +324,9 @@ export default function Profile(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>Your own energy target</h2>
-          <span className="card__note">optional</span>
+          <span className="card__note">replaces the estimate</span>
         </div>
-        <p className="rangenote">
-          If you have been given a figure, or you have one you trust, put it here and it wins over
-          the estimate above. Leave it blank to use the estimate.
-        </p>
-        <div className="formgrid" style={{ marginTop: "var(--s4)" }}>
+        <div className="formgrid">
           <label>
             <span className="group__name">Energy (kcal a day)</span>
             <input
