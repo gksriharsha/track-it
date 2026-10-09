@@ -41,8 +41,7 @@ same(
   [1008, 1004],
 );
 
-if (failures > 0) {
-  console.error(`${failures} printed-order claim(s) failed`);
-  process.exit(1);
-}
+// Thrown rather than process.exit: these tests are typechecked with the app,
+// which has no Node typings (see node.d.ts).
+if (failures > 0) throw new Error(`${failures} printed-order claim(s) failed`);
 console.log("printedOrder: all checks passed");
