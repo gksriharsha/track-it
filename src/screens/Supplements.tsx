@@ -96,7 +96,8 @@ export default function Supplements(p: Props) {
             <Info title="How supplements count">
               <p>
                 A supplement borrows nothing. What its panel does not list stays unknown unless you
-                said the panel lists everything.
+                said the panel lists everything. A herb or extract, like ashwagandha, is kept as
+                printed and never counted as a nutrient.
               </p>
             </Info>
           </div>
@@ -108,7 +109,7 @@ export default function Supplements(p: Props) {
                     {s.brand ? `${s.brand} ${s.name}` : s.name}
                   </span>
                   <span className="row__sub">
-                    {plural(s.nutrients.length, "line")} off the panel ·{" "}
+                    {plural(s.nutrients.length + s.actives.length, "line")} off the panel ·{" "}
                     {s.serving_label ??
                       `${s.serving_units} ${s.unit_noun}${s.serving_units === 1 ? "" : "s"}`}{" "}
                     a serving

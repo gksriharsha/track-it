@@ -536,7 +536,7 @@ const SUPPLEMENTS: Supplement[] = [
   {
     id: "sup-d3", name: "Vitamin D3, 1,000 IU", brand: null, unit_noun: "tablet", serving_units: 1,
     serving_label: null, default_units: 1, regime: "us", panel_complete: false, other_ingredients: null,
-    barcode: null, photo_panel: null, photo_ingredients: null, nutrients: [],
+    barcode: null, photo_panel: null, photo_ingredients: null, nutrients: [], actives: [],
   },
 ];
 /**
@@ -1103,6 +1103,14 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   list_recipes: () => RECIPES,
   list_open_cooks: () => COOKS,
   list_supplements: () => SUPPLEMENTS,
+  get_supplement: (a) => structuredClone(SUPPLEMENTS.find((x) => x.id === String(a.id))),
+  save_supplement: (a) => {
+    const saved = { ...(a.supplement as Supplement), id: (a.id as string | null) ?? `sup-${SUPPLEMENTS.length + 1}` };
+    const at = SUPPLEMENTS.findIndex((x) => x.id === saved.id);
+    if (at >= 0) SUPPLEMENTS[at] = saved;
+    else SUPPLEMENTS.push(saved);
+    return saved.id;
+  },
   list_custom_foods: () => structuredClone(CUSTOM),
   get_custom_food: (a) => ownFood(String(a.id)),
   get_custom_food_detail: (a) => ownDetail(ownFood(String(a.id))),
