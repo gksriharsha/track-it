@@ -1369,6 +1369,16 @@ export interface Supplement {
   photo_panel: string | null;
   photo_ingredients: string | null;
   nutrients: SupplementNutrient[];
+  /** Lines that name no nutrient — a herb, an extract — kept as printed. */
+  actives: SupplementActive[];
+}
+
+/** A panel line naming no nutrient this app tracks: "Ashwagandha root extract 600 mg". */
+export interface SupplementActive {
+  name: string;
+  /** Null, with the unit, where the pack gives no amount. */
+  label_amount: number | null;
+  label_unit: "g" | "mg" | "ug" | null;
 }
 
 /** One nutrient this app displays, as the reference database describes it. */
@@ -1621,6 +1631,8 @@ export interface SupplementScan {
   /** What one of them is called, singular: "tablet", "capsule", "gummy". */
   unit_noun: string | null;
   readings: SupplementScanReading[];
+  /** Herb and extract lines, in printed order; a blend part has no amount. */
+  actives: SupplementActive[];
   /** Rows that were read but named no nutrient this app carries. */
   unmatched_rows: number;
   /** Lines of text the recogniser returned, panel or not. */

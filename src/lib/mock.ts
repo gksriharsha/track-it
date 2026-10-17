@@ -538,7 +538,7 @@ const SUPPLEMENTS: Supplement[] = [
   {
     id: "sup-d3", name: "Vitamin D3, 1,000 IU", brand: null, unit_noun: "tablet", serving_units: 1,
     serving_label: null, default_units: 1, regime: "us", panel_complete: false, other_ingredients: null,
-    barcode: null, photo_panel: null, photo_ingredients: null, nutrients: [],
+    barcode: null, photo_panel: null, photo_ingredients: null, nutrients: [], actives: [],
   },
 ];
 /**
@@ -1148,6 +1148,14 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   move_kitchen_food: (a) => { kitchenFood(a).place = a.place as Place; },
   finish_kitchen_food: (a) => { kitchenFood(a).out_on = String(a.on); },
   list_supplements: () => SUPPLEMENTS,
+  get_supplement: (a) => structuredClone(SUPPLEMENTS.find((x) => x.id === String(a.id))),
+  save_supplement: (a) => {
+    const saved = { ...(a.supplement as Supplement), id: (a.id as string | null) ?? `sup-${SUPPLEMENTS.length + 1}` };
+    const at = SUPPLEMENTS.findIndex((x) => x.id === saved.id);
+    if (at >= 0) SUPPLEMENTS[at] = saved;
+    else SUPPLEMENTS.push(saved);
+    return saved.id;
+  },
   list_custom_foods: () => structuredClone(CUSTOM),
   get_custom_food: (a) => ownFood(String(a.id)),
   get_custom_food_detail: (a) => ownDetail(ownFood(String(a.id))),
@@ -1197,6 +1205,11 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
       { nutrient_id: 1178, label_amount: 500, label_unit: "mcg", label_form: "" },
       { nutrient_id: 1090, label_amount: 200, label_unit: "mg", label_form: "" },
       { nutrient_id: 1095, label_amount: 91, label_unit: "% DV", label_form: "" },
+    ],
+    actives: [
+      { name: "Ashwagandha root extract (Withania somnifera)", label_amount: 600, label_unit: "mg" },
+      { name: "Panax ginseng root", label_amount: 200, label_unit: "mg" },
+      { name: "Black pepper fruit extract", label_amount: null, label_unit: null },
     ],
     unmatched_rows: 2, lines: 12, trouble: null,
   }),

@@ -1010,6 +1010,7 @@ mod tests {
             barcode: None,
             photo_panel: None,
             photo_ingredients: None,
+            actives: vec![],
             nutrients: vec![store::SupplementNutrient {
                 nutrient_id: 1087,
                 position: 0,

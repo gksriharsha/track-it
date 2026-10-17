@@ -158,6 +158,7 @@ fn tablet() -> store::Supplement {
         barcode: None,
         photo_panel: None,
         photo_ingredients: None,
+        actives: vec![],
         nutrients: vec![store::SupplementNutrient {
             nutrient_id: 1178,
             position: 0,

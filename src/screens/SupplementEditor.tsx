@@ -21,6 +21,7 @@ import type {
   LabelUnit,
   NutrientMeta,
   Supplement,
+  SupplementActive,
   SupplementNutrient,
   SupplementScan,
 } from "../types";
@@ -63,6 +64,19 @@ interface Line {
   resolved: SupplementNutrient | null;
   error: string | null;
   /** Read off the photo and not yet confirmed: tinted until "Looks right" or an edit. */
+  read?: boolean;
+}
+
+type ActiveUnit = NonNullable<SupplementActive["label_unit"]>;
+const ACTIVE_UNITS: ActiveUnit[] = ["mg", "ug", "g"];
+
+/** A herb or extract line: what the pack prints, never put on a nutrient basis. */
+interface ActiveLine {
+  name: string;
+  /** Blank where the pack names it without an amount. */
+  amount: string;
+  unit: ActiveUnit;
+  /** Read off the photo and not yet confirmed, as on a nutrient line. */
   read?: boolean;
 }
 
@@ -122,6 +136,7 @@ export default function SupplementEditor(p: Props) {
   const [photoPanel, setPhotoPanel] = useState<string | null>(null);
   const [photoIngredients, setPhotoIngredients] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
+  const [actives, setActives] = useState<ActiveLine[]>([]);
 
   const [nutrients, setNutrients] = useState<NutrientMeta[]>([]);
   const [loading, setLoading] = useState(p.id !== null);
@@ -190,6 +205,13 @@ export default function SupplementEditor(p: Props) {
             form: n.label_form,
             resolved: n,
             error: null,
+          })),
+        );
+        setActives(
+          s.actives.map((a) => ({
+            name: a.name,
+            amount: a.label_amount === null ? "" : String(a.label_amount),
+            unit: a.label_unit ?? "mg",
           })),
         );
       })
@@ -313,6 +335,15 @@ export default function SupplementEditor(p: Props) {
     setSearch("");
   };
 
+  const addActive = (activeName: string) => {
+    setActives((as) => [...as, { name: activeName, amount: "", unit: "mg" }]);
+    setAdding(false);
+    setSearch("");
+  };
+
+  const updateActive = (i: number, patch: Partial<ActiveLine>) =>
+    setActives((as) => as.map((a, j) => (j === i ? { ...a, ...patch, read: false } : a)));
+
   const unconverted = lines.filter((l) => l.resolved?.kind === "not_converted").length;
   const converted = lines.filter((l) => l.resolved?.kind === "measured").length;
 
@@ -323,6 +354,16 @@ export default function SupplementEditor(p: Props) {
       .filter((n) => !taken.has(n.id))
       .filter((n) => q === "" || n.short_name.toLowerCase().includes(q));
   }, [nutrients, lines, search]);
+
+  /** What was typed, offered as a line of its own when it names no nutrient — ashwagandha, ginseng. */
+  const ownLine = useMemo(() => {
+    const t = search.trim();
+    const q = t.toLowerCase();
+    if (q === "") return null;
+    if (nutrients.some((n) => n.short_name.toLowerCase() === q)) return null;
+    if (actives.some((a) => a.name.toLowerCase() === q)) return null;
+    return t;
+  }, [nutrients, actives, search]);
 
   /* ── reading the bottle ─────────────────────────────────────────────── */
 
@@ -360,6 +401,7 @@ export default function SupplementEditor(p: Props) {
       const s = await scanSupplementPhoto(photoName);
       if (mine !== panelSeq.current) return;
       placeReadings(s.readings);
+      placeActives(s.actives);
       // What was read waits in its lines; only a photo that gave nothing says so.
       const note = noteOf(s);
       setPanelNote(note.kind === "read" ? null : note);
@@ -521,6 +563,30 @@ export default function SupplementEditor(p: Props) {
     ordered.forEach((l, i) => void settle(i, l));
   }
 
+  /**
+   * The herb lines the photo read, tinted, in the order the panel prints them.
+   * A line the user already gave an amount keeps it.
+   */
+  function placeActives(read: SupplementActive[]) {
+    const key = (n: string) => n.trim().toLowerCase();
+    setActives((cur) => {
+      const next = [...cur];
+      for (const a of read) {
+        const at = next.findIndex((x) => key(x.name) === key(a.name));
+        if (at >= 0 && (next[at].amount.trim() !== "" || a.label_amount === null)) continue;
+        const line: ActiveLine = {
+          name: a.name,
+          amount: a.label_amount === null ? "" : printed(a.label_amount),
+          unit: a.label_unit ?? "mg",
+          read: true,
+        };
+        if (at >= 0) next[at] = line;
+        else next.push(line);
+      }
+      return inPrintedOrder(next, (x) => read.findIndex((a) => key(a.name) === key(x.name)), read.map((_, i) => i));
+    });
+  }
+
   function takeServing() {
     if (!servingHint) return;
     setServingEdited(true);
@@ -559,7 +625,7 @@ export default function SupplementEditor(p: Props) {
   const ingTint = ingHint !== null && otherIngredients.trim() === "" && ingText(ingHint) !== "";
   const ingOffer = ingHint !== null && !ingTint && otherIngredients.trim() !== ingText(ingHint).trim();
   const lineOffers = (readings ?? []).filter((r) => takeableUnit(r) !== null);
-  const tintedCount = lines.filter((l) => l.read).length + (servingTint ? 1 : 0) + (ingTint ? 1 : 0);
+  const tintedCount = lines.filter((l) => l.read).length + actives.filter((a) => a.read).length + (servingTint ? 1 : 0) + (ingTint ? 1 : 0);
   const waiting = tintedCount + lineOffers.length + (servingOffer ? 1 : 0) + (ingOffer ? 1 : 0);
 
   /**
@@ -569,6 +635,7 @@ export default function SupplementEditor(p: Props) {
   function confirmReads() {
     linesRef.current = linesRef.current.map((l) => (l.read ? { ...l, read: false } : l));
     setLines(linesRef.current);
+    setActives((as) => as.map((a) => (a.read ? { ...a, read: false } : a)));
     if (servingTint) takeServing();
     setServingHint(null);
     if (ingTint) takeIngredients();
@@ -599,8 +666,12 @@ export default function SupplementEditor(p: Props) {
       );
     }
     const rows = lines.map((l, i) => ({ ...l.resolved!, position: i }));
-    if (rows.length === 0) {
+    if (rows.length === 0 && actives.length === 0) {
       return setError("Transcribe at least one line from the panel.");
+    }
+    const badAmount = actives.find((a) => a.amount.trim() !== "" && !(Number(a.amount) > 0));
+    if (badAmount) {
+      return setError(`${badAmount.name} needs a positive amount, or leave it blank if the pack gives none.`);
     }
     const du = defaultUnits.trim() === "" ? null : Number(defaultUnits);
     if (du !== null && (!Number.isFinite(du) || du <= 0)) {
@@ -624,6 +695,14 @@ export default function SupplementEditor(p: Props) {
       photo_panel: photoPanel,
       photo_ingredients: photoIngredients,
       nutrients: rows,
+      actives: actives.map((a) => {
+        const blank = a.amount.trim() === "";
+        return {
+          name: a.name.trim(),
+          label_amount: blank ? null : Number(a.amount),
+          label_unit: blank ? null : a.unit,
+        };
+      }),
     };
     setSaving(true);
     try {
@@ -908,9 +987,11 @@ export default function SupplementEditor(p: Props) {
       <section className="card">
         <div className="card__head">
           <h2>What the panel declares</h2>
-          <span className="card__note">
-            {converted} converted{unconverted > 0 ? `, ${unconverted} not` : ""}
-          </span>
+          {lines.length > 0 && (
+            <span className="card__note">
+              {converted} converted{unconverted > 0 ? `, ${unconverted} not` : ""}
+            </span>
+          )}
         </div>
 
         {scanning && (
@@ -922,7 +1003,7 @@ export default function SupplementEditor(p: Props) {
 
         {panelNote && <PanelSays note={panelNote} onDismiss={() => setPanelNote(null)} />}
 
-        {lines.length === 0 && (
+        {lines.length === 0 && actives.length === 0 && (
           <p className="t-sm" style={{ color: "var(--ink-3)", margin: "var(--s3) 0" }}>
             Nothing yet. Add the lines the pack prints, in the order it prints them.
           </p>
@@ -1012,6 +1093,42 @@ export default function SupplementEditor(p: Props) {
               </div>
             );
           })}
+          {actives.map((a, i) => (
+            <div className={`supline${a.read ? " is-read" : ""}`} key={`active-${i}`}>
+              <div className="supline__top">
+                <span className="supline__name">
+                  {a.read && <span className="supline__cam"><Glyph name="camera" size={15} /></span>}
+                  {a.name}
+                </span>
+                <input
+                  className={`field tnum supline__amt${a.read ? " is-read" : ""}`}
+                  inputMode="decimal"
+                  value={a.amount}
+                  placeholder="—"
+                  aria-label={(a.read ? "Read from the photo, not yet confirmed: " : "") + `${a.name} amount`}
+                  onChange={(e) => updateActive(i, { amount: e.target.value })}
+                />
+                <select
+                  className="field supline__unit"
+                  value={a.unit}
+                  aria-label={`${a.name} unit`}
+                  onChange={(e) => updateActive(i, { unit: e.target.value as ActiveUnit })}
+                >
+                  {ACTIVE_UNITS.map((u) => (
+                    <option key={u} value={u}>{UNIT_LABEL[u]}</option>
+                  ))}
+                </select>
+                <button
+                  className="iconbtn"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => setActives((as) => as.filter((_, j) => j !== i))}
+                >
+                  ×
+                </button>
+              </div>
+              <p className="supline__ok">kept as printed</p>
+            </div>
+          ))}
         </div>
 
         {(readings ?? []).filter((r) => takeableUnit(r) === null).map((r) => (
@@ -1027,7 +1144,7 @@ export default function SupplementEditor(p: Props) {
               className="field"
               autoFocus
               data-results-below
-              placeholder="Which nutrient? — vitamin D, magnesium, B12…"
+              placeholder="What the line names — vitamin D, magnesium, ashwagandha…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -1037,7 +1154,12 @@ export default function SupplementEditor(p: Props) {
                   {n.short_name}
                 </button>
               ))}
-              {available.length === 0 && (
+              {ownLine && (
+                <button className="chip chip--sm" onClick={() => addActive(ownLine)}>
+                  Add “{ownLine}” as printed
+                </button>
+              )}
+              {available.length === 0 && !ownLine && (
                 <span className="t-sm" style={{ color: "var(--ink-3)" }}>
                   Nothing left that matches.
                 </span>
@@ -1177,7 +1299,7 @@ type PanelNote =
 
 function noteOf(s: SupplementScan): PanelNote {
   if (s.trouble) return { kind: "trouble", text: s.trouble };
-  if (s.readings.length === 0) {
+  if (s.readings.length === 0 && s.actives.length === 0) {
     return { kind: "no-rows", lines: s.lines, unmatched: s.unmatched_rows };
   }
   return { kind: "read", read: s.readings.length, unmatched: s.unmatched_rows };
@@ -1195,8 +1317,8 @@ function PanelSays({ note, onDismiss }: { note: PanelNote; onDismiss: () => void
               {" "}
               <span className="num">{note.unmatched}</span> more{" "}
               {note.unmatched === 1 ? "row was" : "rows were"} laid out but named nothing this app
-              tracks — a botanical or a blend, most likely. Nothing was dropped silently: they are
-              simply not lines you can add here.
+              tracks — a herb or a blend, most likely. Add each with Add a line, by the name the
+              pack prints.
             </>
           )}
         </>

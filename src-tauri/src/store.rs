@@ -587,6 +587,23 @@ CREATE TABLE IF NOT EXISTS supplement_nutrients (
 );
 CREATE INDEX IF NOT EXISTS idx_sn_supp ON supplement_nutrients(supplement_id, position);
 
+-- A line the panel prints that names no nutrient this app tracks: "Ashwagandha
+-- root extract 600 mg", "Panax ginseng 200 mg". A US panel sets these below the
+-- bar with no Daily Value (21 CFR 101.36(b)(3)). Kept as printed and never read
+-- by the arithmetic: crediting a root extract with any nutrient would be
+-- inventing data. The amount is NULL where the pack names an ingredient without
+-- one, as a proprietary blend does for its parts.
+CREATE TABLE IF NOT EXISTS supplement_actives (
+  id            TEXT PRIMARY KEY,
+  supplement_id TEXT NOT NULL REFERENCES supplements(id) ON DELETE CASCADE,
+  position      INTEGER NOT NULL,
+  name          TEXT NOT NULL CHECK (TRIM(name) <> ''),
+  label_amount  REAL CHECK (label_amount IS NULL OR label_amount > 0),
+  label_unit    TEXT CHECK (label_unit IN ('g','mg','ug')),
+  CHECK ((label_amount IS NULL) = (label_unit IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_sa_supp ON supplement_actives(supplement_id, position);
+
 -- Who the targets are for. Exactly one row, or none at all.
 --
 -- Every field is optional, and each unlocks a different amount. Age and sex
@@ -945,8 +962,8 @@ CREATE TABLE IF NOT EXISTS row_version (
   -- Absent and staying absent: log_entries, entry_snapshots, entry_components,
   -- entry_nutrients, profile, nutrient_targets -- those are one person's. Also
   -- absent: recipe_ingredients, recipe_servings, cook_ingredients,
-  -- custom_food_nutrients, supplement_nutrients -- those travel inside their
-  -- parent and have no identity that survives an edit.
+  -- custom_food_nutrients, supplement_nutrients, supplement_actives -- those
+  -- travel inside their parent and have no identity that survives an edit.
   table_name TEXT NOT NULL CHECK (table_name IN
     ('recipes','cooks','custom_foods','supplements','vessels','bottles','cook_draws')),
   row_id     TEXT NOT NULL,
@@ -1157,6 +1174,19 @@ pub struct Supplement {
     pub photo_panel: Option<String>,
     pub photo_ingredients: Option<String>,
     pub nutrients: Vec<SupplementNutrient>,
+    /// Lines that name no nutrient, in the order the pack prints them.
+    #[serde(default)]
+    pub actives: Vec<SupplementActive>,
+}
+
+/// A line the panel prints that names no nutrient this app tracks — a herb or
+/// an extract. See the `supplement_actives` table comment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplementActive {
+    pub name: String,
+    /// `None`, with `label_unit`, where the pack gives no amount.
+    pub label_amount: Option<f64>,
+    pub label_unit: Option<String>,
 }
 
 /// One line a supplement panel prints, kept both as printed and as counted.
@@ -1436,7 +1466,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-pub(crate) const SCHEMA_VERSION: i64 = 23;
+pub(crate) const SCHEMA_VERSION: i64 = 24;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -3301,6 +3331,11 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
         )
         .map_err(|e| format!("migrating custom_food_nutrients to v23: {e}"))?;
     }
+
+    // v23 -> v24: a supplement may print an ingredient that is no nutrient —
+    // ashwagandha, ginseng. No arm, for v17 -> v18's reason: `supplement_actives`
+    // is a new table that only references `supplements`, so SCHEMA creating it
+    // is the whole migration and no existing row moves.
 
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
@@ -6468,6 +6503,27 @@ pub fn save_supplement(
         }
         seen.push(n.nutrient_id);
     }
+    let mut named: Vec<String> = Vec::with_capacity(sup.actives.len());
+    for a in &sup.actives {
+        let key = a.name.trim().to_lowercase();
+        if key.is_empty() {
+            return Err("an ingredient line needs the name the pack prints".into());
+        }
+        match (a.label_amount, a.label_unit.as_deref()) {
+            (None, None) => {}
+            (Some(x), Some(u)) if x.is_finite() && x > 0.0 && ["g", "mg", "ug"].contains(&u) => {}
+            _ => {
+                return Err(format!(
+                    "{} needs a positive amount in g, mg or mcg, or no amount at all",
+                    a.name.trim()
+                ))
+            }
+        }
+        if named.contains(&key) {
+            return Err(format!("{} is listed twice; a panel prints each line once", a.name.trim()));
+        }
+        named.push(key);
+    }
 
     let name = sup.name.trim().to_string();
     let brand = opt_trim(sup.brand.as_ref());
@@ -6511,6 +6567,11 @@ pub fn save_supplement(
             }
             tx.execute(
                 "DELETE FROM supplement_nutrients WHERE supplement_id = ?1",
+                [existing],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.execute(
+                "DELETE FROM supplement_actives WHERE supplement_id = ?1",
                 [existing],
             )
             .map_err(|e| e.to_string())?;
@@ -6566,6 +6627,16 @@ pub fn save_supplement(
                 n.upper,
                 n.convert_note
             ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    for (i, a) in sup.actives.iter().enumerate() {
+        let rid = new_id(&tx)?;
+        tx.execute(
+            "INSERT INTO supplement_actives
+               (id,supplement_id,position,name,label_amount,label_unit)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            rusqlite::params![rid, sid, i as i64, a.name.trim(), a.label_amount, a.label_unit],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -6668,6 +6739,7 @@ fn get_supplement_inner(
                 photo_panel: r.get(10)?,
                 photo_ingredients: r.get(11)?,
                 nutrients: Vec::new(),
+                actives: Vec::new(),
             })
         })
         .map_err(|e| format!("supplement {id}: {e}"))?;
@@ -6691,6 +6763,24 @@ fn get_supplement_inner(
                 amount: r.get(6)?,
                 upper: r.get(7)?,
                 convert_note: r.get(8)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT name,label_amount,label_unit
+             FROM supplement_actives WHERE supplement_id = ?1 ORDER BY position",
+        )
+        .map_err(|e| e.to_string())?;
+    sup.actives = stmt
+        .query_map([id], |r| {
+            Ok(SupplementActive {
+                name: r.get(0)?,
+                label_amount: r.get(1)?,
+                label_unit: r.get(2)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -7990,7 +8080,13 @@ const CHILDREN: &[(&str, &[(&str, &str)])] = &[
     ),
     ("cooks", &[("cook_ingredients", "cook_id")]),
     ("custom_foods", &[("custom_food_nutrients", "food_id")]),
-    ("supplements", &[("supplement_nutrients", "supplement_id")]),
+    (
+        "supplements",
+        &[
+            ("supplement_nutrients", "supplement_id"),
+            ("supplement_actives", "supplement_id"),
+        ],
+    ),
     ("vessels", &[]),
     ("bottles", &[]),
     ("cook_draws", &[]),
@@ -8513,11 +8609,14 @@ fn replace_aggregate(tx: &rusqlite::Transaction, r: &Incoming) -> Result<(), Str
     // Children after the parent, because every one of them has a foreign key
     // pointing at it and the parent may be arriving here for the first time.
     for (child, fk) in children_of(&r.table) {
-        tx.execute(&format!("DELETE FROM {child} WHERE {fk} = ?1"), [&r.id])
-            .map_err(|e| format!("clearing {child} of {} {}: {e}", r.table, r.id))?;
+        // Every build sends each child table it knows, empty or not, so a
+        // missing one is a peer older than the table: left alone, as a column
+        // it has never heard of is.
         let Some(arr) = r.body.get(*child).and_then(|v| v.as_array()) else {
             continue;
         };
+        tx.execute(&format!("DELETE FROM {child} WHERE {fk} = ?1"), [&r.id])
+            .map_err(|e| format!("clearing {child} of {} {}: {e}", r.table, r.id))?;
         let child_local = columns(tx, child)?;
         for row in arr {
             let Some(obj) = row.as_object() else {
@@ -9137,6 +9236,7 @@ mod tests {
             barcode: None,
             photo_panel: None,
             photo_ingredients: None,
+            actives: vec![],
             nutrients: vec![SupplementNutrient {
                 nutrient_id: 1178, // vitamin B12
                 position: 0,
@@ -10444,6 +10544,60 @@ mod tests {
         let mut silent = sup.clone();
         silent.nutrients[0].convert_note = None;
         assert!(save_supplement(&mut c, None, &silent).is_err());
+    }
+
+    fn active(name: &str, amount: Option<f64>, unit: Option<&str>) -> SupplementActive {
+        SupplementActive {
+            name: name.into(),
+            label_amount: amount,
+            label_unit: unit.map(String::from),
+        }
+    }
+
+    #[test]
+    fn a_herb_that_names_no_nutrient_is_kept_as_printed_and_can_be_taken() {
+        let mut c = db();
+        let mut sup = multivit();
+        sup.name = "Ashwagandha".into();
+        sup.unit_noun = "capsule".into();
+        sup.nutrients = vec![];
+        sup.actives = vec![
+            active("  Ashwagandha root extract ", Some(600.0), Some("mg")),
+            // A blend's part, named without an amount.
+            active("Black pepper", None, None),
+        ];
+        let id = save_supplement(&mut c, None, &sup).unwrap();
+        let got = get_supplement(&c, &id).unwrap();
+        assert!(got.nutrients.is_empty());
+        assert_eq!(got.actives.len(), 2);
+        assert_eq!(got.actives[0].name, "Ashwagandha root extract");
+        assert_eq!(got.actives[0].label_amount, Some(600.0));
+        assert_eq!(got.actives[0].label_unit.as_deref(), Some("mg"));
+        assert_eq!(got.actives[1].label_amount, None);
+
+        // Edits replace the lines wholesale, as the nutrient lines are.
+        sup.actives = vec![active("Panax ginseng", Some(0.2), Some("g"))];
+        save_supplement(&mut c, Some(&id), &sup).unwrap();
+        let got = get_supplement(&c, &id).unwrap();
+        assert_eq!(got.actives.len(), 1);
+        assert_eq!(got.actives[0].name, "Panax ginseng");
+
+        assert!(add(&c, "2026-10-17", Some("snack"), Source::Supplement(&id), "Ashwagandha",
+            Quantity::Units(1.0), None, &Tags::default()).is_ok());
+
+        for bad in [
+            active(" ", Some(600.0), Some("mg")),
+            active("Ashwagandha", Some(600.0), None),
+            active("Ashwagandha", None, Some("mg")),
+            active("Ashwagandha", Some(0.0), Some("mg")),
+            // An IU is a basis, not a mass, and nothing here could convert it.
+            active("Ashwagandha", Some(600.0), Some("IU")),
+        ] {
+            sup.actives = vec![bad];
+            assert!(save_supplement(&mut c, None, &sup).is_err());
+        }
+        sup.actives = vec![active("Ginseng", None, None), active("ginseng ", None, None)];
+        assert!(save_supplement(&mut c, None, &sup).is_err(), "a panel prints each line once");
     }
 
     #[test]
@@ -13949,6 +14103,36 @@ mod tests {
             .unwrap();
         assert_eq!(name, "A's katori");
         assert_eq!(grams, 42.0, "an older peer must not erase what it never sent");
+    }
+
+    #[test]
+    fn a_supplements_herbs_travel_and_a_peer_older_than_them_leaves_them_alone() {
+        let (mut a, mut b) = paired();
+        let a_id = device_id(&a).unwrap();
+        let mut sup = multivit();
+        sup.actives = vec![active("Ashwagandha root extract", Some(600.0), Some("mg"))];
+        let sid = save_supplement(&mut a, None, &sup).unwrap();
+        hand_over(&a, &mut b, &a_id);
+        assert_eq!(get_supplement(&b, &sid).unwrap().actives.len(), 1);
+
+        // The same supplement, edited on a build that has never heard of herbs.
+        let (rows, upto, _more) = feed_since(&a, 0, 1000).unwrap();
+        let row = rows.iter().find(|r| r.table == "supplements").unwrap();
+        let mut body = row.body.clone();
+        body["supplements"]["name"] = serde_json::json!("Multivitamin, renamed");
+        body.as_object_mut().unwrap().remove("supplement_actives");
+        let text = serde_json::to_string(&serde_json::json!({
+            "table": "supplements", "id": sid, "version": row.version + 1,
+            "device_id": a_id, "seq": row.seq + 1,
+            "changed_at": "2026-10-17T09:00:00Z", "body": body,
+        }))
+        .unwrap();
+        apply_batch(&mut b, &a_id, &[Incoming::from_envelope(&text).unwrap()], upto, None)
+            .unwrap();
+        let got = get_supplement(&b, &sid).unwrap();
+        assert_eq!(got.name, "Multivitamin, renamed");
+        assert_eq!(got.nutrients.len(), 1, "a child table it did send is still replaced");
+        assert_eq!(got.actives.len(), 1, "an older peer must not erase what it never sent");
     }
 
     #[test]
