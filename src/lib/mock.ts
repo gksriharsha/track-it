@@ -1161,6 +1161,11 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
       { nutrient_id: 1090, label_amount: 200, label_unit: "mg", label_form: "" },
       { nutrient_id: 1095, label_amount: 91, label_unit: "% DV", label_form: "" },
     ],
+    actives: [
+      { name: "Ashwagandha root extract (Withania somnifera)", label_amount: 600, label_unit: "mg" },
+      { name: "Panax ginseng root", label_amount: 200, label_unit: "mg" },
+      { name: "Black pepper fruit extract", label_amount: null, label_unit: null },
+    ],
     unmatched_rows: 2, lines: 12, trouble: null,
   }),
   scan_ingredients_photo: () => ({

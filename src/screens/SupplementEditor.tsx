@@ -76,6 +76,8 @@ interface ActiveLine {
   /** Blank where the pack names it without an amount. */
   amount: string;
   unit: ActiveUnit;
+  /** Read off the photo and not yet confirmed, as on a nutrient line. */
+  read?: boolean;
 }
 
 /**
@@ -340,7 +342,7 @@ export default function SupplementEditor(p: Props) {
   };
 
   const updateActive = (i: number, patch: Partial<ActiveLine>) =>
-    setActives((as) => as.map((a, j) => (j === i ? { ...a, ...patch } : a)));
+    setActives((as) => as.map((a, j) => (j === i ? { ...a, ...patch, read: false } : a)));
 
   const unconverted = lines.filter((l) => l.resolved?.kind === "not_converted").length;
   const converted = lines.filter((l) => l.resolved?.kind === "measured").length;
@@ -399,6 +401,7 @@ export default function SupplementEditor(p: Props) {
       const s = await scanSupplementPhoto(photoName);
       if (mine !== panelSeq.current) return;
       placeReadings(s.readings);
+      placeActives(s.actives);
       // What was read waits in its lines; only a photo that gave nothing says so.
       const note = noteOf(s);
       setPanelNote(note.kind === "read" ? null : note);
@@ -560,6 +563,30 @@ export default function SupplementEditor(p: Props) {
     ordered.forEach((l, i) => void settle(i, l));
   }
 
+  /**
+   * The herb lines the photo read, tinted, in the order the panel prints them.
+   * A line the user already gave an amount keeps it.
+   */
+  function placeActives(read: SupplementActive[]) {
+    const key = (n: string) => n.trim().toLowerCase();
+    setActives((cur) => {
+      const next = [...cur];
+      for (const a of read) {
+        const at = next.findIndex((x) => key(x.name) === key(a.name));
+        if (at >= 0 && (next[at].amount.trim() !== "" || a.label_amount === null)) continue;
+        const line: ActiveLine = {
+          name: a.name,
+          amount: a.label_amount === null ? "" : printed(a.label_amount),
+          unit: a.label_unit ?? "mg",
+          read: true,
+        };
+        if (at >= 0) next[at] = line;
+        else next.push(line);
+      }
+      return inPrintedOrder(next, (x) => read.findIndex((a) => key(a.name) === key(x.name)), read.map((_, i) => i));
+    });
+  }
+
   function takeServing() {
     if (!servingHint) return;
     setServingEdited(true);
@@ -598,7 +625,7 @@ export default function SupplementEditor(p: Props) {
   const ingTint = ingHint !== null && otherIngredients.trim() === "" && ingText(ingHint) !== "";
   const ingOffer = ingHint !== null && !ingTint && otherIngredients.trim() !== ingText(ingHint).trim();
   const lineOffers = (readings ?? []).filter((r) => takeableUnit(r) !== null);
-  const tintedCount = lines.filter((l) => l.read).length + (servingTint ? 1 : 0) + (ingTint ? 1 : 0);
+  const tintedCount = lines.filter((l) => l.read).length + actives.filter((a) => a.read).length + (servingTint ? 1 : 0) + (ingTint ? 1 : 0);
   const waiting = tintedCount + lineOffers.length + (servingOffer ? 1 : 0) + (ingOffer ? 1 : 0);
 
   /**
@@ -608,6 +635,7 @@ export default function SupplementEditor(p: Props) {
   function confirmReads() {
     linesRef.current = linesRef.current.map((l) => (l.read ? { ...l, read: false } : l));
     setLines(linesRef.current);
+    setActives((as) => as.map((a) => (a.read ? { ...a, read: false } : a)));
     if (servingTint) takeServing();
     setServingHint(null);
     if (ingTint) takeIngredients();
@@ -1066,15 +1094,18 @@ export default function SupplementEditor(p: Props) {
             );
           })}
           {actives.map((a, i) => (
-            <div className="supline" key={`active-${i}`}>
+            <div className={`supline${a.read ? " is-read" : ""}`} key={`active-${i}`}>
               <div className="supline__top">
-                <span className="supline__name">{a.name}</span>
+                <span className="supline__name">
+                  {a.read && <span className="supline__cam"><Glyph name="camera" size={15} /></span>}
+                  {a.name}
+                </span>
                 <input
-                  className="field tnum supline__amt"
+                  className={`field tnum supline__amt${a.read ? " is-read" : ""}`}
                   inputMode="decimal"
                   value={a.amount}
                   placeholder="—"
-                  aria-label={`${a.name} amount`}
+                  aria-label={(a.read ? "Read from the photo, not yet confirmed: " : "") + `${a.name} amount`}
                   onChange={(e) => updateActive(i, { amount: e.target.value })}
                 />
                 <select
@@ -1268,7 +1299,7 @@ type PanelNote =
 
 function noteOf(s: SupplementScan): PanelNote {
   if (s.trouble) return { kind: "trouble", text: s.trouble };
-  if (s.readings.length === 0) {
+  if (s.readings.length === 0 && s.actives.length === 0) {
     return { kind: "no-rows", lines: s.lines, unmatched: s.unmatched_rows };
   }
   return { kind: "read", read: s.readings.length, unmatched: s.unmatched_rows };

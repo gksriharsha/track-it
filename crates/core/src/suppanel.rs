@@ -50,6 +50,18 @@ pub struct SupReading {
     pub label_form: String,
 }
 
+/// A line naming no nutrient this app tracks — "Ashwagandha root extract 600
+/// mg" — in the shape a stored supplement keeps it: never summed into anything.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SupActive {
+    /// The row's wording up to its figure, as printed.
+    pub name: String,
+    /// `None`, with `label_unit`, for a blend part the pack prints without one.
+    pub label_amount: Option<f64>,
+    /// "g", "mg" or "ug".
+    pub label_unit: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SupPanel {
     /// How many of `unit_noun` one label serving is: "Serving Size 2 tablets".
@@ -61,6 +73,8 @@ pub struct SupPanel {
     /// In the order the panel prints them, which is the order the user will
     /// read them back in.
     pub readings: Vec<SupReading>,
+    /// Herb and extract lines, in printed order. Suggestions like the readings.
+    pub actives: Vec<SupActive>,
     /// Rows nothing could be attributed to. A ratio to judge the readings
     /// against, not a defect list — a panel's own furniture counts.
     pub unmatched_rows: usize,
@@ -91,7 +105,7 @@ impl SupPanel {
     /// and at least two of them: a panel's own furniture — a heading, a footnote
     /// — can leave one half-row on a flat label too.
     pub fn hidden_side(&self) -> Option<Hidden> {
-        let whole = self.readings.len();
+        let whole = self.readings.len() + self.actives.len();
         let (names, figures) = (self.named_without_figure, self.figures_without_name);
         if names >= 2 && names > whole && names > figures {
             Some(Hidden::Right)
@@ -283,6 +297,30 @@ const MEASURE_WORDS: &[&str] = &[
 /// Magnesium Stearate" names a mineral and is not a declaration of one.
 const NOT_PANEL: &[&str] = &["ingredients", "other ingredients"];
 
+/// Words that make a row the panel's own furniture, or a nutrient this parser
+/// does not map, rather than a herb line. "Total Sugars 2 g" names no nutrient
+/// in [`SYNONYMS`], and offered as a herb it would be kept as printed and never
+/// counted — a nutrient quietly lost.
+const NOT_AN_ACTIVE: &[&str] = &[
+    "serving",
+    "servings",
+    "daily",
+    "facts",
+    "ingredients",
+    "calories",
+    "calorie",
+    "energy",
+    "carbohydrate",
+    "carbohydrates",
+    "sugar",
+    "sugars",
+    "protein",
+    "fat",
+    "fiber",
+    "fibre",
+    "cholesterol",
+];
+
 /// Words that introduce the compound a nutrient was supplied AS. Whatever
 /// follows one of these names a form, never a second nutrient: "Selenium, as
 /// sodium selenite, 55 mcg" declares 55 mcg of selenium and no sodium at all.
@@ -308,6 +346,7 @@ pub fn parse(blocks: &[TextBlock]) -> SupPanel {
     let rows = panel::rows_from(blocks);
 
     let mut readings: Vec<SupReading> = Vec::new();
+    let mut actives: Vec<SupActive> = Vec::new();
     let mut serving_units: Option<f64> = None;
     let mut serving_label: Option<String> = None;
     let mut unit_noun: Option<String> = None;
@@ -357,18 +396,34 @@ pub fn parse(blocks: &[TextBlock]) -> SupPanel {
             attributed = true;
         }
 
+        if named == 0 && !attributed {
+            if let Some(a) = active_from(row, &toks) {
+                // First row wins, as for nutrients; the store refuses a name twice.
+                if !actives.iter().any(|x| x.name.to_lowercase() == a.name.to_lowercase()) {
+                    actives.push(a);
+                }
+                attributed = true;
+            }
+        }
+
         if !attributed {
             unmatched_rows += 1;
         }
     }
 
-    let trouble = trouble_for(readings.len(), rows.len(), named_rows, serving_seen);
+    let trouble = trouble_for(
+        readings.len() + actives.len(),
+        rows.len(),
+        named_rows,
+        serving_seen,
+    );
 
     SupPanel {
         serving_units,
         serving_label,
         unit_noun,
         readings,
+        actives,
         unmatched_rows,
         named_without_figure,
         figures_without_name,
@@ -973,6 +1028,55 @@ fn readings_from(row: &str, toks: &[Tok]) -> (usize, Vec<SupReading>) {
     (named, out)
 }
 
+// ---------------------------------------------------------------------------
+// Herb and extract rows
+// ---------------------------------------------------------------------------
+
+/// A row that names no nutrient, read as a herb line: a name, then one mass
+/// figure, then nothing but parentheticals and percentages.
+///
+/// That last condition is what keeps a sentence out — "Do not exceed 1,200 mg
+/// per day" goes on after its figure, a panel line does not. A row printing two
+/// herbs side by side fails it too and stays unmatched rather than half-read.
+///
+/// A row with no figure at all is a blend part only where the pack marked it
+/// with the dagger it prints beside every ingredient with no Daily Value. The
+/// mark is the evidence: "Supplement Facts" and a brand line carry none.
+fn active_from(row: &str, toks: &[Tok]) -> Option<SupActive> {
+    if toks.iter().any(|t| NOT_AN_ACTIVE.contains(&t.norm.as_str())) {
+        return None;
+    }
+    let nums = numbers_in(toks);
+    let (name_end, amount) = match nums.iter().find(|n| !n.in_paren) {
+        Some(n) => {
+            let after_is_furniture = toks[n.end..]
+                .iter()
+                .all(|t| t.in_paren || t.clean.ends_with('%'));
+            if !matches!(n.unit, LabelUnit::G | LabelUnit::Mg | LabelUnit::Ug)
+                || n.value <= 0.0
+                || !after_is_furniture
+            {
+                return None;
+            }
+            (n.start, Some((n.value, n.unit)))
+        }
+        None if nums.is_empty() && row.contains('\u{2020}') => (toks.len(), None),
+        None => return None,
+    };
+    let last = toks[..name_end].last()?;
+    let name = row[toks[0].at..last.at + last.raw.len()]
+        .trim_matches(|c: char| c.is_whitespace() || "\u{2020}\u{2021}*,;:\u{2022}-".contains(c))
+        .to_string();
+    if name.chars().filter(|c| c.is_alphabetic()).count() < 2 {
+        return None;
+    }
+    Some(SupActive {
+        name,
+        label_amount: amount.map(|(v, _)| v),
+        label_unit: amount.map(|(_, u)| u.as_str().to_string()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1430,5 +1534,113 @@ mod tests {
         // "Supplement Facts", "Servings Per Container 60" and the
         // "Amount Per Serving / % Daily Value" header row.
         assert_eq!(p.unmatched_rows, 3);
+        assert!(p.actives.is_empty(), "furniture is not a herb: {:?}", p.actives);
+    }
+
+    /// An ashwagandha and ginseng bottle as the recogniser returns it: name,
+    /// amount and the dagger in the %DV column are separate blocks, and the
+    /// blend's parts print a dagger and no amount.
+    fn herb_panel() -> Vec<TextBlock> {
+        let mut v = vec![
+            b("Supplement Facts", 0.05, 0.030, 0.60),
+            b("Serving Size 2 Capsules", 0.05, 0.080, 0.50),
+            b("Servings Per Container 30", 0.05, 0.115, 0.55),
+            b("Amount Per Serving", 0.05, 0.160, 0.40),
+            b("% Daily Value", 0.72, 0.160, 0.23),
+        ];
+        let lines: &[(&str, &str, &str)] = &[
+            ("Vitamin B6 (as pyridoxine HCl)", "2 mg", "118%"),
+            (
+                "Ashwagandha root extract (Withania somnifera) (standardized to 5% withanolides)",
+                "600 mg",
+                "\u{2020}",
+            ),
+            ("Panax ginseng root", "200 mg", "\u{2020}"),
+            ("Huperzine A", "50 mcg", "\u{2020}"),
+            ("Proprietary Blend", "150 mg", "\u{2020}"),
+            ("Rhodiola rosea root", "", "\u{2020}"),
+            ("Black pepper fruit extract", "", "\u{2020}"),
+        ];
+        for (i, (name, amount, dv)) in lines.iter().enumerate() {
+            let y = 0.200 + i as f64 * 0.040;
+            v.push(b(name, 0.05, y, 0.45));
+            if !amount.is_empty() {
+                v.push(b(amount, 0.62, y, 0.15));
+            }
+            v.push(b(dv, 0.85, y, 0.10));
+        }
+        v.push(b("\u{2020}Daily Value not established.", 0.05, 0.500, 0.60));
+        v.push(b("Other ingredients: Vegetarian capsule, rice flour.", 0.05, 0.540, 0.80));
+        v
+    }
+
+    fn active(name: &str, amount: Option<f64>, unit: Option<&str>) -> SupActive {
+        SupActive {
+            name: name.into(),
+            label_amount: amount,
+            label_unit: unit.map(String::from),
+        }
+    }
+
+    #[test]
+    fn a_herb_panel_offers_each_herb_line_as_printed_in_printed_order() {
+        let p = parse(&herb_panel());
+        assert_eq!(p.trouble, None);
+        assert_eq!(got(&p, 1175).label_amount, 2.0, "the nutrient still reads as one");
+        assert_eq!(
+            p.actives,
+            vec![
+                active(
+                    "Ashwagandha root extract (Withania somnifera) (standardized to 5% withanolides)",
+                    Some(600.0),
+                    Some("mg"),
+                ),
+                active("Panax ginseng root", Some(200.0), Some("mg")),
+                // Stored as the domain spells it, so the editor's unit box can hold it.
+                active("Huperzine A", Some(50.0), Some("ug")),
+                active("Proprietary Blend", Some(150.0), Some("mg")),
+                active("Rhodiola rosea root", None, None),
+                active("Black pepper fruit extract", None, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_herb_panels_furniture_stays_unmatched() {
+        let p = parse(&herb_panel());
+        // "Supplement Facts", "Servings Per Container 30", the header row, the
+        // dagger footnote and the other-ingredients line.
+        assert_eq!(p.unmatched_rows, 5, "{:?}", p.actives);
+    }
+
+    #[test]
+    fn a_panel_of_herbs_alone_is_not_trouble() {
+        let p = parse(&stack(&["Supplement Facts", "KSM-66 Ashwagandha root extract 600 mg \u{2020}"]));
+        assert!(p.readings.is_empty());
+        assert_eq!(p.trouble, None);
+        assert_eq!(p.actives, vec![active("KSM-66 Ashwagandha root extract", Some(600.0), Some("mg"))]);
+    }
+
+    #[test]
+    fn a_row_that_is_not_a_herb_line_is_not_offered_as_one() {
+        for row in [
+            // A sentence goes on after its figure.
+            "Do not exceed 1,200 mg per day",
+            // Nutrients this parser does not map, and must not lose as herbs.
+            "Total Sugars 2 g",
+            "Total Carbohydrate 2 g <1%",
+            "Calories 10",
+            // No figure and no dagger: a heading or a brand line.
+            "Rhodiola rosea root",
+            // Two herbs on one row stay unmatched rather than half-read.
+            "Ashwagandha 600 mg Ginseng 200 mg",
+            // Not a mass, so not a herb amount.
+            "Lutein 1,000 IU",
+            "Ginseng 0 mg",
+        ] {
+            let p = parse(&stack(&[row]));
+            assert!(p.actives.is_empty(), "{row:?} gave {:?}", p.actives);
+            assert_eq!(p.unmatched_rows, 1, "{row:?}");
+        }
     }
 }
