@@ -37,6 +37,8 @@ import {
 } from "./mockDay";
 import type {
   BackupStatus,
+  KitchenFood,
+  Place,
   Cook,
   CustomFood,
   CustomFoodDetail,
@@ -688,6 +690,45 @@ function meta(): NutrientMeta[] {
   }));
 }
 
+/* ── the kitchen ────────────────────────────────────────────────────────── */
+
+/** What the kitchen holds: used by a pot, logged at home, or put away. */
+const own = (id: string, description: string, used: number | null, more: Partial<KitchenFood> = {}): KitchenFood => ({
+  fdc_id: null, custom_food_id: id, description, name: null, last_used: used === null ? null : back(used), put_on: null, out_on: null, place: null, ...more,
+});
+const KITCHEN: KitchenFood[] = [
+  own("k-rice", "Basmati rice", 2),
+  own("k-flour", "Whole wheat flour", 3),
+  own("k-oats", "Rolled oats", 0),
+  own("k-toor", "Toor dal", 4),
+  own("k-moong", "Moong dal", 15),
+  own("k-chickpeas", "Chickpeas, canned", 21),
+  own("k-cumin", "Cumin seeds", 4),
+  own("k-pb", "Peanut butter", 120),
+  own("k-tea", "Tea", 0),
+  own("k-yogurt", "Yogurt, plain", 0),
+  own("k-paneer", "Paneer", null, { put_on: back(4) }),
+  own("k-tofu", "Extra firm tofu", 2),
+  own("k-milk", "Milk, whole", 0),
+  own("k-eggs", "Eggs", 1),
+  own("k-ketchup", "Tomato ketchup", 6),
+  own("k-spinach", "Spinach", null, { put_on: back(4) }),
+  own("k-tomato", "Tomatoes", 1),
+  own("k-cucumber", "Cucumber", 11),
+  own("k-peas", "Peas, green, frozen", 17),
+  own("k-paratha", "Parathas", 30, { place: "freezer" }),
+];
+
+function kitchenFood(a: Record<string, unknown>): KitchenFood {
+  const id = (a.customFoodId as string | null) ?? `fdc-${a.fdcId}`;
+  let f = KITCHEN.find((k) => k.custom_food_id === id || (a.fdcId !== null && k.fdc_id === a.fdcId));
+  if (!f) {
+    f = { ...own(id, String(a.description), null), fdc_id: (a.fdcId as number | null) ?? null, custom_food_id: (a.customFoodId as string | null) ?? null };
+    KITCHEN.push(f);
+  }
+  return f;
+}
+
 /* ── the pantry ─────────────────────────────────────────────────────────── */
 
 /** A date `n` days before today, local. */
@@ -1102,6 +1143,10 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   delete_container_event: () => undefined,
   list_recipes: () => RECIPES,
   list_open_cooks: () => COOKS,
+  get_kitchen: () => structuredClone(KITCHEN),
+  put_away: (a) => { Object.assign(kitchenFood(a), { place: a.place as Place, put_on: String(a.on) }); },
+  move_kitchen_food: (a) => { kitchenFood(a).place = a.place as Place; },
+  finish_kitchen_food: (a) => { kitchenFood(a).out_on = String(a.on); },
   list_supplements: () => SUPPLEMENTS,
   get_supplement: (a) => structuredClone(SUPPLEMENTS.find((x) => x.id === String(a.id))),
   save_supplement: (a) => {

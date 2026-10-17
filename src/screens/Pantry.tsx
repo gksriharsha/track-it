@@ -54,7 +54,7 @@ export default function Pantry(p: Props) {
   return (
     <div className="screen">
       <ScreenHead
-        title="Pantry"
+        title="Jars you weigh"
         onBack={p.onBack}
         action={data && !empty ? <button className="btn btn--quiet" onClick={p.onAdd}>Add a container</button> : undefined}
       />
@@ -62,7 +62,7 @@ export default function Pantry(p: Props) {
       {error && <p className="alert" role="alert">{error}</p>}
 
       {data === null && !error && (
-        <div aria-busy="true" aria-label="Loading the pantry">
+        <div aria-busy="true" aria-label="Loading your jars">
           {[0, 1, 2].map((i) => <div className="skel skel--row" key={i} style={{ width: `${80 - i * 12}%` }} />)}
         </div>
       )}

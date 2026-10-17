@@ -2123,3 +2123,26 @@ export function parsePick(raw: string | null): PickTarget | null {
   if (kind === "activity") return /^[0-9a-f-]{36}$/.test(id) ? { kind, id } : null;
   return null;
 }
+
+/* ── the kitchen ──────────────────────────────────────────────────────── */
+
+export type Place = "pantry" | "fridge" | "freezer";
+
+/**
+ * One food at home: used by a pot or logged at home, or put away by hand.
+ * Never a quantity. What is shown on a shelf, and where, is worked out from
+ * this in `lib/kitchen.ts`.
+ */
+export interface KitchenFood {
+  fdc_id: number | null;
+  custom_food_id: string | null;
+  description: string;
+  /** Search's short name for a reference food; null keeps `description`. */
+  name: string | null;
+  last_used: string | null;
+  put_on: string | null;
+  /** Said to be finished. At home again once used or put away after it. */
+  out_on: string | null;
+  /** Where its owner put it; null leaves it where `lib/kitchen.ts` guesses. */
+  place: Place | null;
+}

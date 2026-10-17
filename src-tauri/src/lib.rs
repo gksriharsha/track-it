@@ -13,6 +13,7 @@ mod family_choice_tests;
 #[cfg(test)]
 mod family_tests;
 mod keystore;
+mod kitchen;
 #[cfg(test)]
 mod percent_tests;
 #[cfg(test)]
@@ -5696,6 +5697,10 @@ pub fn run() {
             container_commands::taste_factors,
             container_commands::container_usage,
             container_commands::log_container_use,
+            kitchen::get_kitchen,
+            kitchen::put_away,
+            kitchen::move_kitchen_food,
+            kitchen::finish_kitchen_food,
             frequent_foods,
             recent_restaurant_dishes,
             list_custom_foods,
