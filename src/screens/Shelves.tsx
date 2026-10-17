@@ -5,7 +5,7 @@ import KeptSheet from "../components/KeptSheet";
 import { Rows, Thing } from "../components/KitchenArt";
 import ScreenHead from "../components/ScreenHead";
 import Unpack from "../components/Unpack";
-import { faded, guess, nameOf, refOf, sameFood, SHELVES, shelvesOf, usedLine } from "../lib/kitchen";
+import { faded, guess, nameOf, SHELVES, shelvesOf, usedLine } from "../lib/kitchen";
 import { useHashSheet, useHashSheetValue } from "../lib/hashSheet";
 import { lastLine, pantryPeriod } from "../lib/pantry";
 import { keyOf, useKitchen } from "../lib/useKitchen";
@@ -51,9 +51,7 @@ export default function Shelves(p: Props) {
   }
 
   const jars: Jar[] = pantry.foods.flatMap((f) => f.containers.map((jar) => ({ jar, food: f.food, description: f.description })));
-  // A food that stands in a jar is shown once, as the jar.
-  const foods = k.foods.filter((f) => !jars.some((j) => sameFood(j.food, refOf(f))));
-  const shelves = shelvesOf(foods, "pantry", k.today);
+  const shelves = shelvesOf(k.foods, "pantry", k.today);
   const jarShelf = (j: Jar) => {
     const g = guess(j.description);
     return g.place === "pantry" ? g.shelf : "Oils and spices";

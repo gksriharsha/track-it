@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { getKitchen, listContainers, listOpenCooks, shiftIso, todayIso } from "../api";
-import { counts, KITCHEN_DAYS } from "./kitchen";
+import { counts, KITCHEN_DAYS, refOf, sameFood } from "./kitchen";
 import type { Cook, FoodRef, KitchenFood } from "../types";
 
 /**
- * What is at home: the foods, the open pots and the jars you weigh, read
- * again by `load` after anything is put away or moved.
+ * What is at home: the foods not kept in a jar, the open pots and the jars you
+ * weigh, read again by `load` after anything is put away or moved.
  */
 export function useKitchen() {
   const today = todayIso();
@@ -18,7 +18,9 @@ export function useKitchen() {
         listOpenCooks(),
         listContainers(),
       ]);
-      setData({ foods, pots, jars: containers.filter((c) => !c.finished).map((c) => c.food) });
+      const jars = containers.filter((c) => !c.finished).map((c) => c.food);
+      // A food that stands in a jar is shown once, as the jar, on every screen.
+      setData({ foods: foods.filter((f) => !jars.some((j) => sameFood(j, refOf(f)))), pots, jars });
       setError(null);
     } catch (e) {
       setError(String(e));

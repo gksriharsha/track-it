@@ -4281,17 +4281,18 @@ b, strong, th { font-weight: 600; }
 
 /* The kitchen screen: the two stand up on the floor, then the fridge peeks. */
 .kit { position: relative; padding: var(--s5) var(--s4) var(--s4); border-radius: var(--r-md); background: var(--surface); }
-.kit__scene { display: grid; grid-template-columns: 1fr 1fr; align-items: end; gap: var(--s3); }
+/* Each piece spans the scene's two rows, so both stand on one floor and
+   their names line up beneath it, however large the text. */
+.kit__scene { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
 .kit__piece {
-  display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 0;
+  grid-row: span 2; display: grid; grid-template-rows: subgrid; justify-items: center; padding: 0 var(--s2);
   background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
-  animation: k-stand .65s cubic-bezier(.3, .8, .4, 1) both; animation-delay: calc(var(--i) * 140ms);
 }
-.kit__art { display: block; max-width: 100%; height: auto; }
-.kit__name { display: flex; flex-direction: column; align-items: center; height: 42px; }
+.kit__art { display: block; align-self: end; max-width: 100%; height: auto; animation: k-stand .65s cubic-bezier(.3, .8, .4, 1) both; animation-delay: calc(var(--i) * 140ms); }
+.kit__name { position: relative; justify-self: stretch; display: flex; flex-direction: column; align-items: center; padding-top: 12px; }
+.kit__name::before { content: ""; position: absolute; left: calc(-1 * var(--s2)); right: calc(-1 * var(--s2)); top: 0; height: 3px; background: var(--k-plank); animation: k-plank .5s ease-out both; }
 .kit__name b { font-weight: 650; }
 .kit__name span { color: var(--ink-2); font-size: var(--t-sm); line-height: var(--t-sm-lh); }
-.kit__floor { position: absolute; left: var(--s2); right: var(--s2); bottom: calc(var(--s4) + 47px); height: 3px; border-radius: 2px; background: var(--k-plank); animation: k-plank .5s ease-out both; }
 .kit__door { transform-box: fill-box; transform-origin: right center; animation: k-peek 2.4s ease-in-out both; }
 .kit__slit { opacity: 0; animation: k-peeklight 2.4s ease-in-out both; }
 @keyframes k-stand { from { opacity: 0; transform: translateY(28px); } 70% { transform: translateY(-3px); } to { opacity: 1; transform: none; } }
@@ -4302,7 +4303,9 @@ b, strong, th { font-weight: 600; }
 .kit__left { font-weight: 600; white-space: nowrap; }
 
 /* Shelves: each row of things stands on a plank, its labels along the
-   plank's edge. In the fridge the plank is a glass shelf. */
+   plank's edge. In the fridge the plank is a glass shelf. The drawings are a
+   fixed height, so the plank is placed from the top and grows down with
+   the labels when the text is large. */
 .shelves { display: flex; flex-direction: column; gap: var(--s5); }
 .shelf__name { display: flex; align-items: baseline; margin: 0 2px var(--s1); font-size: var(--t-sm); font-weight: 650; color: var(--ink-2); }
 .shelf__name span { margin-left: auto; font-weight: 500; color: var(--ink-3); }
@@ -4312,8 +4315,8 @@ b, strong, th { font-weight: 600; }
   content: ""; position: absolute; transform-origin: left center;
   animation: k-plank .45s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i) * 110ms);
 }
-.shelf-row::before { left: 0; right: 0; bottom: 0; height: 50px; border-radius: 2px 2px 8px 8px; background: var(--k-plank); box-shadow: 0 9px 14px -12px var(--k-shadow); }
-.shelf-row::after { left: -3px; right: -3px; bottom: 49px; height: 6px; border-radius: 3px 3px 1px 1px; background: var(--k-plank-top); }
+.shelf-row::before { left: 0; right: 0; top: 58px; bottom: 0; border-radius: 2px 2px 8px 8px; background: var(--k-plank); box-shadow: 0 9px 14px -12px var(--k-shadow); }
+.shelf-row::after { left: -3px; right: -3px; top: 53px; height: 6px; border-radius: 3px 3px 1px 1px; background: var(--k-plank-top); }
 .thing {
   position: relative; z-index: 1; display: flex; flex-direction: column; min-width: 0; padding: 0;
   background: none; border: 0; border-radius: var(--r-sm); color: inherit; font: inherit; text-align: center; cursor: pointer;
@@ -4323,15 +4326,15 @@ b, strong, th { font-weight: 600; }
   transform-origin: 50% 100%; animation: k-drop .72s both; animation-delay: calc(330ms + var(--j) * 75ms);
 }
 .thing__tag {
-  display: flex; flex-direction: column; justify-content: center; height: 38px; min-width: 0; padding: 3px 4px;
+  display: flex; flex-direction: column; justify-content: center; min-height: 38px; min-width: 0; padding: 3px 4px;
   border-radius: 5px; background: var(--surface); animation: k-tag .3s ease-out both; animation-delay: calc(700ms + var(--j) * 75ms);
 }
 .thing__tag b { display: block; font-size: 11.5px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thing__tag span { display: flex; justify-content: center; align-items: center; gap: 3px; font-size: 11px; line-height: 1.3; color: var(--ink-3); white-space: nowrap; overflow: hidden; }
+.thing__tag span { display: flex; justify-content: safe center; align-items: center; gap: 3px; font-size: 11px; line-height: 1.3; color: var(--ink-3); white-space: nowrap; overflow: hidden; }
 .thing__tag .glyph { flex: none; color: var(--accent-ink); }
 .is-old .thing__tag b { color: var(--ink-3); font-weight: 500; }
 @media (hover: hover) { .thing:hover .thing__tag { background: var(--sunken); } }
-.shelf-row--glass::before { bottom: 44px; height: 4px; border-radius: 2px; background: var(--k-glass); box-shadow: none; }
+.shelf-row--glass::before { top: 57px; bottom: auto; height: 4px; border-radius: 2px; background: var(--k-glass); box-shadow: none; }
 .shelf-row--glass::after, .fridge__drawer .shelf-row::before, .fridge__drawer .shelf-row::after { display: none; }
 .shelf-row--glass .thing__tag, .fridge__drawer .thing__tag { background: none; }
 

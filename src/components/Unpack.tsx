@@ -41,7 +41,8 @@ export default function Unpack(p: {
 }) {
   // Taken when the sheet opens, so chips do not move under a finger as the
   // kitchen is read again after each one.
-  const chips = useMemo(() => (p.open ? usual(p.foods, p.today) : []), [p.open]);
+  const loaded = p.foods.length > 0;
+  const chips = useMemo(() => (p.open ? usual(p.foods, p.today) : []), [p.open, loaded]);
   const [done, setDone] = useState<Record<string, Place>>({});
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<FoodHit[]>([]);
@@ -55,8 +56,9 @@ export default function Unpack(p: {
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) { setHits([]); return; }
-    const t = setTimeout(() => searchFoods(q, 8).then(setHits, () => setHits([])), 200);
-    return () => clearTimeout(t);
+    let live = true;
+    const t = setTimeout(() => searchFoods(q, 8).then((h) => live && setHits(h), () => live && setHits([])), 200);
+    return () => { live = false; clearTimeout(t); };
   }, [query]);
 
   async function put(food: FoodRef, description: string, place: Place, from: HTMLElement) {
@@ -115,8 +117,10 @@ export default function Unpack(p: {
               const food = { fdc_id: h.fdc_id, custom_food_id: h.custom_food_id };
               const name = displayName(h);
               const key = keyOf(food);
+              // Somewhere it was moved to wins over the guess.
+              const known = p.foods.find((f) => keyOf(f) === key);
               return (
-                <button key={key} className="tile unpack__hit" aria-pressed={Boolean(done[key])} onClick={(e) => put(food, h.description, guess(name).place, e.currentTarget.querySelector(".unpack__art") as HTMLElement)}>
+                <button key={key} className="tile unpack__hit" aria-pressed={Boolean(done[key])} onClick={(e) => put(food, h.description, known ? placeOf(known) : guess(name).place, e.currentTarget.querySelector(".unpack__art") as HTMLElement)}>
                   <span className="unpack__art"><KitchenArt art={guess(name).art} size={26} /></span>
                   <span className="row__title">{name}</span>
                 </button>

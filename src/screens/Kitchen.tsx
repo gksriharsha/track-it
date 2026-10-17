@@ -44,7 +44,6 @@ export default function Kitchen(p: Props) {
             </span>
           </button>
         </div>
-        <i className="kit__floor" aria-hidden />
       </section>
 
       {pots && pots.length > 0 && (
