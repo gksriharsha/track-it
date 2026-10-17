@@ -1631,6 +1631,8 @@ export interface SupplementScan {
   /** What one of them is called, singular: "tablet", "capsule", "gummy". */
   unit_noun: string | null;
   readings: SupplementScanReading[];
+  /** Herb and extract lines, in printed order; a blend part has no amount. */
+  actives: SupplementActive[];
   /** Rows that were read but named no nutrient this app carries. */
   unmatched_rows: number;
   /** Lines of text the recogniser returned, panel or not. */

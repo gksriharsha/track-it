@@ -3202,6 +3202,8 @@ pub struct SupplementScan {
     pub unit_noun: Option<String>,
     /// What the panel yielded. Suggestions, every one of them.
     pub readings: Vec<SupplementScanReading>,
+    /// Herb and extract lines, in the shape a stored supplement keeps them.
+    pub actives: Vec<suppanel::SupActive>,
     /// Rows that grouped as panel lines but named no nutrient this app knows,
     /// so the editor can say how much of the panel went unread.
     pub unmatched_rows: usize,
@@ -3335,7 +3337,7 @@ fn scan_supplement_photo(name: String, app: AppHandle) -> Result<SupplementScan,
 
     Ok(SupplementScan {
         trouble: scan_trouble(
-            !readings.is_empty(),
+            !readings.is_empty() || !parsed.actives.is_empty(),
             lines.len(),
             "a Supplement Facts panel",
             parsed.trouble,
@@ -3344,6 +3346,7 @@ fn scan_supplement_photo(name: String, app: AppHandle) -> Result<SupplementScan,
         serving_label: parsed.serving_label,
         unit_noun: parsed.unit_noun,
         readings,
+        actives: parsed.actives,
         unmatched_rows: parsed.unmatched_rows,
         lines: lines.len(),
     })
