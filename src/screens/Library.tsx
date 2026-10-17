@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { listBottles, listContainers, listCustomFoods, listRecipes, listSupplements, listVessels } from "../api";
+import { listBottles, listCustomFoods, listRecipes, listSupplements, listVessels } from "../api";
 import ScreenHead from "../components/ScreenHead";
+import { useKitchen } from "../lib/useKitchen";
 
 interface Props {
   onOpenRecipes: () => void;
@@ -8,7 +9,7 @@ interface Props {
   onOpenSupplements: () => void;
   onOpenVessels: () => void;
   onOpenBottles: () => void;
-  onOpenPantry: () => void;
+  onOpenKitchen: () => void;
 }
 
 interface Counts {
@@ -17,7 +18,6 @@ interface Counts {
   supplements: number;
   vessels: number;
   bottles: number;
-  containers: number;
 }
 
 /**
@@ -38,16 +38,16 @@ interface Counts {
 export default function Library(p: Props) {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const kitchen = useKitchen();
 
   const load = useCallback(async () => {
     try {
-      const [recipes, customFoods, supplements, vessels, bottles, containers] = await Promise.all([
+      const [recipes, customFoods, supplements, vessels, bottles] = await Promise.all([
         listRecipes(),
         listCustomFoods(),
         listSupplements(),
         listVessels(),
         listBottles(),
-        listContainers(),
       ]);
       setCounts({
         recipes: recipes.length,
@@ -55,7 +55,6 @@ export default function Library(p: Props) {
         supplements: supplements.length,
         vessels: vessels.length,
         bottles: bottles.length,
-        containers: containers.filter((c) => !c.finished).length,
       });
       setError(null);
     } catch (e) {
@@ -97,13 +96,13 @@ export default function Library(p: Props) {
             </span>
           </button>
 
-          <button className="row" style={{ gridTemplateColumns: "1fr auto" }} onClick={p.onOpenPantry}>
+          <button className="row" style={{ gridTemplateColumns: "1fr auto" }} onClick={p.onOpenKitchen}>
             <span className="row__main">
-              <span className="row__title">Pantry</span>
-              <span className="row__sub">Salt, oil and the rest, read by the jar</span>
+              <span className="row__title">Kitchen</span>
+              <span className="row__sub">Your pantry, fridge and freezer</span>
             </span>
             <span className="nval">
-              <span className="nval__amt tnum">{counts?.containers ?? "…"}</span>
+              <span className="nval__amt tnum">{kitchen.counts ? kitchen.counts.pantry + kitchen.counts.fridge + kitchen.counts.freezer : "…"}</span>
               <span className="row__chev" aria-hidden>›</span>
             </span>
           </button>

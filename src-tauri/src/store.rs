@@ -1776,6 +1776,8 @@ fn prepare(mut conn: Connection) -> Result<Connection, String> {
     // the whole of their migration.
     conn.execute_batch(crate::containers::SCHEMA)
         .map_err(|e| e.to_string())?;
+    conn.execute_batch(crate::kitchen::SCHEMA)
+        .map_err(|e| e.to_string())?;
     // Belt and braces against a sync run that somehow left the flag raised.
     // Rolling back the apply transaction is what is supposed to clear it; this
     // costs one UPDATE at launch and closes the case where it did not, which

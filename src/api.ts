@@ -13,6 +13,8 @@ import type {
   FoodTasteFactor,
   FoodUsage,
   Pantry,
+  KitchenFood,
+  Place,
   PercentLine,
   BarcodeScan,
   CustomFood,
@@ -1108,3 +1110,19 @@ export const unlockLog = (passphrase: string) =>
  * caller has to ask which one it is on.
  */
 export const takeWidgetLanding = () => invoke<WidgetLanding | null>("take_widget_landing");
+
+/* ── the kitchen ──────────────────────────────────────────────────────── */
+
+/** Every food used or put away since `since`, finished or not. */
+export const getKitchen = (since: string) => invoke<KitchenFood[]>("get_kitchen", { since });
+
+/** Bought: put away on `on`, in `place`. Undoes a finished. */
+export const putAway = (food: FoodRef, description: string, place: Place, on: string) =>
+  invoke<void>("put_away", { fdcId: food.fdc_id, customFoodId: food.custom_food_id, description, place, on });
+
+/** Moved, not bought again. */
+export const moveKitchenFood = (food: FoodRef, description: string, place: Place) =>
+  invoke<void>("move_kitchen_food", { fdcId: food.fdc_id, customFoodId: food.custom_food_id, description, place });
+
+export const finishKitchenFood = (food: FoodRef, description: string, on: string) =>
+  invoke<void>("finish_kitchen_food", { fdcId: food.fdc_id, customFoodId: food.custom_food_id, description, on });

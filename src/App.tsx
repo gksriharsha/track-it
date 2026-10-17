@@ -11,6 +11,9 @@ import You from "./screens/You";
 import Vessels from "./screens/Vessels";
 import Bottles from "./screens/Bottles";
 import Pantry from "./screens/Pantry";
+import Kitchen from "./screens/Kitchen";
+import Shelves from "./screens/Shelves";
+import Fridge from "./screens/Fridge";
 import ContainerHistory from "./screens/ContainerHistory";
 import ContainerEditor from "./screens/ContainerEditor";
 import CustomFoods from "./screens/CustomFoods";
@@ -192,10 +195,10 @@ const NAV_ICON: Record<string, ReactNode> = {
       <path d="M4.5 9h15" strokeLinecap="round" />
     </>
   ),
-  pantry: (
+  kitchen: (
     <>
-      <path d="M8 3.8h8v2.8H8z" strokeLinejoin="round" />
-      <path d="M8.6 6.6C7 7.6 6 9 6 11v7.2A1.8 1.8 0 0 0 7.8 20h8.4a1.8 1.8 0 0 0 1.8-1.8V11c0-2-1-3.4-2.6-4.4" strokeLinejoin="round" />
+      <rect x="6" y="3" width="12" height="18" rx="2.4" />
+      <path d="M6 9.5h12M9 6v1.5M9 12v3.5" strokeLinecap="round" />
     </>
   ),
   bottles: (
@@ -278,7 +281,7 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
     items: [
       { id: "recipes", label: "Recipes" },
       { id: "custom-foods", label: "Foods you added" },
-      { id: "pantry", label: "Pantry" },
+      { id: "kitchen", label: "Kitchen" },
       { id: "supplements", label: "Supplements" },
       { id: "vessels", label: "Bowls & plates" },
       { id: "bottles", label: "Water bottles" },
@@ -317,6 +320,9 @@ const ASIDES = [
   "cook",
   "vessels",
   "bottles",
+  "kitchen",
+  "shelves",
+  "fridge",
   "pantry",
   "container",
   "container-edit",
@@ -356,7 +362,10 @@ const ASIDE_HOME: Record<string, Tab> = {
   cook: "recipes",
   vessels: "foods",
   bottles: "foods",
-  pantry: "library",
+  kitchen: "library",
+  shelves: "kitchen",
+  fridge: "kitchen",
+  pantry: "kitchen",
   container: "pantry",
   "container-edit": "pantry",
   "custom-foods": "foods",
@@ -999,7 +1008,8 @@ function Shell() {
     { id: "sups", label: "Supplements", hint: "taken by count, not by weight", group: "Library", run: () => open("supplements", { from: "library" }) },
     { id: "vessels", label: "Bowls & plates", hint: "weighed empty once", group: "Library", run: () => open("vessels", { from: "library" }) },
     { id: "bottles", label: "Water bottles", hint: "weighed full once", group: "Library", run: () => open("bottles", { from: "library" }) },
-    { id: "pantry", label: "Pantry", hint: "salt, oil and the rest, read by the jar", group: "Library", run: () => open("pantry", { from: "library" }) },
+    { id: "kitchen", label: "Kitchen", hint: "what is in the pantry and the fridge", group: "Library", run: () => open("kitchen", { from: "library" }) },
+    { id: "pantry", label: "Jars you weigh", hint: "salt, oil and the rest, read by the jar", group: "Library", run: () => open("pantry", { from: "kitchen" }) },
     { id: "profile", label: "About you", hint: "who the figures are for", group: "Settings", run: () => open("profile", { from: "you" }) },
     { id: "targets", label: "Targets & goals", hint: "what every figure is read against", group: "Settings", run: () => open("settings", { from: "you" }) },
     { id: "import", label: "Import", hint: "a log you kept elsewhere", group: "Settings", run: () => open("import", { from: "you" }) },
@@ -1414,7 +1424,7 @@ function Shell() {
             onOpenSupplements={() => go("supplements", { from: "library" })}
             onOpenVessels={() => go("vessels", { from: "library" })}
             onOpenBottles={() => go("bottles", { from: "library" })}
-            onOpenPantry={() => go("pantry", { from: "library" })}
+            onOpenKitchen={() => go("kitchen", { from: "library" })}
           />
         )}
 
@@ -1535,9 +1545,27 @@ function Shell() {
           <Bottles onBack={() => back(1, route.from ?? "foods")} />
         )}
 
+        {tab === "kitchen" && (
+          <Kitchen
+            onBack={() => back(1, route.from ?? "library")}
+            onOpenPantry={() => go("shelves", { from: "kitchen" })}
+            onOpenFridge={() => go("fridge", { from: "kitchen" })}
+            onOpenJars={() => go("pantry", { from: "kitchen" })}
+            onOpenPot={(id) => go("cook", { id, from: "kitchen" })}
+          />
+        )}
+
+        {tab === "shelves" && (
+          <Shelves onBack={() => back(1, route.from ?? "kitchen")} onOpenJar={(id) => go("container", { id, from: "shelves" })} />
+        )}
+
+        {tab === "fridge" && (
+          <Fridge onBack={() => back(1, route.from ?? "kitchen")} onOpenPot={(id) => go("cook", { id, from: "fridge" })} />
+        )}
+
         {tab === "pantry" && (
           <Pantry
-            onBack={() => back(1, route.from ?? "library")}
+            onBack={() => back(1, route.from ?? "kitchen")}
             onOpen={(id) => go("container", { id, from: "pantry" })}
             onAdd={() => go("container-edit", { from: "pantry" })}
           />
