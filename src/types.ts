@@ -1369,6 +1369,16 @@ export interface Supplement {
   photo_panel: string | null;
   photo_ingredients: string | null;
   nutrients: SupplementNutrient[];
+  /** Lines that name no nutrient — a herb, an extract — kept as printed. */
+  actives: SupplementActive[];
+}
+
+/** A panel line naming no nutrient this app tracks: "Ashwagandha root extract 600 mg". */
+export interface SupplementActive {
+  name: string;
+  /** Null, with the unit, where the pack gives no amount. */
+  label_amount: number | null;
+  label_unit: "g" | "mg" | "ug" | null;
 }
 
 /** One nutrient this app displays, as the reference database describes it. */
