@@ -27,7 +27,7 @@ import type {
 } from "../types";
 import { formsFor } from "../types";
 import Info from "../components/Info";
-import VegFlags from "../components/VegFlags";
+import IngredientFlags from "../components/IngredientFlags";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -1223,7 +1223,7 @@ export default function SupplementEditor(p: Props) {
           </div>
         )}
 
-        <VegFlags
+        <IngredientFlags
           text={`${ingTint && ingHint ? ingText(ingHint) : otherIngredients}\n${ingOffer && ingHint ? ingText(ingHint) : ""}`}
         />
 

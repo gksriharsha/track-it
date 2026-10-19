@@ -59,10 +59,10 @@ const NOT_ANIMAL = [
 // compound almost never appears inside an ingredient list.
 const NOT_BEFORE =
   /\b(?:no|non|not|without|free from|vegetarian|vegan|veg|imitation|mock|meatless|plant[- ]based|vegetable|plant|microbial|fungal|non-animal|synthetic)[\s-]+$/;
-const NOT_AFTER = /^[\s-]*free\b/;
+export const NOT_AFTER = /^[\s-]*free\b/;
 
 /** "May contain fish", "made in a facility that handles shellfish": cross-contact, not an ingredient. */
-const CROSS_CONTACT = /(?:may contain|traces? of|facility|equipment|same line)[^.\n]*/g;
+export const CROSS_CONTACT = /(?:may contain|traces? of|facility|equipment|same line)[^.\n]*/g;
 
 /** An unprefixed number counts only inside an additive's brackets: "Emulsifiers (471, 322)". */
 const ADDITIVE_OPEN =

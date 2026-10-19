@@ -34,7 +34,7 @@ import type {
 } from "../types";
 import { LABEL_NUTRIENTS } from "../types";
 import Info from "../components/Info";
-import VegFlags from "../components/VegFlags";
+import IngredientFlags from "../components/IngredientFlags";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -1186,7 +1186,7 @@ export default function CustomFoodEditor(p: Props) {
           </div>
         )}
 
-        <VegFlags text={`${ingTinted ? ingText : ingredients}\n${ingClash ? ingText : ""}`} />
+        <IngredientFlags text={`${ingTinted ? ingText : ingredients}\n${ingClash ? ingText : ""}`} />
 
         {/* Dismissed on its own: when it stands beside a suggestion, clearing
             the whole scan would take the statement away with the sentence. */}
