@@ -596,6 +596,8 @@ export interface Profile {
   life_stage: LifeStage;
   /** Their own energy figure. Null means "estimate it from the body above". */
   energy_kcal: number | null;
+  /** Flag non-vegetarian ingredients when a pack is read. Eggs count as vegetarian. */
+  vegetarian_only: boolean;
 }
 
 export interface EnergyTarget {

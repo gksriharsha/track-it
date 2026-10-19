@@ -27,6 +27,7 @@ import type {
 } from "../types";
 import { formsFor } from "../types";
 import Info from "../components/Info";
+import VegFlags from "../components/VegFlags";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -1221,6 +1222,10 @@ export default function SupplementEditor(p: Props) {
             </span>
           </div>
         )}
+
+        <VegFlags
+          text={`${ingTint && ingHint ? ingText(ingHint) : otherIngredients}\n${ingOffer && ingHint ? ingText(ingHint) : ""}`}
+        />
 
         <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
           For reference only — add a line above for anything to count.

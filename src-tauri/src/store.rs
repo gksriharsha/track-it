@@ -634,6 +634,9 @@ CREATE TABLE IF NOT EXISTS profile (
   -- target at all — which is the honest outcome and what replaced a hard-coded
   -- 2,200 kcal that applied to nobody in particular.
   energy_kcal   REAL CHECK (energy_kcal IS NULL OR energy_kcal > 0),
+  -- Flag ingredient lists that name meat, fish, gelatin and the like. Eggs and
+  -- dairy count as vegetarian; see src/lib/vegetarian.ts.
+  vegetarian_only INTEGER NOT NULL DEFAULT 0 CHECK (vegetarian_only IN (0,1)),
   updated_at    TEXT
 );
 
@@ -1466,7 +1469,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-pub(crate) const SCHEMA_VERSION: i64 = 24;
+pub(crate) const SCHEMA_VERSION: i64 = 25;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -3336,6 +3339,17 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
     // ashwagandha, ginseng. No arm, for v17 -> v18's reason: `supplement_actives`
     // is a new table that only references `supplements`, so SCHEMA creating it
     // is the whole migration and no existing row moves.
+
+    // v24 -> v25: the profile may say the person eats only vegetarian food.
+    // Plain ADD COLUMN, for v22 -> v23's reason: a constant default that every
+    // existing profile already satisfies. Last, so no rebuild above can drop it.
+    if !columns(conn, "profile")?.iter().any(|c| c == "vegetarian_only") {
+        conn.execute_batch(
+            "ALTER TABLE profile ADD COLUMN vegetarian_only INTEGER NOT NULL DEFAULT 0
+               CHECK (vegetarian_only IN (0,1));",
+        )
+        .map_err(|e| format!("migrating profile to v25: {e}"))?;
+    }
 
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
@@ -6830,6 +6844,9 @@ pub struct Profile {
     pub life_stage: String,
     /// The user's own energy figure. `None` means "estimate it from the body".
     pub energy_kcal: Option<f64>,
+    /// Flag non-vegetarian ingredients when a pack is read. Eggs count as vegetarian.
+    #[serde(default)]
+    pub vegetarian_only: bool,
 }
 
 /// One target the user set for themselves.
@@ -6857,7 +6874,8 @@ const LIFE_STAGES: [&str; 3] = ["standard", "pregnant", "lactating"];
 pub fn get_profile(conn: &Connection) -> Result<Profile, String> {
     let found = conn
         .query_row(
-            "SELECT sex, birth_year, height_cm, weight_kg, activity, life_stage, energy_kcal
+            "SELECT sex, birth_year, height_cm, weight_kg, activity, life_stage, energy_kcal,
+                    vegetarian_only
              FROM profile WHERE id = 1",
             [],
             |r| {
@@ -6869,6 +6887,7 @@ pub fn get_profile(conn: &Connection) -> Result<Profile, String> {
                     activity: r.get(4)?,
                     life_stage: r.get(5)?,
                     energy_kcal: r.get(6)?,
+                    vegetarian_only: r.get(7)?,
                 })
             },
         )
@@ -6919,11 +6938,13 @@ pub fn save_profile(conn: &Connection, p: &Profile) -> Result<(), String> {
     let now = now_iso(conn)?;
     conn.execute(
         "INSERT INTO profile
-           (id, sex, birth_year, height_cm, weight_kg, activity, life_stage, energy_kcal, updated_at)
-         VALUES (1,?1,?2,?3,?4,?5,?6,?7,?8)
+           (id, sex, birth_year, height_cm, weight_kg, activity, life_stage, energy_kcal,
+            vegetarian_only, updated_at)
+         VALUES (1,?1,?2,?3,?4,?5,?6,?7,?8,?9)
          ON CONFLICT(id) DO UPDATE SET
            sex = ?1, birth_year = ?2, height_cm = ?3, weight_kg = ?4,
-           activity = ?5, life_stage = ?6, energy_kcal = ?7, updated_at = ?8",
+           activity = ?5, life_stage = ?6, energy_kcal = ?7, vegetarian_only = ?8,
+           updated_at = ?9",
         rusqlite::params![
             p.sex,
             p.birth_year,
@@ -6932,6 +6953,7 @@ pub fn save_profile(conn: &Connection, p: &Profile) -> Result<(), String> {
             p.activity,
             p.life_stage,
             p.energy_kcal,
+            p.vegetarian_only,
             now
         ],
     )
@@ -10887,10 +10909,12 @@ mod tests {
                 activity: Some("moderate".into()),
                 life_stage: "pregnant".into(),
                 energy_kcal: Some(2100.0),
+                vegetarian_only: true,
             },
         )
         .unwrap();
         let p = get_profile(&c).unwrap();
+        assert!(p.vegetarian_only);
         assert_eq!(p.sex.as_deref(), Some("female"));
         assert_eq!(p.height_cm, Some(165.0));
         assert_eq!(p.life_stage, "pregnant");
@@ -10909,10 +10933,12 @@ mod tests {
                 activity: None,
                 life_stage: "standard".into(),
                 energy_kcal: None,
+                vegetarian_only: false,
             },
         )
         .unwrap();
         let p = get_profile(&c).unwrap();
+        assert!(!p.vegetarian_only);
         assert_eq!(p.height_cm, None);
         assert_eq!(p.weight_kg, None);
         assert_eq!(p.activity, None);
@@ -11005,9 +11031,35 @@ mod tests {
         assert_eq!(p.activity, None);
         assert_eq!(p.energy_kcal, None);
         assert_eq!(p.life_stage, "standard");
+        assert!(!p.vegetarian_only);
 
         let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(v, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migrates_a_v24_profile_to_not_vegetarian_only_keeping_the_rest() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE profile (
+               id INTEGER PRIMARY KEY CHECK (id = 1),
+               sex TEXT, birth_year INTEGER, height_cm REAL, weight_kg REAL, activity TEXT,
+               life_stage TEXT NOT NULL DEFAULT 'standard', energy_kcal REAL, updated_at TEXT
+             );
+             INSERT INTO profile (id,sex,birth_year,height_cm,weight_kg,activity,life_stage,energy_kcal)
+             VALUES (1,'female',1990,160.0,55.0,'light','standard',1900.0);
+             PRAGMA user_version = 24;",
+        )
+        .unwrap();
+        c.execute_batch(SCHEMA).unwrap();
+        migrate(&mut c).unwrap();
+
+        let p = get_profile(&c).unwrap();
+        assert_eq!(p.weight_kg, Some(55.0));
+        assert_eq!(p.energy_kcal, Some(1900.0));
+        assert!(!p.vegetarian_only);
+        save_profile(&c, &Profile { vegetarian_only: true, ..p }).unwrap();
+        assert!(get_profile(&c).unwrap().vegetarian_only);
     }
 
     #[test]
@@ -13222,6 +13274,7 @@ mod tests {
                 activity: None,
                 life_stage: "standard".into(),
                 energy_kcal: None,
+                vegetarian_only: true,
             },
         )
         .unwrap();
