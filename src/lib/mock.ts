@@ -651,6 +651,7 @@ const PROFILE: Profile = {
   activity: "light",
   life_stage: "standard",
   energy_kcal: 2240,
+  vegetarian_only: true,
 };
 
 function goals(): GoalsView {
