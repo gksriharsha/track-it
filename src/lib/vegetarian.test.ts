@@ -42,8 +42,7 @@ same("glycerides are read whole",
   words("Emulsifier: mono and diglycerides of fatty acids"), ["mono and diglycerides?"]);
 same("an empty list flags nothing", words(""), []);
 
-if (failures) {
-  console.error(`${failures} failed`);
-  process.exit(1);
-}
+// Thrown rather than process.exit: these tests are typechecked with the app,
+// which has no Node typings (see node.d.ts).
+if (failures > 0) throw new Error(`${failures} vegetarian claim(s) failed`);
 console.log("vegetarian: ok");
