@@ -123,49 +123,42 @@ export default function Allergies(p: { onBack: () => void }) {
         <section className="card">
           <div className="card__head">
             <h2>Reaction days</h2>
+            {unexplained > 0 && (
+              <Info title="What the chips are">
+                <p>
+                  Under a reaction day none of your allergens explains: what was eaten that day,
+                  and more often on the {days(unexplained)} like it than on the {days(view.otherDays)}{" "}
+                  without a reaction. Rice and salt eaten every day drop out. A filled chip was
+                  eaten on more than one of them.
+                </p>
+                <p>
+                  Eaten on the same day is not a cause. It is a list to be aware of, and an
+                  allergist can test what it cannot.
+                </p>
+              </Info>
+            )}
             <span className="card__note">{view.reactions.length || "none yet"}</span>
           </div>
           {view.reactions.length === 0 ? (
             <p className="rangenote">Mark one with "Had a reaction", beside the day's note on Today.</p>
           ) : (
             <div className="rows">
-              {[...view.reactions].reverse().map((r) => (
-                <div key={r.date} className="row" style={ROW}>
-                  <span className="row__title">{humanDate(r.date)}</span>
-                  <span className="row__sub">{r.allergens.length ? r.allergens.join(", ") : "none of yours"}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {view && unexplained > 0 && (
-        <section className="card">
-          <div className="card__head">
-            <h2>To be aware of</h2>
-            <Info title="What this list is">
-              <p>
-                On the {days(unexplained)} you marked a reaction that none of your allergens
-                explains, these were eaten more often than on the {days(view.otherDays)} without
-                one.
-              </p>
-              <p>
-                Eaten on the same day is not a cause. It is a list to keep an eye on, and an
-                allergist can test what it cannot.
-              </p>
-            </Info>
-          </div>
-          {view.aware.length === 0 ? (
-            <p className="rangenote">Nothing stands out yet.</p>
-          ) : (
-            <div className="rows">
-              {view.aware.map((a) => (
-                <div key={a.item} className="row" style={ROW}>
-                  <span className="row__title">{a.item[0].toUpperCase() + a.item.slice(1)}</span>
-                  <span className="row__sub tnum">
-                    {a.onReaction} of {unexplained} reaction days · {a.onOther} of {view.otherDays} others
+              {view.reactions.map((r) => (
+                <div key={r.date} className="row" style={{ gridTemplateColumns: "1fr", gap: "var(--s2)" }}>
+                  <span style={{ display: "flex", justifyContent: "space-between", gap: "var(--s3)" }}>
+                    <span className="row__title">{humanDate(r.date)}</span>
+                    <span className="row__sub">{r.allergens.length ? r.allergens.join(", ") : "none of yours"}</span>
                   </span>
+                  {r.aware.length > 0 && (
+                    <span className="chips">
+                      {r.aware.map((a) => (
+                        <span key={a.item} className={`chip chip--sm${a.onReaction > 1 ? " chip--rep" : ""}`}>
+                          {a.item[0].toUpperCase() + a.item.slice(1)}
+                          {a.onReaction > 1 && <span className="tnum"> ×{a.onReaction}</span>}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

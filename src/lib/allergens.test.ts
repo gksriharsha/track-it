@@ -4,7 +4,7 @@
  *
  *     node src/lib/allergens.test.ts
  */
-import { describe, findAllergens, ingredientItems, readReactions, resolve, type IngredientDay } from "./allergens.ts";
+import { findAllergens, group, ingredientItems, readReactions, resolve, type IngredientDay } from "./allergens.ts";
 
 let failures = 0;
 function same(name: string, got: unknown, want: unknown) {
@@ -28,8 +28,11 @@ same("lactose-free milk is still milk", flags("lactose-free milk", ["milk"]), ["
 same("may contain is not sure", flags("Rice. May contain traces of sesame and peanut.", ["sesame", "peanut"]), ["Sesame:sesame?", "Peanut:peanut?"]);
 same("a word of your own is matched as a word", flags("Mango pulp, mangosteen", ["Mango"]), ["Mango:Mango"]);
 same("sulphite codes", flags("Preservative (INS 223)", ["sulphites"]), ["Sulphites:INS 223"]);
-same("describe names each allergen once, with its printed words",
-  describe(findAllergens("groundnut, peanut, whey, milk", ["peanut", "milk"])), "Peanut (groundnut), Milk (whey)");
+same("group names each allergen once, with its printed words, sure if any word was",
+  group(findAllergens("groundnut, peanut, whey. May contain milk.", ["peanut", "milk"])),
+  [{ allergen: "Peanut", sure: true, words: ["groundnut"] }, { allergen: "Milk", sure: true, words: ["whey"] }]);
+same("an allergen only in a may-contain line is not sure",
+  group(findAllergens("Rice. May contain sesame.", ["sesame"])), [{ allergen: "Sesame", sure: false, words: [] }]);
 
 same("a list splits into what it names",
   ingredientItems("INGREDIENTS: Wheat flour (atta) (62%), edible vegetable oil (palm), salt. Contains: Wheat"),
@@ -45,13 +48,15 @@ const days = [
   day("2026-10-06", false, ["Peanuts, roasted"]),
 ];
 const view = readReactions(days, ["peanut"]);
-same("a reaction day with an allergen is explained by it",
-  view.reactions, [{ date: "2026-10-01", allergens: ["Peanut"] }, { date: "2026-10-02", allergens: [] }, { date: "2026-10-03", allergens: [] }]);
+const aware = (date: string) => view.reactions.find((r) => r.date === date)!.aware.map((a) => `${a.item} ${a.onReaction}/${a.onOther}`);
+same("reaction days come newest first, an explained one with its allergen",
+  view.reactions.map((r) => `${r.date} ${r.allergens.join(",")}`), ["2026-10-03 ", "2026-10-02 ", "2026-10-01 Peanut"]);
 same("each allergen eaten is tracked", view.eaten, [{ allergen: "Peanut", days: 2, last: "2026-10-06" }]);
-same("aware lists what was on unexplained reaction days more than on others, most often first",
-  view.aware.map((a) => `${a.item} ${a.onReaction}/${a.onOther}`),
-  ["kiwi 2/0", "salt 2/1", "fruit bar 1/0", "kiwi pack 1/0", "oats 1/1", "sugar 1/1"]);
-same("nothing to be aware of without a reaction", readReactions(days.filter((d) => !d.reaction), ["peanut"]).aware, []);
+same("an unexplained day lists what was on it more often than on other days, most often first",
+  aware("2026-10-03"), ["kiwi 2/0", "salt 2/1", "fruit bar 1/0", "oats 1/1"]);
+same("each unexplained day lists its own", aware("2026-10-02"), ["kiwi 2/0", "salt 2/1", "kiwi pack 1/0", "sugar 1/1"]);
+same("an explained day lists nothing", aware("2026-10-01"), []);
+same("no reaction days, nothing listed", readReactions(days.filter((d) => !d.reaction), ["peanut"]).reactions, []);
 
 // Thrown rather than process.exit: these tests are typechecked with the app,
 // which has no Node typings (see node.d.ts).

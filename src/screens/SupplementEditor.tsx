@@ -1183,6 +1183,9 @@ export default function SupplementEditor(p: Props) {
           <h2>Other ingredients</h2>
           <span className="card__note">as printed</span>
         </div>
+        <IngredientFlags
+          text={`${ingTint && ingHint ? ingText(ingHint) : otherIngredients}\n${ingOffer && ingHint ? ingText(ingHint) : ""}`}
+        />
         <span className="lrow__box">
           <textarea
             className={`field${ingTint ? " is-read" : ""}`}
@@ -1222,10 +1225,6 @@ export default function SupplementEditor(p: Props) {
             </span>
           </div>
         )}
-
-        <IngredientFlags
-          text={`${ingTint && ingHint ? ingText(ingHint) : otherIngredients}\n${ingOffer && ingHint ? ingText(ingHint) : ""}`}
-        />
 
         <p className="rangenote" style={{ marginTop: "var(--s3)" }}>
           For reference only — add a line above for anything to count.

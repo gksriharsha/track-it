@@ -67,7 +67,7 @@ export function findAllergens(text: string, names: string[]): AllergenHit[] {
   for (const re of NOT_IT) lower = lower.replace(re, (m) => " ".repeat(m.length));
   const cross = [...lower.matchAll(CROSS_CONTACT)].map((m) => [m.index, m.index + m[0].length]);
 
-  const hits = new Map<string, AllergenHit>();
+  const hits = new Map<string, AllergenHit & { at: number }>();
   for (const a of names.map(resolve)) {
     for (const src of a.words) {
       for (const m of lower.matchAll(new RegExp(`\\b(?:${src})(?:e?s)?\\b`, "g"))) {
@@ -77,23 +77,25 @@ export function findAllergens(text: string, names: string[]): AllergenHit[] {
         const sure = !cross.some(([s, e]) => m.index >= s && m.index < e);
         const key = `${a.label}\u0000${word.toLowerCase()}`;
         const had = hits.get(key);
-        if (!had) hits.set(key, { allergen: a.label, word, sure });
+        if (!had) hits.set(key, { allergen: a.label, word, sure, at: m.index });
         else if (sure) had.sure = true;
       }
     }
   }
-  return [...hits.values()];
+  // In the order the pack prints them.
+  return [...hits.values()].sort((x, y) => x.at - y.at).map(({ allergen, word, sure }) => ({ allergen, word, sure }));
 }
 
-/** "Peanut (groundnut), Milk": each allergen once, with the printed words that are not its own name. */
-export function describe(hits: AllergenHit[]): string {
-  const by = new Map<string, string[]>();
+/** Each allergen once: sure if any of its words was, with the printed words that are not its own name. */
+export function group(hits: AllergenHit[]): { allergen: string; sure: boolean; words: string[] }[] {
+  const by = new Map<string, { allergen: string; sure: boolean; words: string[] }>();
   for (const h of hits) {
-    const words = by.get(h.allergen) ?? [];
-    if (h.word.toLowerCase() !== h.allergen.toLowerCase() && !words.some((w) => w.toLowerCase() === h.word.toLowerCase())) words.push(h.word);
-    by.set(h.allergen, words);
+    const g = by.get(h.allergen) ?? { allergen: h.allergen, sure: false, words: [] };
+    g.sure ||= h.sure;
+    if (h.word.toLowerCase() !== h.allergen.toLowerCase() && !g.words.some((w) => w.toLowerCase() === h.word.toLowerCase())) g.words.push(h.word);
+    by.set(h.allergen, g);
   }
-  return [...by].map(([a, w]) => (w.length ? `${a} (${w.join(", ")})` : a)).join(", ");
+  return [...by.values()];
 }
 
 /** One printed list as the ingredients it names: "Wheat flour (atta), salt" → wheat flour, atta, salt. */
@@ -124,17 +126,19 @@ export interface Aware {
 }
 
 export interface ReactionView {
-  /** Reaction days, each with the allergens eaten on it (none when unexplained). */
-  reactions: { date: string; allergens: string[] }[];
+  /**
+   * Reaction days, newest first, each with the allergens eaten on it. A day
+   * none of them explains lists what was eaten on it and more often on the
+   * unexplained reaction days than on other days, most often first.
+   */
+  reactions: { date: string; allergens: string[]; aware: Aware[] }[];
   /** Days logged without a reaction. */
   otherDays: number;
   /** Each allergen eaten in the period: on how many days, and the last. */
   eaten: { allergen: string; days: number; last: string }[];
-  /** Eaten on a reaction no allergen explains, and more often then than on other days. */
-  aware: Aware[];
 }
 
-export function readReactions(days: IngredientDay[], allergens: string[], limit = 12): ReactionView {
+export function readReactions(days: IngredientDay[], allergens: string[]): ReactionView {
   const read = days.map((d) => {
     const items = new Set([
       // The food, not its form or the provenance and place a snapshot appends.
@@ -158,17 +162,17 @@ export function readReactions(days: IngredientDay[], allergens: string[], limit 
   }
 
   const count = (pool: typeof read, item: string) => pool.filter((d) => d.items.has(item)).length;
-  const aware = [...new Set(unexplained.flatMap((d) => [...d.items]))]
-    .map((item) => ({ item, onReaction: count(unexplained, item), onOther: count(other, item) }))
-    // More often on a reaction day than on any other day, as a share of each.
-    .filter((a) => other.length === 0 || a.onReaction / unexplained.length > a.onOther / other.length)
-    .sort((a, b) => b.onReaction - a.onReaction || a.onOther - b.onOther || a.item.localeCompare(b.item))
-    .slice(0, limit);
+  const aware = (d: (typeof read)[number]) =>
+    d.allergens.length > 0 ? [] : [...d.items]
+      .map((item) => ({ item, onReaction: count(unexplained, item), onOther: count(other, item) }))
+      // More often on a reaction day than on any other day, as a share of
+      // each: rice and salt eaten every day drop out.
+      .filter((a) => other.length === 0 || a.onReaction / unexplained.length > a.onOther / other.length)
+      .sort((a, b) => b.onReaction - a.onReaction || a.onOther - b.onOther || a.item.localeCompare(b.item));
 
   return {
-    reactions: reactions.map((d) => ({ date: d.date, allergens: d.allergens })),
+    reactions: reactions.map((d) => ({ date: d.date, allergens: d.allergens, aware: aware(d) })).reverse(),
     otherDays: other.length,
     eaten: [...eaten].map(([allergen, e]) => ({ allergen, ...e })).sort((a, b) => b.days - a.days),
-    aware,
   };
 }
