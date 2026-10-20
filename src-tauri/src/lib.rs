@@ -1446,6 +1446,41 @@ fn set_day_note(
     store::set_day_note(&conn, &logged_on, &body)
 }
 
+#[tauri::command]
+fn list_allergens(user: State<'_, store::Store>) -> Result<Vec<String>, String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::list_allergens(&conn)
+}
+
+#[tauri::command]
+fn set_allergens(names: Vec<String>, user: State<'_, store::Store>) -> Result<(), String> {
+    let mut conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::set_allergens(&mut conn, &names)
+}
+
+#[tauri::command]
+fn get_reaction(logged_on: String, user: State<'_, store::Store>) -> Result<bool, String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::had_reaction(&conn, &logged_on)
+}
+
+/// Mark or unmark a day as one with a reaction. Like the note, it moves no figure.
+#[tauri::command]
+fn set_reaction(logged_on: String, had: bool, user: State<'_, store::Store>) -> Result<(), String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::set_reaction(&conn, &logged_on, had)
+}
+
+#[tauri::command]
+fn ingredient_days(
+    from: String,
+    to: String,
+    user: State<'_, store::Store>,
+) -> Result<Vec<store::IngredientDay>, String> {
+    let conn = user.0.lock().map_err(|e| e.to_string())?;
+    store::ingredient_days(&conn, &from, &to)
+}
+
 /// How much wider the ranking is asked to look than the caller wants.
 ///
 /// A multiplier and not a size, because the filter below drops rows: a
@@ -5654,6 +5689,11 @@ pub fn run() {
             logged_dates,
             get_day_note,
             set_day_note,
+            list_allergens,
+            set_allergens,
+            get_reaction,
+            set_reaction,
+            ingredient_days,
             get_range,
             save_recipe,
             list_recipes,

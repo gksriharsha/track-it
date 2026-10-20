@@ -686,6 +686,22 @@ CREATE TABLE IF NOT EXISTS day_notes (
   updated_at TEXT NOT NULL
 );
 
+-- What this person is allergic to: a common id ("peanut") or their own word
+-- ("Mango"). Read against ingredient lists in the app (src/lib/allergens.ts);
+-- no figure reads it. Not synced: it is about the person, not the kitchen.
+CREATE TABLE IF NOT EXISTS allergens (
+  name       TEXT PRIMARY KEY COLLATE NOCASE CHECK (TRIM(name) <> '' AND LENGTH(name) <= 60),
+  created_at TEXT NOT NULL
+);
+
+-- A day the person marked as one they had a reaction on. What happened goes in
+-- the day's note; this only says it did, so reaction days can be compared with
+-- the rest. Not synced, like the log.
+CREATE TABLE IF NOT EXISTS reaction_days (
+  logged_on  TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);
+
 -- ---------------------------------------------------------------------------
 -- Activity: what a person did, beside what they ate (D26).
 --
@@ -1469,7 +1485,7 @@ const LABEL_KINDS: [&str; 4] = ["measured", "label_zero", "below_loq", "trace"];
 
 /// The schema version this build expects. Bump it whenever `SCHEMA` changes
 /// shape, and add the corresponding arm to `migrate`.
-pub(crate) const SCHEMA_VERSION: i64 = 25;
+pub(crate) const SCHEMA_VERSION: i64 = 26;
 
 /// Change tracking for the household-shared tables.
 ///
@@ -3350,6 +3366,10 @@ fn migrate(conn: &mut Connection) -> Result<(), String> {
         )
         .map_err(|e| format!("migrating profile to v25: {e}"))?;
     }
+
+    // v25 -> v26: allergens and reaction days. No arm, for v17 -> v18's reason:
+    // two new tables that reference nothing, so SCHEMA creating them is the
+    // whole migration.
 
     // Not in SCHEMA, for the reason `idx_log_cuisine` is not: SCHEMA runs
     // before this function, so on a database still in an older shape the
@@ -5626,6 +5646,153 @@ pub fn set_day_note(conn: &Connection, logged_on: &str, body: &str) -> Result<()
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// The person's allergens, in the order they were added.
+pub fn list_allergens(conn: &Connection) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT name FROM allergens ORDER BY created_at, rowid")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|e| e.to_string());
+    rows
+}
+
+/// Replace the list wholesale. A name kept keeps its place; a repeat in any
+/// case is one allergen.
+pub fn set_allergens(conn: &mut Connection, names: &[String]) -> Result<(), String> {
+    if names.len() > 60 {
+        return Err("sixty allergens is the most this keeps".into());
+    }
+    for n in names {
+        let n = n.trim();
+        if n.is_empty() || n.chars().count() > 60 {
+            return Err("an allergen is a word or two, up to 60 characters".into());
+        }
+    }
+    let now = now_iso(conn)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut keep: Vec<String> = Vec::new();
+    for n in names.iter().map(|n| n.trim()) {
+        if !keep.iter().any(|k| k.eq_ignore_ascii_case(n)) {
+            keep.push(n.to_string());
+        }
+    }
+    let kept: Vec<String> = {
+        let mut stmt = tx.prepare("SELECT name FROM allergens").map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        rows
+    };
+    for old in kept.iter().filter(|o| !keep.iter().any(|k| k.eq_ignore_ascii_case(o))) {
+        tx.execute("DELETE FROM allergens WHERE name = ?1", [old])
+            .map_err(|e| e.to_string())?;
+    }
+    for n in &keep {
+        tx.execute(
+            "INSERT OR IGNORE INTO allergens (name, created_at) VALUES (?1, ?2)",
+            rusqlite::params![n, now],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
+pub fn had_reaction(conn: &Connection, logged_on: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM reaction_days WHERE logged_on = ?1)",
+        [logged_on],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+pub fn set_reaction(conn: &Connection, logged_on: &str, had: bool) -> Result<(), String> {
+    if had {
+        let now = now_iso(conn)?;
+        conn.execute(
+            "INSERT OR IGNORE INTO reaction_days (logged_on, created_at) VALUES (?1, ?2)",
+            rusqlite::params![logged_on, now],
+        )
+    } else {
+        conn.execute("DELETE FROM reaction_days WHERE logged_on = ?1", [logged_on])
+    }
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// One day's food as names and printed ingredient lists, for comparing
+/// reaction days with the rest (src/lib/allergens.ts).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct IngredientDay {
+    pub date: String,
+    pub reaction: bool,
+    /// What each entry was, frozen when it was logged: a pot's lines, a pack's name.
+    pub names: Vec<String>,
+    /// The printed lists of the packs and supplements eaten, and of packs that went
+    /// into a pot. shortcut: read as they stand now, not frozen at log time; a
+    /// reformulated pack shows its new list. Freeze them if that ever matters.
+    pub lists: Vec<String>,
+}
+
+/// Every day in the range with something eaten or a reaction marked.
+pub fn ingredient_days(conn: &Connection, from: &str, to: &str) -> Result<Vec<IngredientDay>, String> {
+    use std::collections::BTreeMap;
+    fn day(days: &mut BTreeMap<String, IngredientDay>, date: String) -> &mut IngredientDay {
+        days.entry(date.clone()).or_insert_with(|| IngredientDay {
+            date,
+            reaction: false,
+            names: Vec::new(),
+            lists: Vec::new(),
+        })
+    }
+    let mut days: BTreeMap<String, IngredientDay> = BTreeMap::new();
+    let live = "e.deleted_at IS NULL AND e.source_kind <> 'water' AND e.logged_on BETWEEN ?1 AND ?2";
+    let pairs = |sql: &str| -> Result<Vec<(String, String)>, String> {
+        let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([from, to], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string());
+        rows
+    };
+
+    for (date, name) in pairs(&format!(
+        "SELECT e.logged_on, COALESCE(c.description, e.description)
+         FROM log_entries e LEFT JOIN entry_components c ON c.entry_id = e.id
+         WHERE {live} ORDER BY e.logged_on, e.created_at, e.rowid, c.ordinal"
+    ))? {
+        day(&mut days, date).names.push(name);
+    }
+    for (date, list) in pairs(&format!(
+        "SELECT e.logged_on, f.ingredients FROM log_entries e
+           JOIN custom_foods f ON f.id = e.custom_food_id WHERE {live}
+         UNION ALL
+         SELECT e.logged_on, s.other_ingredients FROM log_entries e
+           JOIN supplements s ON s.id = e.supplement_id WHERE {live}
+         UNION ALL
+         SELECT e.logged_on, f.ingredients FROM log_entries e
+           JOIN cook_ingredients ci ON ci.cook_id = e.cook_id
+           JOIN custom_foods f ON f.id = ci.custom_food_id WHERE {live}"
+    ))?
+    .into_iter()
+    .filter(|(_, l)| !l.trim().is_empty())
+    {
+        day(&mut days, date).lists.push(list);
+    }
+    for (date, _) in pairs(
+        "SELECT logged_on, logged_on FROM reaction_days WHERE logged_on BETWEEN ?1 AND ?2",
+    )? {
+        day(&mut days, date).reaction = true;
+    }
+    Ok(days.into_values().collect())
 }
 
 /// Dates in a range that have at least one entry, with a cheap per-day count.
@@ -11060,6 +11227,59 @@ mod tests {
         assert!(!p.vegetarian_only);
         save_profile(&c, &Profile { vegetarian_only: true, ..p }).unwrap();
         assert!(get_profile(&c).unwrap().vegetarian_only);
+    }
+
+    #[test]
+    fn allergens_are_one_list_without_repeats_in_any_case() {
+        let mut c = db();
+        set_allergens(&mut c, &["peanut".into(), " Mango ".into(), "PEANUT".into()]).unwrap();
+        assert_eq!(list_allergens(&c).unwrap(), vec!["peanut", "Mango"]);
+        set_allergens(&mut c, &["Mango".into(), "sesame".into()]).unwrap();
+        assert_eq!(list_allergens(&c).unwrap(), vec!["Mango", "sesame"]);
+        assert!(set_allergens(&mut c, &["  ".into()]).is_err());
+        assert_eq!(list_allergens(&c).unwrap(), vec!["Mango", "sesame"], "a refused list changes nothing");
+    }
+
+    #[test]
+    fn ingredient_days_read_names_lists_and_reactions_and_skip_what_was_removed() {
+        let mut c = db();
+        let mut bar = pack("Fruit bar", 40.0, vec![]);
+        bar.ingredients = Some("Kiwi, oats, salt".into());
+        let bar = save_custom_food(&mut c, None, &bar).unwrap();
+        let mut caps = multivit();
+        caps.other_ingredients = Some("Gelatin, glycerin".into());
+        let caps = save_supplement(&mut c, None, &caps).unwrap();
+        add(&c, "2026-10-02", Some("snack"), Source::Custom(&bar), "Fruit bar",
+            Quantity::Grams(40.0), None, &Tags::default()).unwrap();
+        add(&c, "2026-10-02", Some("breakfast"), Source::Supplement(&caps), "Multivitamin",
+            Quantity::Units(1.0), None, &Tags::default()).unwrap();
+        let gone = logged(&c, 170000, "2026-10-02", 50.0);
+        c.execute("UPDATE log_entries SET deleted_at = '2026-10-02T10:00:00Z' WHERE id = ?1", [&gone])
+            .unwrap();
+        logged(&c, 170000, "2026-10-03", 50.0);
+        set_reaction(&c, "2026-10-02", true).unwrap();
+        // Nothing logged that day is still a reaction day, and marking it twice is once.
+        set_reaction(&c, "2026-10-04", true).unwrap();
+        set_reaction(&c, "2026-10-04", true).unwrap();
+
+        let day = |date: &str, reaction, names: &[&str], lists: &[&str]| IngredientDay {
+            date: date.into(),
+            reaction,
+            names: names.iter().map(|s| s.to_string()).collect(),
+            lists: lists.iter().map(|s| s.to_string()).collect(),
+        };
+        assert_eq!(
+            ingredient_days(&c, "2026-10-01", "2026-10-31").unwrap(),
+            vec![
+                day("2026-10-02", true, &["Fruit bar", "Multivitamin"], &["Kiwi, oats, salt", "Gelatin, glycerin"]),
+                day("2026-10-03", false, &["as it was called then"], &[]),
+                day("2026-10-04", true, &[], &[]),
+            ]
+        );
+
+        set_reaction(&c, "2026-10-04", false).unwrap();
+        assert!(!had_reaction(&c, "2026-10-04").unwrap());
+        assert!(ingredient_days(&c, "2026-10-04", "2026-10-31").unwrap().is_empty());
     }
 
     #[test]

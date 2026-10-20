@@ -20,6 +20,7 @@ import CustomFoods from "./screens/CustomFoods";
 import CustomFoodEditor from "./screens/CustomFoodEditor";
 import Supplements from "./screens/Supplements";
 import Profile from "./screens/Profile";
+import Allergies from "./screens/Allergies";
 import Household from "./screens/Household";
 import Statistics from "./screens/Statistics";
 import Settings from "./screens/Settings";
@@ -291,6 +292,7 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
     heading: "Your account",
     items: [
       { id: "profile", label: "About you" },
+      { id: "allergies", label: "Allergies" },
       { id: "settings", label: "Targets & goals" },
       { id: "household", label: "Your devices" },
       { id: "import", label: "Import" },
@@ -333,6 +335,7 @@ const ASIDES = [
   "import",
   "export",
   "profile",
+  "allergies",
   "household",
   "statistics",
   "settings",
@@ -375,6 +378,7 @@ const ASIDE_HOME: Record<string, Tab> = {
   import: "history",
   export: "you",
   profile: "you",
+  allergies: "you",
   household: "you",
   statistics: "statistics",
   settings: "you",
@@ -1011,6 +1015,7 @@ function Shell() {
     { id: "kitchen", label: "Kitchen", hint: "what is in the pantry and the fridge", group: "Library", run: () => open("kitchen", { from: "library" }) },
     { id: "pantry", label: "Jars you weigh", hint: "salt, oil and the rest, read by the jar", group: "Library", run: () => open("pantry", { from: "kitchen" }) },
     { id: "profile", label: "About you", hint: "who the figures are for", group: "Settings", run: () => open("profile", { from: "you" }) },
+    { id: "allergies", label: "Allergies", hint: "what to look for on a pack", group: "Settings", run: () => open("allergies", { from: "you" }) },
     { id: "targets", label: "Targets & goals", hint: "what every figure is read against", group: "Settings", run: () => open("settings", { from: "you" }) },
     { id: "import", label: "Import", hint: "a log you kept elsewhere", group: "Settings", run: () => open("import", { from: "you" }) },
     { id: "export", label: "Export", hint: "a spreadsheet you keep", group: "Settings", run: () => open("export", { from: "you" }) },
@@ -1205,6 +1210,7 @@ function Shell() {
           aria-current={
             tab === "you" ||
             tab === "profile" ||
+            tab === "allergies" ||
             tab === "settings" ||
             tab === "import" ||
             tab === "export"
@@ -1433,6 +1439,7 @@ function Shell() {
             onOpenProfile={() => go("profile", { from: "you" })}
             onOpenSettings={() => go("settings", { from: "you" })}
             onOpenImport={() => go("import", { from: "you" })}
+            onOpenAllergies={() => go("allergies", { from: "you" })}
             onOpenExport={() => go("export", { from: "you" })}
           />
         )}
@@ -1515,6 +1522,8 @@ function Shell() {
         )}
 
         {tab === "household" && <Household onBack={() => back(1, route.from ?? "you")} />}
+
+        {tab === "allergies" && <Allergies onBack={() => back(1, route.from ?? "you")} />}
 
         {/* Android only, and gated in the render as well as in the drawer:
             the route is reachable by typing a hash, and a desktop build has no

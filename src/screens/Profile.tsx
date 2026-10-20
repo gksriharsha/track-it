@@ -361,12 +361,13 @@ export default function Profile(p: Props) {
           </Info>
         </div>
         <div className="rows">
-          <button className="row activityrow" aria-pressed={vegOnly} onClick={() => setVegOnly(!vegOnly)}>
+          <button className="row" style={{ gridTemplateColumns: "1fr auto" }} role="switch" aria-checked={vegOnly}
+            onClick={() => setVegOnly(!vegOnly)}>
             <span className="row__main">
               <span className="row__title">Only vegetarian</span>
               <span className="row__sub">Flags meat, fish and gelatin in ingredient lists. Eggs are fine.</span>
             </span>
-            <span className="activityrow__mark" aria-hidden>{vegOnly ? "✓" : ""}</span>
+            <span className="switch" aria-hidden />
           </button>
         </div>
       </section>

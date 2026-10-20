@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getDayNote, humanDate, setDayNote } from "../api";
+import { getDayNote, getReaction, humanDate, setDayNote, setReaction } from "../api";
 import Info from "./Info";
 
 /**
@@ -34,6 +34,26 @@ export default function DayNote({ date }: { date: string }) {
   const [error, setError] = useState<string | null>(null);
   /** The field, opened by "Add a note" on a day with none yet. */
   const [writing, setWriting] = useState(false);
+  /** Marked as a day with a reaction; null until read. What happened goes in the note. */
+  const [reaction, setHad] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setHad(null);
+    getReaction(date).then((had) => { if (live) setHad(had); }, () => {});
+    return () => { live = false; };
+  }, [date]);
+
+  async function toggleReaction() {
+    const had = !reaction;
+    setHad(had);
+    try {
+      await setReaction(date, had);
+    } catch (e) {
+      setHad(!had);
+      setError(String(e));
+    }
+  }
 
   /*
     What the database holds, and the day it holds it for. Both in refs, because
@@ -122,7 +142,16 @@ export default function DayNote({ date }: { date: string }) {
             cannot hold. A fast, a day away, a pot that was somebody else's.
           </p>
           <p>It is kept as you type, for this day only.</p>
+          <p>
+            "Had a reaction" marks the day, so Allergies can set it beside the days without one.
+            Write what happened here.
+          </p>
         </Info>
+        {reaction !== null && (
+          <button className="chip chip--sm" aria-pressed={reaction} onClick={toggleReaction}>
+            Had a reaction
+          </button>
+        )}
         {status !== "idle" ? (
           <span className="day-sec__aside">{status === "saving" ? "Saving…" : "Saved"}</span>
         ) : !open && draft !== null ? (

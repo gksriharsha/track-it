@@ -884,6 +884,26 @@ function loggedDates(): string[] {
  */
 const DAY_NOTES: Record<string, string> = {};
 
+/** Allergens and reaction days, with a few weeks of food to compare them against. */
+let ALLERGENS: string[] = ["peanut"];
+const daysAgo = (n: number) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+const REACTIONS = new Set([daysAgo(2), daysAgo(5), daysAgo(9)]);
+const MOCK_FOOD: Record<number, { names: string[]; lists: string[] }> = {
+  2: { names: ["Fruit bar", "Rice, white"], lists: ["Kiwi, oats, salt, sugar"] },
+  5: { names: ["Peanut chikki"], lists: ["Peanuts, jaggery"] },
+  9: { names: ["Kiwi smoothie", "Dal"], lists: ["Kiwi, milk, honey"] },
+};
+function ingredientDays(from: string, to: string) {
+  const out = [];
+  for (let n = 20; n >= 0; n--) {
+    const date = daysAgo(n);
+    if (date < from || date > to) continue;
+    const food = MOCK_FOOD[n] ?? { names: ["Rice, white", n % 3 ? "Dal" : "Oats, raw"], lists: n % 4 ? [] : ["Wheat flour, salt, sugar"] };
+    out.push({ date, reaction: REACTIONS.has(date), ...food });
+  }
+  return out;
+}
+
 /**
  * One day's summary, for the calendar and the range report.
  *
@@ -1124,6 +1144,19 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
     else DAY_NOTES[on] = body;
     return undefined;
   },
+  list_allergens: () => ALLERGENS,
+  set_allergens: (a) => {
+    ALLERGENS = (a.names as string[]).map((n) => n.trim()).filter(Boolean);
+    return undefined;
+  },
+  get_reaction: (a) => REACTIONS.has(String(a.loggedOn ?? today())),
+  set_reaction: (a) => {
+    const on = String(a.loggedOn ?? today());
+    if (a.had) REACTIONS.add(on);
+    else REACTIONS.delete(on);
+    return undefined;
+  },
+  ingredient_days: (a) => ingredientDays(String(a.from), String(a.to)),
   get_range: (a) => range(String(a.from ?? today()), String(a.to ?? today())),
   list_nutrients: () => meta(),
   get_goals: () => goals(),
