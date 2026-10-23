@@ -128,7 +128,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: src-tauri/resources/usda_core.db
-          key: usda-core-db-${{ hashFiles('tools/build_reference_db.py', 'tools/fetch_usda.sh', 'tools/sources.sha256') }}
+          key: usda-core-db-${{ hashFiles('tools/build_reference_db.py', 'tools/typical_dishes.py', 'data/typical/*.csv', 'tools/fetch_usda.sh', 'tools/sources.sha256') }}
       - if: steps.cache.outputs.cache-hit != 'true'
         run: ./tools/fetch_usda.sh
       - if: steps.cache.outputs.cache-hit != 'true'

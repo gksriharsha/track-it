@@ -1,0 +1,39 @@
+id,name,aliases,group,cooked_g,piece,servings,source,replaces,note
+100000001,Idli,idly;iddli,Tiffin,960,idli=40,,INDB ASC144,2708346,"Steamed. Parboiled rice and urad dal, 3 to 1, soaked, ground and fermented."
+100000002,Plain dosa,dosa;dosai;dose,Tiffin,760,dosa=80,,INDB BFP148,2708347,"Rice and urad dal batter, with a little oil on the griddle."
+100000003,Pesarattu,pesara attu;moong dosa;green gram dosa,Tiffin,470,pesarattu=80,,INDB OSR103,,"Whole green gram batter with a little rice, ginger and chilli, onion on top."
+100000004,Rava upma,upma;uppindi;uppittu;sooji upma;suji upma,Tiffin,730,,1 bowl=200,INDB BFP039,2709128,"Roasted rava cooked in three times its weight of water, with onion and a tempering."
+100000005,Gunta ponganalu,ponganalu;paniyaram;kuzhi paniyaram;paddu;guliyappa;appe,Tiffin,544,piece=22,,no source,,"Leftover dosa batter with onion, chilli and ginger, cooked in a ponganalu pan with a little oil. Some homes use rava or maida instead."
+100000006,Minapa garelu (urad vada),garelu;medu vada;urad vada;ulundu vadai;uddina vade;vada,Tiffin,405,vada=45,,INDB BFP436,2709130,"Deep-fried. Counts the oil a vada soaks up, about 12 g in 100 g, not the frying oil."
+100000007,Punugulu,punukulu,Tiffin,441,piece=14,,no source,,"Deep-fried balls of dosa batter with a little rava, onion and chilli. Counts the oil soaked up, about 14 g in 100 g."
+100000008,Atukulu upma (poha),atukulu;poha;aval upma;avalakki;kanda poha,Tiffin,420,,1 plate=150,INDB BFP044,,"Rinsed poha tossed with a tempering of peanuts, onion and chilli, finished with lemon. Poha is valued as white rice, because USDA has no rice flakes."
+100000009,Pongal,ven pongal;khara pongal;pongali;katte pongal,Tiffin,1050,,1 bowl=200,no source,,"Rice and moong dal, 2 to 1, cooked soft with pepper, cumin and ginger in ghee."
+100000010,Onion uttapam,uttapam;uthappam;oothappam;uttappa,Tiffin,560,uttapam=120,,INDB BFP152,,"Thick rice and urad dal pancake topped with onion, tomato and chilli."
+100000011,Pulihora (tamarind rice),chintapandu pulihora;tamarind rice;puliyogare;puliyodarai;puli sadam,Rice,1030,,1 cup=170;1 plate=300,INDB ASC127,,"Cooked rice mixed with a tamarind and chilli paste and a peanut tempering. Jaggery is valued as brown sugar."
+100000012,Nimmakaya pulihora (lemon rice),lemon rice;nimmakaya annam;chitranna;elumichai sadam,Rice,980,,1 cup=170;1 plate=300,INDB ASC124,,"Cooked rice with turmeric, a peanut and dal tempering, and lemon juice."
+100000013,Perugu annam (curd rice),curd rice;daddojanam;thayir sadam;dahi chawal;mosaranna,Rice,1170,,1 cup=200;1 plate=300,INDB ASC126,,"Soft-cooked rice mashed with curd and a little milk, with a light tempering."
+100000014,Tomato rice,tomato bath;tomato annam;thakkali sadam,Rice,1200,,1 cup=170;1 plate=300,no source,,Rice cooked into a spiced tomato and onion base.
+100000015,Vegetable pulao,pulao;veg pulao;pulav,Rice,1110,,1 cup=170;1 plate=300,no source,,"Rice cooked with mixed vegetables and whole spices in ghee and oil. Basmati is valued as long-grain rice."
+100000016,Vegetable biryani,biryani;veg biryani;biriyani,Rice,1340,,1 plate=300,INDB ASC123,2708985,"Layered rice and spiced vegetables with fried onion, curd, mint and whole spices. Biryani masala has no data and is left out."
+100000017,Pappu (toor dal),muddha pappu;kandi pappu;toor dal;arhar dal;tuvar dal;dal;paruppu,Pappu and stews,620,,1 bowl=150;1 cup=240,no source,2707427,"Toor dal cooked thick with turmeric and green chilli, with an oil tempering."
+100000018,Tomato pappu,tomato dal;tamatar dal;thakkali paruppu,Pappu and stews,905,,1 bowl=150;1 cup=240,no source,,"Toor dal cooked with tomatoes, onion and chilli, with a tempering."
+100000019,Palakura pappu (spinach dal),palak dal;spinach dal;dal palak;keerai paruppu,Pappu and stews,880,,1 bowl=150;1 cup=240,INDB BFP172,,"Toor dal cooked with spinach, tomato and chilli, with a tempering."
+100000020,Sambar,sambhar;sambaar,Pappu and stews,1300,,1 bowl=150;1 cup=240,INDB ASC167,2707430,"Toor dal and vegetables in tamarind, with sambar spices. Sambar powder is entered as the spices in it."
+100000021,Charu (rasam),chaaru;rasam;chintapandu charu;saaru;puli rasam;tamarind rasam,Pappu and stews,1130,,1 bowl=150;1 cup=240,INDB BFP176,,"Thin tamarind and tomato broth with pepper, cumin and garlic."
+100000022,Majjiga pulusu,mor kuzhambu;more kuzhambu;majjige huli;buttermilk curry,Pappu and stews,890,,1 bowl=150;1 cup=240,no source,,"Curd and water simmered with a coconut, chilli and ginger paste and okra, thickened with a little besan."
+100000023,Bendakaya vepudu (okra fry),bendakaya fry;bhindi fry;okra fry;vendakkai poriyal;bhindi sabzi,Kura and vepudu,370,,1 bowl=100,no source,,Okra stir-fried until crisp with chilli powder.
+100000024,Vankaya kura (brinjal curry),vankaya curry;brinjal curry;baingan sabzi;kathirikai curry,Kura and vepudu,500,,1 bowl=100,no source,,"Brinjal cooked with onion, tomato and spices."
+100000025,Bangaladumpa vepudu (potato fry),aloo fry;potato fry;urulai roast;aloo sabzi,Kura and vepudu,530,,1 bowl=100,INDB ASC178,,Potato cubes fried with chilli powder and a tempering.
+100000026,Cabbage kura,cabbage poriyal;cabbage fry;patta gobhi sabzi,Kura and vepudu,375,,1 bowl=100,no source,,"Cabbage cooked with soaked chana dal, chilli and a little coconut."
+100000027,Beans kura,beans poriyal;beans fry;french beans sabzi,Kura and vepudu,400,,1 bowl=100,no source,,Green beans cooked with a tempering and a little coconut.
+100000028,Chapati,chapathi;roti;phulka;chappati,Breads,420,chapati=40,,INDB ASC096,2707713,Whole wheat dough rolled thin and cooked on a dry pan.
+100000029,Poori,puri,Breads,400,poori=30,,INDB ASC107,2707714,"Wheat dough rolled small and deep-fried. Counts the oil a poori soaks up, about 15 g in 100 g, not the frying oil."
+100000030,Paratha,parantha;plain paratha,Breads,420,paratha=70,,INDB ASC097,2707715,"Layered whole wheat flatbread cooked on a pan with oil. Made with ghee, it changes little but the fats."
+100000031,Coconut chutney,kobbari pachadi;kobbari chutney;thengai chutney;nariyal chutney,Pachadi,334,,1 tbsp=15;2 tbsp=30,no source,2709309,"Fresh coconut ground with roasted chana dal, green chilli and ginger, with a tempering. Roasted chana dal is valued as raw chickpeas."
+100000032,Tomato pachadi,tomato chutney;thakkali chutney;tamatar chutney,Pachadi,310,,1 tbsp=15;2 tbsp=30,no source,,"Tomatoes cooked down with chillies, garlic and a little tamarind, then ground."
+100000033,Palli chutney (peanut chutney),palli pachadi;peanut chutney;groundnut chutney;verusenaga chutney;kadalai chutney,Pachadi,338,,1 tbsp=15;2 tbsp=30,no source,,"Roasted peanuts ground with green chilli, a little tamarind and garlic, with a tempering. Peanuts are valued raw."
+100000034,Semiya payasam,payasam;vermicelli kheer;seviyan kheer;semiya kheer,Sweets and drinks,1030,,1 bowl=150,INDB ASC285,,"Vermicelli simmered in milk with sugar, ghee, cashews, raisins and cardamom."
+100000035,Rava kesari,kesari;kesari bath;sooji halwa;suji halwa;sheera,Sweets and drinks,776,,1 bowl=100,INDB ASC293,,"Roasted rava cooked in water and ghee with plenty of sugar, cashews and raisins."
+100000036,Chai,tea;milk tea;tea with milk,Sweets and drinks,470,,1 cup=150,INDB ASC001,,Tea boiled with milk and sugar. The tea is entered as brewed black tea.
+100000037,Filter coffee,south indian coffee;kaapi;coffee with milk,Sweets and drinks,380,,1 cup=150,no source,,"Coffee decoction with hot milk and sugar. The decoction is entered as ordinary brewed coffee, so caffeine reads low."
+100000038,Majjiga (buttermilk),buttermilk;chaas;mor;neer mor;masala majjiga,Sweets and drinks,814,,1 glass=250,no source,,"Curd whisked with water, salt, ginger, chilli and coriander."

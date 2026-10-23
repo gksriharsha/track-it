@@ -1229,7 +1229,7 @@ function Shell() {
           <span className="sidebar__key" aria-hidden>{MOD}5</span>
         </button>
 
-        <p className="sidebar__note">13,694 reference foods, plus what you've added yourself.</p>
+        <p className="sidebar__note">13,732 reference foods, plus what you've added yourself.</p>
       </aside>
 
       <div className="shell">

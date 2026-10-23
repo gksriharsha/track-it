@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { searchFoods } from "../api";
 import type { FoodHit } from "../types";
+import { TYPICAL_RECIPE } from "../types";
 import { MOD } from "../lib/desktop";
 import { displayName, familyOf, formsLine } from "../lib/foodForms";
 
@@ -222,6 +223,7 @@ export default function CommandPalette(p: Props) {
                         <span className="pal__hint">
                           {row.hit.note ??
                             (row.hit.kind === "custom" ? "your own food"
+                              : row.hit.data_type === TYPICAL_RECIPE ? "typical recipe"
                               : formsLine(familyOf(row.hit)?.forms ?? []) || row.hit.data_type)}
                         </span>
                       </>

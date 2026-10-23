@@ -82,6 +82,8 @@ I did not verify any INDB gram weight in this session. Every INDB-derived quanti
 
 ### Tier 3 — do not bundle: IFCT 2017
 
+> **Update, 2026-10-23.** The user wrote to the IFCT 2017 panel at NIN and was told the values may be used for non-commercial purposes, which they say covers TrackIt's public, free releases. No electronic IFCT table is on hand yet; ask NIN for it rather than scraping the PDF or using a mirror. Meanwhile 38 everyday dishes ship as typical home recipes over USDA ingredients (D32). INDB's own figures were measured the same day and are not usable as they are: per 100 g of raw ingredients, the frying oil counted as eaten, no B12.
+
 **ICMR-NIN Indian Food Composition Tables 2017.** The copyright page (p. ii of `nin.res.in/ebooks/IFCT2017.pdf`) reads, verbatim:
 
 > "The use and dissemination of the data in this book is encouraged. This publication can be reproduced for personal use with full acknowledgment of the source. However, no part of this publication can be stored or reproduced in any electronic format for creating a product without the prior written permission of the National Institute of Nutrition, Hyderabad."

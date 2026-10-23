@@ -7,6 +7,7 @@ import {
   addWeighedLogEntry,
   getCustomFoodDetail,
   getFoodDetail,
+  getTypicalRecipe,
   getFoodForms,
   listBottles,
   listRecipes,
@@ -32,6 +33,7 @@ import type {
   CustomFoodDetail,
   CustomNutrientRow,
   FoodDetail,
+  TypicalRecipe,
   FoodFamily,
   FoodHit,
   FrequentFood,
@@ -44,7 +46,7 @@ import type {
   ServingUnit,
   Vessel,
 } from "../types";
-import { MEALS, describeVolume, parsePick } from "../types";
+import { MEALS, TYPICAL_RECIPE, describeVolume, parsePick } from "../types";
 import { fmtAmount } from "../lib/nutrient";
 import { digitsOf, weighing } from "../lib/amount";
 import { pieceText } from "../lib/pieces";
@@ -60,6 +62,7 @@ import ActivityPane from "./Activity";
 import ScreenHead from "../components/ScreenHead";
 import Glyph from "../components/Glyph";
 import Sheet from "../components/Sheet";
+import Info from "../components/Info";
 import { PlusGlyph } from "../components/DayWater";
 import { initials } from "../lib/entryText";
 import { isAndroid, useMedia } from "../lib/desktop";
@@ -295,6 +298,9 @@ export default function Foods(p: Props) {
   }
   const [busy, setBusy] = useState(false);
   const [picked, setPicked] = useState<FoodDetail | null>(null);
+  /** What the picked food assumes, when it is a typical recipe. */
+  const [pickedRecipeOf, setPickedRecipeOf] = useState<TypicalRecipe | null>(null);
+  const typical = picked !== null && pickedRecipeOf?.fdc_id === picked.fdc_id ? pickedRecipeOf : null;
   /**
    * The forms of the picked reference food, where it comes in several, under
    * the name they share: the chips under the panel's title. From the search
@@ -385,7 +391,8 @@ export default function Foods(p: Props) {
     than weighing it. The window reads a count, and nothing is under that either.
   */
   const [counting, setCounting] = useState(false);
-  const counted = counting && pickedCustom?.food.serving_pieces != null && !!pickedCustom.food.piece_noun;
+  const counted = counting && ((pickedCustom?.food.serving_pieces != null && !!pickedCustom.food.piece_noun)
+    || (picked !== null && typical?.piece_g != null));
   const now = weighing(readout, measured || counted ? NO_VESSELS : ticked, vessels);
   const grams = now.net === null ? "" : String(now.net);
   const weighed: Weighed | null =
@@ -635,8 +642,8 @@ export default function Foods(p: Props) {
           const d = await getFoodDetail(fdc);
           if (!live) return;
           setPickedCustom(null);
-          setPicked(d);
-          setNet(String(startGrams(d)));
+          await openReference(d);
+          if (!live) return;
           openAmount();
           // A widget names one USDA row, not the food it is a form of. Its
           // forms are asked for beside the panel rather than before it.
@@ -722,11 +729,10 @@ export default function Foods(p: Props) {
         }
         const d = await getFoodDetail(hit.fdc_id);
         setPickedCustom(null);
-        setPicked(d);
         // One row for a food in several forms: it opens on the form the
         // backend chose (`hit.fdc_id`), and its forms go with it to the panel.
         setFamily(familyOf(hit));
-        setNet(String(startGrams(d)));
+        await openReference(d);
         openAmount();
         await recall({ fdcId: hit.fdc_id });
       }
@@ -792,8 +798,25 @@ export default function Foods(p: Props) {
     setNet(String(byPiece ? d.food.serving_pieces : round(d.food.serving_ml ?? d.food.serving_g)));
   }
 
+  /**
+   * A reference food on the panel at its first portion, or a typical recipe
+   * counted from one piece where it is a dish people count — idli, chapati.
+   */
+  async function openReference(d: FoodDetail) {
+    const t = d.data_type === TYPICAL_RECIPE ? await getTypicalRecipe(d.fdc_id) : null;
+    setPicked(d);
+    setPickedRecipeOf(t);
+    setCounting(t?.piece_g != null);
+    setNet(String(t?.piece_g != null ? 1 : startGrams(d)));
+  }
+
   /** Count pieces, or go back to weighing or measuring, starting from a serving either way. */
   function countIn(by: boolean) {
+    if (typical?.piece_g != null) {
+      setCounting(by);
+      setNet(String(by ? 1 : round(typical.piece_g)));
+      return;
+    }
     const f = pickedCustom?.food;
     if (!f) return;
     setCounting(by);
@@ -1013,8 +1036,10 @@ export default function Foods(p: Props) {
 
   async function commit() {
     if (!picked) return;
-    const g = netOrError();
-    if (g === null) return;
+    const n = netOrError();
+    if (n === null) return;
+    // A count of a typical recipe's pieces is logged as their weight.
+    const g = counted && typical?.piece_g != null ? n * typical.piece_g : n;
     setSaving(true);
     try {
       // The gross weight goes over as-is; the backend does the subtraction from the
@@ -1038,7 +1063,9 @@ export default function Foods(p: Props) {
     : 0;
 
   const ownHits = hits.filter((h) => h.kind === "custom");
-  const refHits = hits.filter((h) => h.kind === "reference");
+  // Everyday dishes as typical home batches, apart from the USDA rows.
+  const typicalHits = hits.filter((h) => h.kind === "reference" && h.data_type === TYPICAL_RECIPE);
+  const refHits = hits.filter((h) => h.kind === "reference" && h.data_type !== TYPICAL_RECIPE);
   /*
     Your own pots, recipes and supplements answer a search too, matched on
     their names here: they are few, and already read for the list.
@@ -1055,6 +1082,7 @@ export default function Foods(p: Props) {
     ...recipeHits.map((r) => ({ key: `rec-${r.id}`, open: () => void openRecipe(r) })),
     ...suppHits.map((x) => ({ key: `sup-${x.id}`, open: () => openSupplement(x) })),
     ...ownHits.map((h) => ({ key: `c-${h.custom_food_id}`, open: () => void pick(h) })),
+    ...typicalHits.map((h) => ({ key: `t-${h.fdc_id}`, open: () => void pick(h) })),
     ...refHits.map((h) => ({ key: `r-${h.fdc_id}`, open: () => void pick(h) })),
   ];
 
@@ -1404,6 +1432,39 @@ export default function Foods(p: Props) {
           </div>
         )}
       </>, recalledNote, unit, piece, null, dish);
+  } else if (picked && typical) {
+    // A dish written down as one typical home batch: counted by the piece
+    // where people count it, its figures from the lines in the (i).
+    const t = typical;
+    const piece = t.piece_noun !== null && t.piece_g !== null ? { noun: t.piece_noun, each: t.piece_g } : undefined;
+    panel = weigh(<span className="lead lead--ref" aria-hidden>{initials(t.name)}</span>,
+      t.name, "Typical recipe",
+      counting ? [] : picked.portions.map((pt) => ({ label: portionLabel(pt), amount: round(pt.gram_weight) })),
+      commit,
+      <div className="amount__note amount__typical">
+        <span>Valued from a typical home recipe</span>
+        <Info title={`What ${t.name} assumes`}>
+          <p>{t.note}</p>
+          <ul className="typical__lines">
+            {t.lines.map((l, i) => (
+              <li key={i}>
+                {Math.round(l.raw_g).toLocaleString()} g {l.ingredient.toLowerCase()}
+                {l.role === "no data" ? ", no data, counted as unmeasured" : l.note ? `, ${l.note}` : ""}
+              </li>
+            ))}
+          </ul>
+          <p>
+            The batch comes out at {Math.round(t.cooked_g).toLocaleString()} g.{" "}
+            {t.source === "no source" ? "An everyday home version, not from a published recipe."
+              : `Proportions from ${t.source.replace("INDB", "INDB recipe")}.`}
+          </p>
+          <p>
+            Each ingredient counts at its USDA values, the way a portion of your own recipe does. Your
+            own recipe, or a pot you weighed, is closer to what you ate.
+          </p>
+        </Info>
+      </div>,
+      recalledNote, "g", piece);
   } else if (picked) {
     // A food in several forms is titled by the name they share, with its
     // forms as chips under it; its full USDA name, the one the day will
@@ -1716,6 +1777,16 @@ export default function Foods(p: Props) {
                       </div>
                     </section>
                   )}
+                  {typicalHits.length > 0 && (
+                    <section className="food__sec" aria-label="Typical recipes">
+                      <h2 className="food__h">Typical recipes</h2>
+                      <div className="tiles">
+                        {typicalHits.map((h, i) => row(`t-${h.fdc_id}`, yoursCount + i,
+                          <span className="lead lead--ref" aria-hidden>{initials(h.description)}</span>,
+                          h.description, h.note, chev, () => void pick(h)))}
+                      </div>
+                    </section>
+                  )}
                   {refHits.length > 0 && (
                     <section className="food__sec" aria-label="From the USDA">
                       <h2 className="food__h">From the USDA</h2>
@@ -1726,7 +1797,7 @@ export default function Foods(p: Props) {
                             say — and its form is chosen at the scale. */}
                         {refHits.map((h, i) => {
                           const fam = familyOf(h);
-                          return row(`r-${h.fdc_id}`, yoursCount + i,
+                          return row(`r-${h.fdc_id}`, yoursCount + typicalHits.length + i,
                             <span className={`lead lead--ref${fam ? " lead--stack" : ""}`} aria-hidden>
                               {initials(displayName(h))}
                             </span>,
