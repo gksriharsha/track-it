@@ -44,12 +44,12 @@ pub(crate) fn log(uc: &Connection, fdc_id: i64, at: &str) {
 
 pub(crate) fn search(rc: &Connection, uc: &Connection, q: &str, limit: u32) -> Vec<db::FoodHit> {
     let overridden = store::overridden_fdc_ids(uc).unwrap();
-    merge_hits_shaped(rc, uc, q, vec![], &overridden, false, limit, false).unwrap()
+    merge_hits_shaped(rc, uc, q, vec![], &overridden, false, limit, false, false).unwrap()
 }
 
 fn flat(rc: &Connection, uc: &Connection, q: &str, limit: u32) -> Vec<db::FoodHit> {
     let overridden = store::overridden_fdc_ids(uc).unwrap();
-    merge_hits_shaped(rc, uc, q, vec![], &overridden, false, limit, true).unwrap()
+    merge_hits_shaped(rc, uc, q, vec![], &overridden, false, limit, true, false).unwrap()
 }
 
 /// The entry an fdc_id is offered under, as the row itself or as one of its forms.
@@ -294,7 +294,13 @@ fn every_indian_name_reaches_the_food_it_names() {
         .unwrap();
     assert!(aliases.len() > 100);
     for (alias, fdc) in aliases {
-        let hits = search(&rc, &uc, &alias, 40);
+        // A typical recipe's names are searched where dishes are: the Food screen.
+        let typical = db::typical_recipe(&rc, fdc).unwrap().is_some();
+        let hits = if typical {
+            merge_hits_shaped(&rc, &uc, &alias, vec![], &[], false, 40, false, true).unwrap()
+        } else {
+            search(&rc, &uc, &alias, 40)
+        };
         let h = entry_of(&hits, fdc).unwrap_or_else(|| panic!("{alias:?} does not reach {fdc}"));
         assert!(h.matched_alias, "{alias:?}");
     }
@@ -325,7 +331,7 @@ fn a_replaced_entry_is_never_offered_as_a_form() {
     // The base picker still sees it.
     let overridden = store::overridden_fdc_ids(&uc).unwrap();
     let all =
-        merge_hits_shaped(&rc, &uc, "mungo beans", vec![], &overridden, true, 40, true).unwrap();
+        merge_hits_shaped(&rc, &uc, "mungo beans", vec![], &overridden, true, 40, true, false).unwrap();
     assert!(all.iter().any(|h| h.fdc_id == Some(RAW)));
 }
 
@@ -423,7 +429,7 @@ fn dump_for_prototype() {
     for q in std::fs::read_to_string(qs).unwrap().lines() {
         for f in [false, true] {
             let overridden = store::overridden_fdc_ids(&uc).unwrap();
-            let hits = merge_hits_shaped(&rc, &uc, q, vec![], &overridden, false, 40, f).unwrap();
+            let hits = merge_hits_shaped(&rc, &uc, q, vec![], &overridden, false, 40, f, false).unwrap();
             let rows: Vec<serde_json::Value> = hits
                 .iter()
                 .map(|h| {

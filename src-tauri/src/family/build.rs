@@ -145,8 +145,15 @@ type Row = (i64, String, String);
 
 impl Index {
     pub fn build(conn: &Connection) -> Result<Index, String> {
+        // A typical recipe is a dish of its own, never a form of USDA's entry
+        // of the same name, so it stays out of the index and search offers it
+        // as it came.
+        let typical = crate::db::TYPICAL;
         let rows: Vec<Row> = conn
-            .prepare("SELECT fdc_id, description, data_type FROM foods ORDER BY fdc_id")
+            .prepare(&format!(
+                "SELECT fdc_id, description, data_type FROM foods
+                  WHERE data_type != '{typical}' ORDER BY fdc_id"
+            ))
             .map_err(err)?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .map_err(err)?
@@ -155,7 +162,10 @@ impl Index {
         let mut aliases: HashMap<String, Vec<i64>> = HashMap::new();
         let mut noted: HashSet<i64> = HashSet::new();
         let alias_rows: Vec<(String, i64, Option<String>)> = conn
-            .prepare("SELECT alias, fdc_id, note FROM food_aliases")
+            .prepare(&format!(
+                "SELECT a.alias, a.fdc_id, a.note FROM food_aliases a JOIN foods f USING (fdc_id)
+                  WHERE f.data_type != '{typical}'"
+            ))
             .map_err(err)?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .map_err(err)?

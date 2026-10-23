@@ -23,6 +23,7 @@ import type {
   DayView,
   ExportLog,
   FoodDetail,
+  TypicalRecipe,
   FoodFamily,
   FoodHit,
   FrequentFood,
@@ -123,6 +124,10 @@ export const searchFoods = (query: string, limit = 40, includeOverridden = false
 
 export const getFoodDetail = (fdcId: number) =>
   invoke<FoodDetail>("get_food_detail", { fdcId });
+
+/** What a typical recipe assumes; null for any other food. */
+export const getTypicalRecipe = (fdcId: number) =>
+  invoke<TypicalRecipe | null>("get_typical_recipe", { fdcId });
 
 /**
  * The forms of any reference food, for a panel reached without a search hit
