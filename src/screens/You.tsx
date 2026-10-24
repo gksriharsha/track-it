@@ -10,6 +10,7 @@ interface Props {
   onOpenProfile: () => void;
   onOpenSettings: () => void;
   onOpenImport: () => void;
+  onOpenAllergies: () => void;
   /** The way out, beside the way in. Both live in this group because the log
    * belongs to the person, and a screen about who the figures are for is where
    * "and they are yours to take" belongs too. */
@@ -139,6 +140,13 @@ export default function You(p: Props) {
             <span className="row__main">
               <span className="row__title">Profile</span>
               <span className="row__sub">Age, body, life stage</span>
+            </span>
+            <span className="row__chev" aria-hidden>›</span>
+          </button>
+          <button className="row" style={{ gridTemplateColumns: "1fr auto" }} onClick={p.onOpenAllergies}>
+            <span className="row__main">
+              <span className="row__title">Allergies</span>
+              <span className="row__sub">Flagged on packs, and reaction days</span>
             </span>
             <span className="row__chev" aria-hidden>›</span>
           </button>

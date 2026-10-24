@@ -34,7 +34,7 @@ import type {
 } from "../types";
 import { LABEL_NUTRIENTS } from "../types";
 import Info from "../components/Info";
-import VegFlags from "../components/VegFlags";
+import IngredientFlags from "../components/IngredientFlags";
 import ScreenHead from "../components/ScreenHead";
 
 interface Props {
@@ -1144,6 +1144,7 @@ export default function CustomFoodEditor(p: Props) {
           <h2>Ingredients</h2>
           <span className="card__note">optional</span>
         </div>
+        <IngredientFlags text={`${ingTinted ? ingText : ingredients}\n${ingClash ? ingText : ""}`} />
         {ingScanning && (
           <p className="rangenote" style={{ marginBottom: "var(--s4)" }}>
             Reading the photo…
@@ -1185,8 +1186,6 @@ export default function CustomFoodEditor(p: Props) {
             </span>
           </div>
         )}
-
-        <VegFlags text={`${ingTinted ? ingText : ingredients}\n${ingClash ? ingText : ""}`} />
 
         {/* Dismissed on its own: when it stands beside a suggestion, clearing
             the whole scan would take the statement away with the sentence. */}

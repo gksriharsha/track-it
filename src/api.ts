@@ -1,6 +1,7 @@
 // Tauri's own `invoke` inside the app; the browser design fixture outside it.
 // See lib/bridge.ts — the real backend is never bypassed in a Tauri window.
 import { invoke } from "./lib/bridge";
+import type { IngredientDay } from "./lib/allergens";
 import type { ExportKind } from "./lib/exportSheet";
 import type {
   Container,
@@ -368,6 +369,19 @@ export const getDayNote = (loggedOn: string) =>
  */
 export const setDayNote = (loggedOn: string, body: string) =>
   invoke<void>("set_day_note", { loggedOn, body });
+
+/** Common allergens by id ("peanut"), anything else as the user typed it. */
+export const listAllergens = () => invoke<string[]>("list_allergens");
+export const setAllergens = (names: string[]) => invoke<void>("set_allergens", { names });
+
+/** Whether the day is marked as one with a reaction. Moves no figure. */
+export const getReaction = (loggedOn: string) => invoke<boolean>("get_reaction", { loggedOn });
+export const setReaction = (loggedOn: string, had: boolean) =>
+  invoke<void>("set_reaction", { loggedOn, had });
+
+/** Each day in the range with food or a reaction: what was eaten, as names and printed lists. */
+export const ingredientDays = (from: string, to: string) =>
+  invoke<IngredientDay[]>("ingredient_days", { from, to });
 
 export const getRange = (from: string, to: string) =>
   invoke<RangeView>("get_range", { from, to });
