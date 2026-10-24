@@ -43,6 +43,7 @@ export default function Profile(p: Props) {
   const [activity, setActivity] = useState<Activity | null>(null);
   const [lifeStage, setLifeStage] = useState<LifeStage>("standard");
   const [energyKcal, setEnergyKcal] = useState("");
+  const [vegOnly, setVegOnly] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -56,6 +57,7 @@ export default function Profile(p: Props) {
       setActivity(f.activity);
       setLifeStage(f.life_stage);
       setEnergyKcal(f.energy_kcal === null ? "" : String(f.energy_kcal));
+      setVegOnly(f.vegetarian_only);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -101,6 +103,7 @@ export default function Profile(p: Props) {
       activity,
       life_stage: lifeStage,
       energy_kcal: e,
+      vegetarian_only: vegOnly,
     };
     setSaving(true);
     try {
@@ -337,6 +340,34 @@ export default function Profile(p: Props) {
               onChange={(e) => setEnergyKcal(e.target.value)}
             />
           </label>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="card__head">
+          <h2>Diet</h2>
+          <Info title="What counts as vegetarian">
+            <p>
+              Meat, fish, seafood, gelatin and other parts of an animal, bird or insect are
+              flagged. Milk, honey, eggs, beeswax and shellac are not: India's FSSAI definition,
+              with eggs allowed.
+            </p>
+            <p>
+              The check reads the words on the pack. Rennet, enzymes and emulsifiers such as INS
+              471 can come from an animal or not, so they show as "may not be vegetarian". A
+              list with nothing flagged is not a guarantee.
+            </p>
+            <p>Checked on the ingredient list of a packaged food or a supplement.</p>
+          </Info>
+        </div>
+        <div className="rows">
+          <button className="row activityrow" aria-pressed={vegOnly} onClick={() => setVegOnly(!vegOnly)}>
+            <span className="row__main">
+              <span className="row__title">Only vegetarian</span>
+              <span className="row__sub">Flags meat, fish and gelatin in ingredient lists. Eggs are fine.</span>
+            </span>
+            <span className="activityrow__mark" aria-hidden>{vegOnly ? "✓" : ""}</span>
+          </button>
         </div>
       </section>
 

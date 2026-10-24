@@ -6881,6 +6881,7 @@ mod tests {
             activity: activity.map(String::from),
             life_stage: "standard".into(),
             energy_kcal: energy,
+            vegetarian_only: false,
         }
     }
 
