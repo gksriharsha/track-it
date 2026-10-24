@@ -807,6 +807,34 @@ export interface FoodDetail {
   portions: Portion[];
 }
 
+/** A reference food's `data_type` when it is a typical home recipe. */
+export const TYPICAL_RECIPE = "typical_recipe";
+
+/**
+ * An everyday dish as one typical home batch, in place of USDA's own version
+ * of it. It has no figures of its own: a portion is valued from its lines, the
+ * way a portion of one of your recipes is.
+ */
+export interface TypicalRecipe {
+  fdc_id: number;
+  name: string;
+  cooked_g: number;
+  /** What one piece is called and weighs, for a dish counted by the piece. */
+  piece_noun: string | null;
+  piece_g: number | null;
+  /** "INDB ASC144", or "no source" for an everyday home version. */
+  source: string;
+  note: string;
+  lines: {
+    ingredient: string;
+    fdc_id: number | null;
+    raw_g: number;
+    /** Only a "food" line is valued; "water" is in the cooked weight. */
+    role: "food" | "water" | "no data";
+    note: string | null;
+  }[];
+}
+
 /**
  * One line a nutrition panel actually prints, per serving. The kinds stop at
  * what a pack can assert: there is no `measured_zero`, because a printed 0 is a

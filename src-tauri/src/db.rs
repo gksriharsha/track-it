@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use trackit_core::NutrientValue;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
@@ -245,7 +245,33 @@ fn probe(conn: &Connection) -> Result<(), String> {
     .map_err(|e| format!("nutrients probe failed: {e}"))?;
     conn.query_row("SELECT alias, fdc_id, note FROM food_aliases LIMIT 1", [], |_| Ok(()))
         .map_err(|e| format!("food_aliases probe failed: {e}"))?;
+    conn.query_row(
+        "SELECT r.cooked_g, r.piece_noun, r.piece_g, r.source, r.note,
+                l.ingredient, l.ingredient_fdc_id, l.raw_g, l.role, l.note
+         FROM food_recipes r JOIN food_recipe_lines l USING (fdc_id) LIMIT 1",
+        [],
+        |_| Ok(()),
+    )
+    .map_err(|e| format!("typical recipes probe failed: {e}"))?;
+    // Same tables, other recipes: a corrected dish has to reach a phone that
+    // already has a copy, so the copy must have been built from these files.
+    let built: String = conn
+        .query_row("SELECT value FROM meta WHERE key = 'typical_sha256'", [], |r| r.get(0))
+        .map_err(|e| format!("typical recipes probe failed: {e}"))?;
+    if built != typical_digest() {
+        return Err("built from other typical recipes".into());
+    }
     Ok(())
+}
+
+/// SHA-256 of the two typical recipe files, as `tools/typical_dishes.py`
+/// stamps it into the database it builds from them.
+fn typical_digest() -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(include_bytes!("../../data/typical/dishes.csv"));
+    h.update(include_bytes!("../../data/typical/ingredients.csv"));
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 pub fn open(path: &PathBuf) -> Result<Connection, String> {
@@ -521,6 +547,103 @@ pub fn detail(conn: &Connection, fdc_id: i64) -> Result<FoodDetail, String> {
     })
 }
 
+/// The `data_type` of a typical home recipe (`tools/typical_dishes.py`): an
+/// everyday Indian dish written down as one home batch, in place of USDA's own
+/// version of it, which describes a different food.
+pub const TYPICAL: &str = "typical_recipe";
+
+/// A typical home recipe: what one batch comes out at, and its lines.
+#[derive(Debug, Serialize)]
+pub struct TypicalRecipe {
+    pub fdc_id: i64,
+    pub name: String,
+    pub cooked_g: f64,
+    /// What one piece is called and weighs, for a dish counted by the piece.
+    pub piece_noun: Option<String>,
+    pub piece_g: Option<f64>,
+    /// "INDB ASC144", or "no source" for an everyday home version.
+    pub source: String,
+    pub note: String,
+    pub lines: Vec<RecipeLine>,
+}
+
+/// One line of what a typical recipe assumes. Only a `food` line is valued;
+/// `water` is accounted for by the cooked weight, and `no data` names a
+/// seasoning USDA has nothing for, counted as unmeasured.
+#[derive(Debug, Serialize)]
+pub struct RecipeLine {
+    pub ingredient: String,
+    pub fdc_id: Option<i64>,
+    pub raw_g: f64,
+    pub role: String,
+    pub note: Option<String>,
+}
+
+/// The typical recipe behind `fdc_id`, or `None` for any other food.
+///
+/// Asks `foods` first, so a reference database built before typical recipes
+/// existed, which has no `food_recipes` table, still values every food.
+pub fn typical_recipe(conn: &Connection, fdc_id: i64) -> Result<Option<TypicalRecipe>, String> {
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT description, data_type FROM foods WHERE fdc_id = ?1",
+            [fdc_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let Some((name, _)) = row.filter(|(_, t)| t == TYPICAL) else {
+        return Ok(None);
+    };
+    let (cooked_g, piece_noun, piece_g, source, note) = conn
+        .query_row(
+            "SELECT cooked_g, piece_noun, piece_g, source, note FROM food_recipes WHERE fdc_id = ?1",
+            [fdc_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .map_err(|e| format!("typical recipe {fdc_id}: {e}"))?;
+    let lines = conn
+        .prepare(
+            "SELECT ingredient, ingredient_fdc_id, raw_g, role, note
+             FROM food_recipe_lines WHERE fdc_id = ?1 ORDER BY seq",
+        )
+        .map_err(|e| e.to_string())?
+        .query_map([fdc_id], |r| {
+            Ok(RecipeLine {
+                ingredient: r.get(0)?,
+                fdc_id: r.get(1)?,
+                raw_g: r.get(2)?,
+                role: r.get(3)?,
+                note: r.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(Some(TypicalRecipe { fdc_id, name, cooked_g, piece_noun, piece_g, source, note, lines }))
+}
+
+/// USDA entries a typical recipe replaces, which search and quick-add stop
+/// offering. Empty for a reference database that has none.
+pub fn replaced_ids(conn: &Connection) -> Result<Vec<i64>, String> {
+    let has: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'food_replaced')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !has {
+        return Ok(Vec::new());
+    }
+    conn.prepare("SELECT fdc_id FROM food_replaced")
+        .map_err(|e| e.to_string())?
+        .query_map([], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,6 +659,15 @@ mod tests {
             return None;
         }
         open(&p).ok()
+    }
+
+    /// The Python build and this app hash the recipe files the same way, or
+    /// every launch would throw away a good copy of the database.
+    #[test]
+    fn a_database_built_from_these_recipe_files_passes_the_probe() {
+        let Some(c) = conn() else { return };
+        probe(&c).unwrap();
+        assert!(!replaced_ids(&c).unwrap().is_empty());
     }
 
     #[test]

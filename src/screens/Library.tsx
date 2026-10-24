@@ -151,6 +151,11 @@ export default function Library(p: Props) {
           Foundation, SR Legacy and FNDDS, with Indian-name aliases so <em>urad dal</em> finds the
           right entry.
         </p>
+        <p className="t-sm" style={{ color: "var(--ink-2)", margin: "var(--s2) 0 0" }}>
+          <span className="num" style={{ fontWeight: 500 }}>38</span> everyday Indian dishes as
+          typical home recipes, valued from their ingredients. Proportions follow INDB's recipes
+          (Jaacks et al., 2024) where it has the dish.
+        </p>
       </section>
     </div>
   );

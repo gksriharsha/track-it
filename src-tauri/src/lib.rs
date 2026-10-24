@@ -19,6 +19,8 @@ mod percent_tests;
 #[cfg(test)]
 mod pasted_dish_tests;
 #[cfg(test)]
+mod typical_recipe_tests;
+#[cfg(test)]
 mod photo_sweep_tests;
 mod store;
 mod sync;
@@ -280,7 +282,10 @@ fn search_foods_in(
     // Restaurant dishes only for the log's own search (`dishes`): see
     // `store::search_custom_foods`.
     let own = store::search_custom_foods(&uc, query, limit, dishes)?;
-    let overridden = store::overridden_fdc_ids(&uc)?;
+    // USDA's own entry for a dish a typical recipe replaces goes the way a
+    // generic entry replaced by a pack does.
+    let mut overridden = store::overridden_fdc_ids(&uc)?;
+    overridden.extend(db::replaced_ids(&conn)?);
     merge_hits_shaped(
         &conn,
         &uc,
@@ -290,6 +295,7 @@ fn search_foods_in(
         include_overridden,
         limit,
         flat,
+        dishes,
     )
 }
 
@@ -392,11 +398,11 @@ fn merge_hits(
     include_overridden: bool,
     limit: u32,
 ) -> Result<Vec<db::FoodHit>, String> {
-    merge_hits_shaped(conn, userconn, query, own, overridden, include_overridden, limit, false)
+    merge_hits_shaped(conn, userconn, query, own, overridden, include_overridden, limit, false, false)
 }
 
 /// [`merge_hits`], with the reference half either grouped into one hit per
-/// food or, with `flat`, one hit per form.
+/// food or, with `flat`, one hit per form. Typical recipes only with `dishes`.
 #[allow(clippy::too_many_arguments)]
 fn merge_hits_shaped(
     conn: &rusqlite::Connection,
@@ -407,6 +413,7 @@ fn merge_hits_shaped(
     include_overridden: bool,
     limit: u32,
     flat: bool,
+    dishes: bool,
 ) -> Result<Vec<db::FoodHit>, String> {
     let mut hits: Vec<db::FoodHit> = own
         .into_iter()
@@ -445,8 +452,13 @@ fn merge_hits_shaped(
     // fixed fetch could hand back fewer foods than exist.
     let mut fetch = limit.saturating_mul(2);
     let (mut stand_ins, mut refs) = loop {
-        let found = db::search(conn, query, fetch)?;
+        let mut found = db::search(conn, query, fetch)?;
         let exhausted = (found.len() as u32) < fetch;
+        // A typical recipe is a whole dish: logged where a dish is, never weighed
+        // into a recipe or chosen as the generic entry a pack replaces.
+        if !dishes || flat {
+            found.retain(|h| h.data_type != db::TYPICAL);
+        }
         let grouped = index.group(found, query, &user, include_overridden, flat);
 
         // A food standing in for the entry the query actually matched is still
@@ -524,6 +536,16 @@ fn forms_of(
     // A row the index has not seen is still a food with a name.
     let name = base_description(conn, fdc_id).ok_or_else(|| format!("food {fdc_id}: not found"))?;
     Ok(db::FoodFamily { name, forms: Vec::new() })
+}
+
+/// What a typical recipe assumes, for the panel's (i); `None` for any other food.
+#[tauri::command]
+fn get_typical_recipe(
+    fdc_id: i64,
+    refdb: State<'_, db::Db>,
+) -> Result<Option<db::TypicalRecipe>, String> {
+    let conn = refdb.0.lock().map_err(|e| e.to_string())?;
+    db::typical_recipe(&conn, fdc_id)
 }
 
 #[tauri::command]
@@ -1552,7 +1574,9 @@ fn frequent_foods(
         want.saturating_mul(FREQUENT_POOL_FACTOR),
         meal.as_deref(),
     )?;
-    let overridden = store::overridden_fdc_ids(&conn)?;
+    // A USDA dish a typical recipe replaces drops out for search's reason.
+    let mut overridden = store::overridden_fdc_ids(&conn)?;
+    overridden.extend(db::replaced_ids(&refconn)?);
     Ok(resolve_frequent(&refconn, index.as_deref(), candidates, &overridden, want))
 }
 
@@ -3981,6 +4005,37 @@ fn resolve_contribution(
 
         store::Source::Food(fdc_id) => {
             let grams = grams.ok_or("a food is logged by weight")?;
+            // A typical recipe is valued as a portion of a recipe is, from its
+            // lines: each its raw share of what the batch comes out at. Water is
+            // in that weight and is never a component; a seasoning with no data
+            // is one, so its weight counts against coverage as it would in a
+            // recipe of your own.
+            if let Some(recipe) = db::typical_recipe(refconn, fdc_id)? {
+                let fraction = grams / recipe.cooked_g;
+                let mut components = Vec::new();
+                for line in recipe.lines.iter().filter(|l| l.role != "water") {
+                    let portion = line.raw_g * fraction;
+                    if !(portion.is_finite() && portion > 0.0) {
+                        continue;
+                    }
+                    components.push(store::SnapComponent {
+                        description: line.ingredient.clone(),
+                        fdc_id: line.fdc_id,
+                        quantity: store::SnapQuantity::Grams(portion),
+                        has_data: line.fdc_id.is_some(),
+                        values: reference_values(refconn, line.fdc_id)?,
+                    });
+                }
+                return Ok((
+                    Some(store::SnapRecipe {
+                        name: recipe.name,
+                        yield_g: recipe.cooked_g,
+                        servings: None,
+                        yield_weighed: None,
+                    }),
+                    components,
+                ));
+            }
             Ok((
                 None,
                 vec![store::SnapComponent {
@@ -5683,6 +5738,7 @@ pub fn run() {
             search_foods,
             food_forms,
             get_food_detail,
+            get_typical_recipe,
             add_log_entry,
             delete_log_entry,
             restore_log_entry,

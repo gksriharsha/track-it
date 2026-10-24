@@ -1681,3 +1681,37 @@ list, and a folded row that opens in place.
   parenthetical. Their chips fall back to full descriptions, so they stay distinguishable.
 - Chip words the data needed: a survey row with no distinguishing words reads "as eaten"; one with
   an identical label gets ", survey"; survey coding ("NFS") is spelled out.
+
+## D32 — An everyday Indian dish is a typical home recipe, valued from its ingredients
+
+**Context.** A dish someone else made could not be logged without its recipe, and USDA's own
+entries for Indian dishes describe other foods: its Upma is made with Cream of Wheat, its Idli with
+split peas, its Chutney is mango jam. The user asked for "a list of foods that are frequently being
+cooked at home and approximate baselines", not USDA listings. INDB (Jaacks et al. 2024) has 1,014
+Indian dishes, but its figures are per 100 g of raw ingredients, count the whole frying oil as eaten
+(one poori 921 kcal), carry no B12 and have no licence; its recipes are still a published record of
+proportions. The user reviewed every dish on a rendered list before it was built.
+
+**Decision.**
+
+- **38 dishes ship as typical home batches** in `data/typical/` (CSV, editable in Excel): raw
+  ingredients at USDA ingredient rows, the weight the batch comes out at, named servings, a piece
+  where people count the dish, and the source (an INDB recipe code, or "no source").
+  `tools/typical_dishes.py` checks them and `build_reference_db.py` writes them as foods of
+  `data_type` `typical_recipe`, with `food_recipes`, `food_recipe_lines` and `food_replaced`.
+- **No figures of their own.** A portion is valued from its lines the way a portion of a user's
+  recipe is (`resolve_contribution`, Food arm): each line's raw share of the cooked weight at its
+  USDA values. Water lines are never components; a seasoning with no data is one, so its weight
+  counts as unmeasured and the figure reads "at least". A stricter rule, a missing value blanking the
+  dish's figure, was tried and dropped: USDA gives oil's protein as a bare 0, and protein went blank
+  on every dish with oil.
+- **Fried dishes count the oil a piece soaks up**, an estimate stated on the dish, never the frying oil.
+- **A typical recipe replaces USDA's entry for the same dish** in search and quick-add, the way a
+  pack replaces a generic entry. Logged entries keep their values. USDA Indian dishes with no
+  typical recipe stay.
+- **Dishes, not ingredients.** Typical recipes are offered where dishes are logged (the Food screen,
+  ⌘K), never in the recipe, cook-sheet, pantry or pack-base pickers, and never fold into a USDA
+  food's forms.
+- **A phone gets corrections.** The build stamps a SHA-256 of the two files into `meta`; the app
+  compiles in the same hash, and a copy of the database built from other files fails its probe and is
+  replaced.

@@ -21,7 +21,7 @@
  * fixture where everything is green would hide exactly the states this app
  * exists to distinguish.
  */
-import { LABEL_NUTRIENTS } from "../types";
+import { LABEL_NUTRIENTS, TYPICAL_RECIPE } from "../types";
 import { ACTIVITY_TABLE, exportActivity } from "./mockActivity";
 import {
   BOTTLES,
@@ -48,6 +48,7 @@ import type {
   EnergyTarget,
   ExportLog,
   FoodDetail,
+  TypicalRecipe,
   FoodFamily,
   FoodForm,
   FoodHit,
@@ -237,6 +238,32 @@ const CATALOGUE: FoodHit[] = [
   hit(173727, "Coconut, raw", "SR Legacy", "nariyal", true),
 ];
 
+/** Two typical home recipes, as the bundled database carries them (data/typical/). */
+const TYPICAL: TypicalRecipe[] = [
+  {
+    fdc_id: 100000001, name: "Idli", cooked_g: 960, piece_noun: "idli", piece_g: 40, source: "INDB ASC144",
+    note: "Steamed. Parboiled rice and urad dal, 3 to 1, soaked, ground and fermented.",
+    lines: [
+      { ingredient: "Parboiled rice", fdc_id: 169758, raw_g: 300, role: "food", note: null },
+      { ingredient: "Urad dal", fdc_id: 174259, raw_g: 100, role: "food", note: null },
+      { ingredient: "Salt", fdc_id: 173468, raw_g: 6, role: "food", note: null },
+      { ingredient: "Water", fdc_id: null, raw_g: 554, role: "water", note: "ground into the batter" },
+    ],
+  },
+  {
+    fdc_id: 100000005, name: "Gunta ponganalu", cooked_g: 544, piece_noun: "piece", piece_g: 22, source: "no source",
+    note: "Leftover dosa batter with onion, chilli and ginger, cooked in a ponganalu pan with a little oil.",
+    lines: [
+      { ingredient: "Parboiled rice", fdc_id: 169758, raw_g: 200, role: "food", note: null },
+      { ingredient: "Urad dal", fdc_id: 174259, raw_g: 65, role: "food", note: null },
+      { ingredient: "Onion", fdc_id: 170000, raw_g: 80, role: "food", note: null },
+      { ingredient: "Curry leaves", fdc_id: null, raw_g: 2, role: "no data", note: null },
+      { ingredient: "Oil", fdc_id: 171025, raw_g: 30, role: "food", note: "in the pan, about 1 g a piece" },
+      { ingredient: "Water", fdc_id: null, raw_g: 300, role: "water", note: "ground into the batter" },
+    ],
+  },
+];
+
 function hit(fdc: number, description: string, dataType: string, note: string | null, alias: boolean): FoodHit {
   return {
     kind: "reference",
@@ -336,11 +363,20 @@ function search(query: string, limit: number, flat: boolean): FoodHit[] {
   const lead = family.some((h) => h.matched_alias);
   return [
     ...OWN.filter(matches), ...saved.filter(matches),
+    ...TYPICAL.map((t) => hit(t.fdc_id, t.name, TYPICAL_RECIPE, null, false)).filter(matches),
     ...(lead ? family : []), ...CATALOGUE.filter(matches), ...(lead ? [] : family),
   ].slice(0, limit);
 }
 
 function detail(fdcId: number): FoodDetail {
+  const typical = TYPICAL.find((t) => t.fdc_id === fdcId);
+  if (typical) {
+    // No figures of its own: the panel values it from its lines.
+    return {
+      fdc_id: fdcId, description: typical.name, data_type: TYPICAL_RECIPE, nutrients: [],
+      portions: [{ amount: 1, unit: null, description: `1 ${typical.piece_noun}`, gram_weight: typical.piece_g ?? 100 }],
+    };
+  }
   const form = MUNGO.find((f) => f.fdc_id === fdcId);
   const found = CATALOGUE.find((h) => h.fdc_id === fdcId) ?? CATALOGUE[0];
   return {
@@ -1127,6 +1163,7 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   save_exported_file: () => null,
   search_foods: (a) => search(String(a.query ?? ""), Number(a.limit ?? 40), a.flat === true),
   get_food_detail: (a) => detail(Number(a.fdcId)),
+  get_typical_recipe: (a) => TYPICAL.find((t) => t.fdc_id === Number(a.fdcId)) ?? null,
   food_forms: (a) => familyOf(Number(a.fdcId)),
   frequent_foods: (a) => frequent(Number(a.limit ?? 6), (a.meal as Meal | null | undefined) ?? null),
   recent_restaurant_dishes: (a) => RESTAURANT_DISHES.slice(0, Number(a.limit ?? 4)),

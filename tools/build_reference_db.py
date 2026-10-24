@@ -31,6 +31,8 @@ import sqlite3
 import sys
 from collections import Counter, defaultdict
 
+import typical_dishes
+
 csv.field_size_limit(10**9)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -422,12 +424,24 @@ def build():
     # ---- iodine overlay ------------------------------------------------------
     iodine_rows = iodine_overlay(foods)
 
+    # ---- typical home recipes ------------------------------------------------
+    # Checked against the same values they will be summed from, iodine included.
+    dishes = typical_dishes.load()
+    values = {}
+    for r in fn_rows + iodine_rows:
+        values.setdefault((r[0], r[1]), (r[2], r[3]))
+    typical_problems = typical_dishes.problems(
+        dishes, lambda f, n: values.get((f, n)),
+        {fid: f["data_type"] for fid, f in foods.items()},
+    )
+    typical = typical_dishes.rows(dishes)
+
     # ---- write ---------------------------------------------------------------
     os.makedirs(os.path.dirname(OUT_DB), exist_ok=True)
     if os.path.exists(OUT_DB):
         os.remove(OUT_DB)
     con = sqlite3.connect(OUT_DB)
-    con.executescript(SCHEMA)
+    con.executescript(SCHEMA + typical_dishes.SCHEMA)
 
     tracked = set(nut_by_id)
     def nutrient_row(n):
@@ -479,6 +493,31 @@ def build():
     con.executemany(
         "INSERT INTO food_aliases (alias, fdc_id, note) VALUES (?,?,?)", alias_rows
     )
+    con.executemany(
+        "INSERT INTO foods (fdc_id,description,data_type,source,ndb_number) VALUES (?,?,?,?,?)",
+        typical["foods"],
+    )
+    con.executemany(
+        "INSERT INTO food_portions (fdc_id,amount,unit,description,gram_weight,source) "
+        "VALUES (?,?,?,?,?,?)",
+        typical["food_portions"],
+    )
+    con.executemany(
+        "INSERT INTO food_aliases (alias, fdc_id, note) VALUES (?,?,?)", typical["food_aliases"]
+    )
+    con.executemany(
+        "INSERT INTO food_recipes (fdc_id,cooked_g,piece_noun,piece_g,source,note) "
+        "VALUES (?,?,?,?,?,?)",
+        typical["food_recipes"],
+    )
+    con.executemany(
+        "INSERT INTO food_recipe_lines "
+        "(fdc_id,seq,ingredient,ingredient_fdc_id,raw_g,role,note) VALUES (?,?,?,?,?,?,?)",
+        typical["food_recipe_lines"],
+    )
+    con.executemany(
+        "INSERT INTO food_replaced (fdc_id, by_fdc_id) VALUES (?,?)", typical["food_replaced"]
+    )
     # Index the alias text alongside the description so an Indian name finds the
     # food. Without this, "urad dal" returns nothing at all.
     con.execute(
@@ -495,11 +534,14 @@ def build():
         ("sr_legacy_release", "2018-04"),
         ("fndds_release", "2024-10-31"),
         ("iodine_release", "4"),
+        ("typical_recipes", str(len(dishes))),
+        ("typical_sha256", typical_dishes.digest()),
     ]:
         con.execute("INSERT INTO meta (key,value) VALUES (?,?)", (k, v))
     con.commit()
 
-    verify(con, stats, neg, len(iodine_rows))
+    verify(con, stats, neg, len(iodine_rows), typical_problems,
+           sum(1 for d in dishes if d["aliases"]))
     con.execute("VACUUM")
     con.close()
 
@@ -566,7 +608,7 @@ def check_display_config():
         sys.exit(1)
 
 
-def verify(con, stats, neg, iodine_n):
+def verify(con, stats, neg, iodine_n, typical_problems, typical_aliased):
     """Assertions that fail the build rather than shipping silently-wrong data."""
     print("\n--- ingest report ---")
     for k in sorted(stats):
@@ -608,8 +650,17 @@ def verify(con, stats, neg, iodine_n):
     n_alias = q("SELECT COUNT(*) FROM food_aliases")
     n_alias_foods = q("SELECT COUNT(DISTINCT fdc_id) FROM food_aliases")
     print(f"  aliases: {n_alias} names over {n_alias_foods} foods")
-    if n_alias_foods != len(ALIASES):
-        problems.append(f"{n_alias_foods} aliased foods, expected {len(ALIASES)}")
+    if n_alias_foods != len(ALIASES) + typical_aliased:
+        problems.append(
+            f"{n_alias_foods} aliased foods, expected {len(ALIASES) + typical_aliased}"
+        )
+    problems += typical_problems
+    # A typical recipe is valued from its lines; a row of its own would be a
+    # second answer that could disagree with them.
+    if q("SELECT COUNT(*) FROM food_nutrients n JOIN food_recipes r USING (fdc_id)"):
+        problems.append("a typical recipe has food_nutrients rows of its own")
+    print(f"  typical recipes: {q('SELECT COUNT(*) FROM food_recipes')}, "
+          f"replacing {q('SELECT COUNT(*) FROM food_replaced')} USDA entries")
     displayed = q("SELECT COUNT(*) FROM nutrients WHERE role='primary'")
     expected = sum(len(items) for _g, items in DISPLAY)
     if displayed != expected:
