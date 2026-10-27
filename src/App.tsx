@@ -28,6 +28,7 @@ import SupplementEditor from "./screens/SupplementEditor";
 import ImportData from "./screens/ImportData";
 import ExportData from "./screens/ExportData";
 import Backup from "./screens/Backup";
+import Nudges from "./screens/Nudges";
 import UnlockLog from "./components/UnlockLog";
 import Logo from "./components/Logo";
 import CommandPalette from "./components/CommandPalette";
@@ -238,6 +239,12 @@ const NAV_ICON: Record<string, ReactNode> = {
       <path d="M12 20.5v-7.8M9.2 15l2.8-2.8 2.8 2.8" strokeLinecap="round" strokeLinejoin="round" />
     </>
   ),
+  nudges: (
+    <>
+      <path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10.3 20.5a1.9 1.9 0 0 0 3.4 0" strokeLinecap="round" />
+    </>
+  ),
   /* Three dots, not a hamburger. A hamburger is the idiom for a panel that
      slides in from the screen's edge; this one rises out of the bar the button
      sits in, and the glyph should say "the rest of it" rather than "a drawer
@@ -300,7 +307,7 @@ const DRAWER_GROUPS: readonly { heading: string | null; items: readonly { id: st
       // Android only. SQLCipher is compiled into the Android build alone and
       // Google's Auto Backup exists nowhere else, so on a desktop this is not
       // a destination that is merely empty — it is one that does not exist.
-      ...(isAndroid() ? [{ id: "backup", label: "Backup" }] : []),
+      ...(isAndroid() ? [{ id: "backup", label: "Backup" }, { id: "nudges", label: "Nudges" }] : []),
     ],
   },
 ];
@@ -340,6 +347,7 @@ const ASIDES = [
   "statistics",
   "settings",
   "backup",
+  "nudges",
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"] | (typeof ASIDES)[number];
@@ -383,6 +391,7 @@ const ASIDE_HOME: Record<string, Tab> = {
   statistics: "statistics",
   settings: "you",
   backup: "you",
+  nudges: "you",
 };
 
 const ROUTES: readonly string[] = [...TABS.map((t) => t.id), ...ASIDES];
@@ -1024,7 +1033,10 @@ function Shell() {
     // drawer item is: a palette entry that cannot go anywhere is worse than an
     // absent one.
     ...(isAndroid()
-      ? [{ id: "backup", label: "Backup", hint: "one sealed file, carried by Google", group: "Settings", run: () => open("backup", { from: "you" }) }]
+      ? [
+          { id: "backup", label: "Backup", hint: "one sealed file, carried by Google", group: "Settings", run: () => open("backup", { from: "you" }) },
+          { id: "nudges", label: "Nudges", hint: "reminders to log, at times you set", group: "Settings", run: () => open("nudges", { from: "you" }) },
+        ]
       : []),
   ];
 
@@ -1441,6 +1453,7 @@ function Shell() {
             onOpenImport={() => go("import", { from: "you" })}
             onOpenAllergies={() => go("allergies", { from: "you" })}
             onOpenExport={() => go("export", { from: "you" })}
+            onOpenNudges={() => go("nudges", { from: "you" })}
           />
         )}
 
@@ -1529,6 +1542,7 @@ function Shell() {
             the route is reachable by typing a hash, and a desktop build has no
             keystore, no SQLCipher and no Auto Backup to describe. */}
         {tab === "backup" && isAndroid() && <Backup onBack={() => back(1, route.from ?? "you")} />}
+        {tab === "nudges" && isAndroid() && <Nudges onBack={() => back(1, route.from ?? "you")} />}
 
         {/* No way back: this is where the app opens. */}
         {tab === "statistics" && (

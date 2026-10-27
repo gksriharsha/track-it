@@ -922,6 +922,7 @@ const DAY_NOTES: Record<string, string> = {};
 
 /** Allergens and reaction days, with a few weeks of food to compare them against. */
 let ALLERGENS: string[] = ["peanut"];
+let NUDGES: string[] = ["13:00", "20:30"];
 const daysAgo = (n: number) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
 const REACTIONS = new Set([daysAgo(2), daysAgo(5), daysAgo(9)]);
 const MOCK_FOOD: Record<number, { names: string[]; lists: string[] }> = {
@@ -1297,6 +1298,11 @@ const TABLE: Record<string, (a: Record<string, unknown>) => unknown> = {
   // off Android anyway — but without an entry here the fixture would throw on
   // every `pnpm dev` session, because `lib/awake.ts` asks as the page boots.
   set_keep_awake: () => undefined,
+  get_nudges: () => ({ times: NUDGES, enabled: true }),
+  set_nudges: (a) => {
+    NUDGES = [...new Set(a.times as string[])].sort();
+    return { times: NUDGES, enabled: true };
+  },
 
   backup_status: () => BACKUP,
   enable_log_encryption: (a) => {

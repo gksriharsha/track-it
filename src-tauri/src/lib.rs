@@ -14,6 +14,7 @@ mod family_choice_tests;
 mod family_tests;
 mod keystore;
 mod kitchen;
+mod nudge;
 #[cfg(test)]
 mod percent_tests;
 #[cfg(test)]
@@ -5662,6 +5663,17 @@ fn set_keep_awake(on: bool, app: AppHandle) -> Result<(), String> {
     awake::set(&app, on)
 }
 
+/// The times of day this phone nudges the user to log. Android only.
+#[tauri::command]
+fn get_nudges(app: AppHandle) -> Result<serde_json::Value, String> {
+    nudge::get(&app)
+}
+
+#[tauri::command]
+fn set_nudges(times: Vec<String>, app: AppHandle) -> Result<serde_json::Value, String> {
+    nudge::set(&app, times)
+}
+
 /// Where this installation keeps its own data.
 ///
 /// `TRACKIT_DATA_DIR` exists so two desktop instances can be run against two
@@ -5716,6 +5728,9 @@ pub fn run() {
     // second key store it could never reach.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(keystore::init());
+
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(nudge::init());
 
     builder
         .setup(|app| {
@@ -5836,6 +5851,8 @@ pub fn run() {
             save_profile,
             set_nutrient_target,
             set_keep_awake,
+            get_nudges,
+            set_nudges,
             backup_status,
             enable_log_encryption,
             disable_log_encryption,
