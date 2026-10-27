@@ -1038,6 +1038,14 @@ export const syncNow = () => invoke<SyncOutcome[]>("sync_now");
  * screen on a kitchen counter all night.
  */
 export const setKeepAwake = (on: boolean) => invoke<void>("set_keep_awake", { on });
+
+/** Daily reminders to log, as "HH:MM". `enabled` is whether Android will show them. Android only. */
+export interface Nudges {
+  times: string[];
+  enabled: boolean;
+}
+export const getNudges = () => invoke<Nudges>("get_nudges");
+export const setNudges = (times: string[]) => invoke<Nudges>("set_nudges", { times });
 /* ── the encrypted log, and the sealed copy ─────────────────────────────── */
 
 /**

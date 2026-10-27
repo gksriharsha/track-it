@@ -3,6 +3,7 @@ import { getGoals } from "../api";
 import type { GoalsView } from "../types";
 import ScreenHead from "../components/ScreenHead";
 import { ownArtLine } from "../lib/exerciseArt";
+import { isAndroid } from "../lib/desktop";
 
 const ownArt = ownArtLine();
 
@@ -15,6 +16,7 @@ interface Props {
    * belongs to the person, and a screen about who the figures are for is where
    * "and they are yours to take" belongs too. */
   onOpenExport: () => void;
+  onOpenNudges: () => void;
 }
 
 /**
@@ -171,6 +173,15 @@ export default function You(p: Props) {
             </span>
             <span className="row__chev" aria-hidden>›</span>
           </button>
+          {isAndroid() && (
+            <button className="row" style={{ gridTemplateColumns: "1fr auto" }} onClick={p.onOpenNudges}>
+              <span className="row__main">
+                <span className="row__title">Nudges</span>
+                <span className="row__sub">Reminders to log, at times you set</span>
+              </span>
+              <span className="row__chev" aria-hidden>›</span>
+            </button>
+          )}
         </div>
       </section>
 

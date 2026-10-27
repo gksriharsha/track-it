@@ -10,6 +10,11 @@
          the only way to add a food, so a device without one must still install. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- Nudges: the reminders to log, at times the user sets. Boot is how the
+         alarms come back after a restart, since Android forgets them. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- allowBackup was UNSET here, which is not the same as off: it defaults to
          true. Every file under this app's data directory was therefore eligible
          to be uploaded to the user's Google account — and on Android that
@@ -88,6 +93,19 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_quickadd_info" />
+        </receiver>
+
+        <!-- Not exported: the alarm's own PendingIntent is same-app, and the
+             system's boot and clock broadcasts are delivered regardless. -->
+        <receiver
+            android:name=".NudgeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
         </receiver>
 
         <provider
